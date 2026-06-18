@@ -2,7 +2,7 @@ name: Aldi Watcher
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/30 * * * *'  # alle 30 Minuten
   workflow_dispatch:
 
 jobs:
@@ -23,4 +23,6 @@ jobs:
         env:
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          LIDL_USER: ${{ secrets.LIDL_USER }}
+          LIDL_PASS: ${{ secrets.LIDL_PASS }}
         run: python watcher.py
