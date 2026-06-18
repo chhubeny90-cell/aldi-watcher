@@ -14,10 +14,9 @@ LIDL_PASS = os.environ.get('LIDL_PASS', '')
 THRESHOLD_MB = 1000  # Buchung wenn unter 1 GB
 MAX_RETRIES   = 5
 
-# ===== ALDI URLs (alditalk-kundenbetreuung.de) =====
-ALDI_BASE     = 'https://www.alditalk-kundenbetreuung.de/de'
-ALDI_LOGIN    = 'https://www.alditalk-kundenbetreuung.de/de/login_check'
-ALDI_OVERVIEW = 'https://www.alditalk-kundenbetreuung.de/de/konto/kontoubersicht'
+# ===== ALDI URLs (kundenportal) =====
+ALDI_LOGIN    = 'https://www.alditalk-kundenportal.de/portal/noauth/login'
+ALDI_OVERVIEW = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
 ALDI_BOOK     = 'https://www.alditalk-kundenportal.de/portal/auth/nachbuchung/'
 
 # ===== LIDL URLs =====
@@ -26,10 +25,10 @@ LIDL_OVERVIEW = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersich
 LIDL_REFILL   = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/nachbuchung/'
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
                   'AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/124.0.0.0 Safari/537.36',
-    'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+                  'Chrome/124.0.0.0 Mobile Safari/537.36',
+    'Accept-Language': 'de-DE,de;q=0.9',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Connection': 'keep-alive',
 }
@@ -42,9 +41,8 @@ def log(msg):
         f.write(line + '\n')
 
 def to_mb(value_str, unit_str):
-    """Konvertiert Volumen-Angaben in MB."""
     try:
-        val = float(value_str.replace(',', '.').replace('\xa0', ''))
+        val = float(value_str.replace(',', '.').strip())
         unit = unit_str.strip().upper()
         if 'GB' in unit:
             return val * 1000
@@ -57,13 +55,21 @@ def to_mb(value_str, unit_str):
     return None
 
 def extract_mb_from_text(text):
-    """Findet den kleinsten MB-Wert im Text (fallback fuer beliebige HTML)."""
     gb_vals = [float(v.replace(',', '.')) * 1000
                for v in re.findall(r'(\d+[,.]?\d*)\s*GB', text)]
     mb_vals = [float(v.replace(',', '.'))
                for v in re.findall(r'(\d+[,.]?\d*)\s*MB', text)]
     all_vals = gb_vals + mb_vals
     return min(all_vals) if all_vals else None
+
+def wartung_check(text, provider):
+    """Gibt True zurueck wenn Provider in Wartung ist."""
+    wartung_keywords = ['wartung', 'maintenance', 'maintenance page', 'wartungsseite']
+    text_lower = text.lower()
+    if any(k in text_lower for k in wartung_keywords):
+        log(f'[{provider}] WARTUNG aktiv - ueberspringe Zyklus')
+        return True
+    return False
 
 # ============================================================
 # ALDI TALK
@@ -72,63 +78,61 @@ aldi_session = requests.Session()
 aldi_session.headers.update(HEADERS)
 
 def aldi_get_csrf(url):
-    r = aldi_session.get(url, timeout=30)
-    soup = BeautifulSoup(r.text, 'html.parser')
-    for name in ['_csrf_token', '_csrf', 'csrf_token']:
-        t = soup.find('input', {'name': name})
-        if t:
-            return t.get('value', ''), r
-    return '', r
+    try:
+        r = aldi_session.get(url, timeout=30)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for name in ['_csrf', 'csrf_token', '_csrf_token']:
+            t = soup.find('input', {'name': name})
+            if t:
+                return t.get('value', ''), r
+        return '', r
+    except Exception as e:
+        log(f'[ALDI] CSRF-Fehler: {e}')
+        return '', None
 
 def aldi_login():
     try:
-        csrf, r = aldi_get_csrf(ALDI_BASE)
+        csrf, r = aldi_get_csrf(ALDI_LOGIN)
+        if r is None:
+            return False
+        if wartung_check(r.text, 'ALDI'):
+            return False
         resp = aldi_session.post(ALDI_LOGIN, data={
-            '_username': ALDI_USER,
-            '_password': ALDI_PASS,
-            '_csrf_token': csrf,
+            'username': ALDI_USER,
+            'password': ALDI_PASS,
+            '_csrf': csrf,
         }, allow_redirects=True, timeout=30)
-        ok = 'login' not in resp.url.lower() and resp.status_code == 200
-        log(f'[ALDI] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code}, URL: {resp.url[:70]})')
+        ok = 'uebersicht' in resp.url or 'auth' in resp.url
+        log(f'[ALDI] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code}, URL: {resp.url[:80]})')
+        if not ok:
+            log(f'[ALDI] Seite: {resp.text[:300]}')
         return ok
     except Exception as e:
         log(f'[ALDI] Login-Fehler: {e}')
         return False
 
-def aldi_parse_volume(html):
-    """Parst das Datenvolumen aus der Aldi-Kundenbetreuung Seite."""
-    soup = BeautifulSoup(html, 'html.parser')
-    # Suche nach Volumen-Elementen (verschiedene CSS-Klassen moegich)
-    for cls in ['egn-free', 'data-volume', 'volume', 'volumen']:
-        elems = soup.find_all(class_=re.compile(cls, re.I))
-        for e in elems:
-            txt = e.get_text(' ', strip=True)
-            m = re.search(r'(\d+[,.]?\d*)\s*(GB|MB|KB)', txt, re.I)
-            if m:
-                mb = to_mb(m.group(1), m.group(2))
-                if mb is not None:
-                    return mb
-    # Fallback: ganzen Text durchsuchen
-    return extract_mb_from_text(soup.get_text())
-
 def aldi_check():
     try:
         r = aldi_session.get(ALDI_OVERVIEW, timeout=30)
-        if 'login' in r.url.lower() or r.status_code in (401, 403):
+        if wartung_check(r.text, 'ALDI'):
+            return
+        if 'login' in r.url.lower() or r.status_code == 401:
             log('[ALDI] Session abgelaufen - re-login...')
             if not aldi_login():
-                log('[ALDI] Re-login fehlgeschlagen, ueberspringe Zyklus')
+                log('[ALDI] Re-login fehlgeschlagen')
                 return
             r = aldi_session.get(ALDI_OVERVIEW, timeout=30)
-        log(f'[ALDI] Uebersicht geladen (HTTP {r.status_code}, URL: {r.url[:70]})')
-        mb = aldi_parse_volume(r.text)
+        log(f'[ALDI] Uebersicht (HTTP {r.status_code}, URL: {r.url[:80]})')
+        soup = BeautifulSoup(r.text, 'html.parser')
+        page_text = soup.get_text(' ')
+        mb = extract_mb_from_text(page_text)
         if mb is None:
-            log('[ALDI] Kein Datenvolumen gefunden - HTML Ausschnitt (500 Zeichen):')
+            log('[ALDI] Kein Volumen gefunden. Seite (500 Zeichen):')
             log(r.text[:500])
             return
         log(f'[ALDI] Aktuelles Volumen: {mb:.1f} MB ({mb/1000:.2f} GB)')
         if mb < THRESHOLD_MB:
-            log(f'[ALDI] Unter Schwellwert ({THRESHOLD_MB} MB)! Starte Buchungen...')
+            log(f'[ALDI] Unter {THRESHOLD_MB} MB! Starte Buchungen...')
             csrf2, _ = aldi_get_csrf(ALDI_BOOK)
             for i in range(1, MAX_RETRIES + 1):
                 try:
@@ -141,12 +145,12 @@ def aldi_check():
                         log('[ALDI] +1 GB erfolgreich gebucht!')
                         break
                 except Exception as e:
-                    log(f'[ALDI] Buchungs-Fehler Versuch {i}: {e}')
+                    log(f'[ALDI] Buchungs-Fehler {i}: {e}')
                 time.sleep(2)
         else:
             log(f'[ALDI] Volumen OK ({mb:.1f} MB), keine Buchung noetig')
     except Exception as e:
-        log(f'[ALDI] Fehler in aldi_check: {e}')
+        log(f'[ALDI] Fehler: {e}')
 
 # ============================================================
 # LIDL CONNECT
@@ -157,10 +161,11 @@ lidl_session.headers.update(HEADERS)
 def lidl_login():
     try:
         r = lidl_session.get(LIDL_LOGIN, timeout=30)
+        if wartung_check(r.text, 'LIDL'):
+            return False
         soup = BeautifulSoup(r.text, 'html.parser')
         token = ''
-        for name in ['_csrf', 'csrf_token', 'token', '__RequestVerificationToken',
-                     'authenticity_token']:
+        for name in ['_csrf', 'csrf_token', 'token', '__RequestVerificationToken']:
             t = soup.find('input', {'name': name})
             if t:
                 token = t.get('value', '')
@@ -168,25 +173,21 @@ def lidl_login():
         meta = soup.find('meta', {'name': 'csrf-token'})
         if meta and not token:
             token = meta.get('content', '')
-        # Formular-Action URL ermitteln
         form = soup.find('form')
         action = LIDL_LOGIN
         if form and form.get('action'):
-            action = form['action']
-            if not action.startswith('http'):
-                action = 'https://kundenkonto.lidl-connect.de' + action
-        log(f'[LIDL] Login POST an: {action} (token: {"ja" if token else "nein"})')
+            a = form['action']
+            action = a if a.startswith('http') else 'https://kundenkonto.lidl-connect.de' + a
+        log(f'[LIDL] Login POST -> {action} (CSRF: {"ja" if token else "nein"})')
         resp = lidl_session.post(action, data={
             'username': LIDL_USER,
             'password': LIDL_PASS,
             '_csrf': token,
-            'j_username': LIDL_USER,
-            'j_password': LIDL_PASS,
         }, allow_redirects=True, timeout=30)
         ok = 'login' not in resp.url.lower() and resp.status_code == 200
-        log(f'[LIDL] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code}, URL: {resp.url[:80]})')
+        log(f'[LIDL] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code})')
         if not ok:
-            log(f'[LIDL] Response Ausschnitt: {resp.text[:300]}')
+            log(f'[LIDL] Response: {resp.text[:200]}')
         return ok
     except Exception as e:
         log(f'[LIDL] Login-Fehler: {e}')
@@ -195,41 +196,41 @@ def lidl_login():
 def lidl_check():
     try:
         r = lidl_session.get(LIDL_OVERVIEW, timeout=30)
+        if wartung_check(r.text, 'LIDL'):
+            return
         if 'login' in r.url.lower() or r.status_code in (401, 403):
             log('[LIDL] Session abgelaufen - re-login...')
             if not lidl_login():
-                log('[LIDL] Re-login fehlgeschlagen, ueberspringe Zyklus')
                 return
             r = lidl_session.get(LIDL_OVERVIEW, timeout=30)
-        log(f'[LIDL] Uebersicht geladen (HTTP {r.status_code}, URL: {r.url[:70]})')
-        mb = extract_mb_from_text(r.text)
+        log(f'[LIDL] Uebersicht (HTTP {r.status_code}, URL: {r.url[:80]})')
+        soup = BeautifulSoup(r.text, 'html.parser')
+        mb = extract_mb_from_text(soup.get_text(' '))
         if mb is None:
-            log('[LIDL] Kein Datenvolumen gefunden - HTML Ausschnitt:')
+            log('[LIDL] Kein Volumen gefunden:')
             log(r.text[:500])
             return
         log(f'[LIDL] Aktuelles Volumen: {mb:.1f} MB ({mb/1000:.2f} GB)')
         if mb < THRESHOLD_MB:
-            log(f'[LIDL] Unter Schwellwert! Starte Nachbuchung...')
+            log(f'[LIDL] Unter {THRESHOLD_MB} MB! Starte Nachbuchung...')
             for i in range(1, MAX_RETRIES + 1):
                 try:
                     refill = lidl_session.post(LIDL_REFILL, data={
-                        'action': 'refill',
-                        'type': 'DATA_1GB',
+                        'action': 'refill', 'type': 'DATA_1GB',
                     }, allow_redirects=True, timeout=30)
                     log(f'[LIDL] Nachbuchung {i}/{MAX_RETRIES}: HTTP {refill.status_code}')
                     if refill.status_code == 200:
                         log('[LIDL] Nachbuchung erfolgreich!')
                         break
                     elif refill.status_code >= 500:
-                        log(f'[LIDL] Server-Fehler ({refill.status_code}), warte 10s...')
                         time.sleep(10)
                 except Exception as e:
-                    log(f'[LIDL] Buchungs-Fehler Versuch {i}: {e}')
+                    log(f'[LIDL] Fehler {i}: {e}')
                     time.sleep(5)
         else:
             log(f'[LIDL] Volumen OK ({mb:.1f} MB), keine Buchung noetig')
     except Exception as e:
-        log(f'[LIDL] Fehler in lidl_check: {e}')
+        log(f'[LIDL] Fehler: {e}')
 
 # ============================================================
 # MAIN
@@ -238,18 +239,16 @@ if __name__ == '__main__':
     log('=== Aldi + Lidl Watcher gestartet ===')
     log(f'Schwellwert: {THRESHOLD_MB} MB | Max Versuche: {MAX_RETRIES}')
 
-    # ALDI TALK
     if ALDI_PASS:
         aldi_login()
         aldi_check()
     else:
-        log('[ALDI] Kein Passwort gesetzt (ALDI_PASS) - uebersprungen')
+        log('[ALDI] Kein Passwort (ALDI_PASS) - uebersprungen')
 
-    # LIDL CONNECT
     if LIDL_PASS:
         lidl_login()
         lidl_check()
     else:
-        log('[LIDL] Kein Passwort gesetzt (LIDL_PASS) - uebersprungen')
+        log('[LIDL] Kein Passwort (LIDL_PASS) - uebersprungen')
 
     log('=== Watcher-Lauf abgeschlossen ===')
