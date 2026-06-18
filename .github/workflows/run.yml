@@ -2,7 +2,7 @@ name: Aldi Watcher
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # alle 30 Minuten
+    - cron: '*/5 * * * *'  # alle 5 Minuten (GitHub Minimum)
   workflow_dispatch:
 
 jobs:
