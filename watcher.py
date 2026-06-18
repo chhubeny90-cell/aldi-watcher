@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 # ===== KONFIGURATION =====
 ALDI_USER = os.environ.get('ALDI_USER', '016312321869')
 ALDI_PASS = os.environ.get('ALDI_PASS', '')
-LIDL_USER = os.environ.get('LIDL_USER', '017452481970')
+LIDL_USER = os.environ.get('LIDL_USER', '01745248197')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
 
 THRESHOLD_MB = 1000  # Buchung wenn unter 1 GB
