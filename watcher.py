@@ -1,1 +1,239 @@
-aW1wb3J0IG9zCmltcG9ydCByZQppbXBvcnQgdGltZQppbXBvcnQgZGF0ZXRpbWUKaW1wb3J0IHJlcXVlc3RzCmZyb20gYnM0IGltcG9ydCBCZWF1dGlmdWxTb3VwCgojID09PT09IEtPTkZJR1VSQVRJT04gPT09PT0KQURMSV9VU0VSID0gb3MuZW52aXJvbi5nZXQoJ0FMRElfVVNFUicsICcwMTYzMTIzMjE4NjknKQpBTERJX1BBU1MgPSBvcy5lbnZpcm9uLmdldCgnQUxESV9QQVNTJywgJycpCkxJRExfVVNFUiA9IG9zLmVudmlyb24uZ2V0KCdMSURMX1VTRVInLCAnNDkxNzQ1MjQ4MTk3JykKTElETF9QQVNTID0gb3MuZW52aXJvbi5nZXQoJ0xJRExfUEFTUycsICcnKQoKVEhSRVNIT0xEX01CICA9IDEwMDAgICMgQnVjaHVuZyB3ZW5uIHVudGVyIDEgR0IKTUFULFJFVFJJRVMJICA9IDUKQ0hFQ0tfSU5URVJWQUwgPSA2MCAgICMgU2VrdW5kZW4genZpc2NoZW4gZGVuIENoZWNrcyBpbm5lcmhhbGIgZWluZXMgTGF1ZnMKUlVOX0RVUkFUSU9OICA9IDI3MCAgIyBTZWt1bmRlbiBHZXNhbXRsYXVmemVpdCAoNC41IE1pbiAtPiBuYWh0bG9zIG1pdCA1LU1pbi1Dcm9uKQoKIyA9PT09PSBBTERJIFVSTHMgPT09PT0KQUxESV9MT0dJTiAgICA9ICdodHRwczovL3d3dy5hbGRpdGFsay1rdW5kZW5wb3J0YWwuZGUvcG9ydGFsL25vYXV0aC9sb2dpbicKQUxESV9PVkVSVklFVyA9ICdodHRwczovL3d3dy5hbGRpdGFsay1rdW5kZW5wb3J0YWwuZGUvcG9ydGFsL2F1dGgvdWViZXJzaWNodC8nCkFMRElfQk9PSyAgICAgPSAnaHR0cHM6Ly93d3cuYWxkaXRhbGsta3VuZGVucG9ydGFsLmRlL3BvcnRhbC9hdXRoL25hY2hidWNodW5nLycKCiMgPT09PT0gTElETCBVUkxzID09PT09CkxJRExfTE9HSU4gICAgPSAnaHR0cHM6Ly9rdW5kZW5rb250by5saWRsLWNvbm5lY3QuZGUvbG9naW4uaHRtbCcKTElETF9PVkVSVklFVyA9ICdodHRwczovL2t1bmRlbmtvbnRvLmxpZGwtY29ubmVjdC5kZS9tZWluLWxpZGwtY29ubmVjdC91ZWJlcnNpY2h0Lmh0bWwnCkxJRExfUkVGSUxMICAgPSAnaHR0cHM6Ly9rdW5kZW5rb250by5saWRsLWNvbm5lY3QuZGUvbWVpbi1saWRsLWNvbm5lY3QvbmFjaGJ1Y2h1bmcvJwoKSEVBREVSUyA9IHsKICAgICdVc2VyLUFnZW50JzogJ01vemlsbGEvNS4wIChMaW51eDsgQW5kcm9pZCAxMzsgUGl4ZWwgNykgJwogICAgICAgICAgICAgICAgICAnQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgJwogICAgICAgICAgICAgICAgICAnQ2hyb21lLzEyNC4wLjAuMCBNb2JpbGUgU2FmYXJpLzUzNy4zNicsCiAgICAnQWNjZXB0LUxhbmd1YWdlJzogJ2RlLURFLGRlO3E9MC45JywKICAgICdBY2NlcHQnOiAndGV4dC9odG1sLGFwcGxpY2F0aW9uL3hodG1sK3htbCxhcHBsaWNhdGlvbi94bWw7cT0wLjksKi8qO3E9MC44JywKICAgICdDb25uZWN0aW9uJzogJ2tlZXAtYWxpdmUnLAp9CgpkZWYgbG9nKG1zZyk6CiAgICB0cyA9IGRhdGV0aW1lLmRhdGV0aW1lLm5vdygpLnN0cmZ0aW1lKCclWS0lbS0lZCAlSDolTTolUycpCiAgICBsaW5lID0gZidbe3RzfV0ge21zZ30nCiAgICBwcmludChsaW5lLCBmbHVzaD1UcnVlKQogICAgd2l0aCBvcGVuKCdhbGRpX3dhdGNoZXIubG9nJywgJ2EnLCBlbmNvZGluZz0ndXRmLTgnKSBhcyBmOgogICAgICAgIGYud3JpdGUobGluZSArICdcbicpCgpkZWYgdG9fbWIodmFsdWVfc3RyLCB1bml0X3N0cik6CiAgICB0cnk6CiAgICAgICAgdmFsID0gZmxvYXQodmFsdWVfc3RyLnJlcGxhY2UoJywnLCAnLicpLnN0cmlwKCkpCiAgICAgICAgdW5pdCA9IHVuaXRfc3RyLnN0cmlwKCkudXBwZXIoKQogICAgICAgIGlmICdHQicgaW4gdW5pdDoKICAgICAgICAgICAgcmV0dXJuIHZhbCAqIDEwMDAKICAgICAgICBlbGlmICdNQicgaW4gdW5pdDoKICAgICAgICAgICAgcmV0dXJuIHZhbAogICAgICAgIGVsaWYgJ0tCJyBpbiB1bml0OgogICAgICAgICAgICByZXR1cm4gdmFsIC8gMTAwMAogICAgZXhjZXB0OgogICAgICAgIHBhc3MKICAgIHJldHVybiBOb25lCgpkZWYgZXh0cmFjdF9tYl9mcm9tX3RleHQodGV4dCk6CiAgICBnYl92YWxzID0gW2Zsb2F0KHYucmVwbGFjZSgnLCcsICcuJykpICogMTAwMAogICAgICAgICAgICAgICBmb3IgdiBpbiByZS5maW5kYWxsKHInKFxkK1sML10/XGQqKVxzKkdCJywgdGV4dCldCiAgICBtYl92YWxzID0gW2Zsb2F0KHYucmVwbGFjZSgnLCcsICcuJykpCiAgICAgICAgICAgICAgIGZvciB2IGluIHJlLmZpbmRhbGwocicpXGQrWywuXT9cZCopXHMqTUInLCB0ZXh0KV0KICAgIGFsbF92YWxzID0gZ2JfdmFscyArIG1iX3ZhbHMKICAgIHJldHVybiBtaW4oYWxsX3ZhbHMpIGlmIGFsbF92YWxzIGVsc2UgTm9uZQoKZGVmIHdhcnR1bmdfY2hlY2sodGV4dCwgcHJvdmlkZXIpOgogICAga2V5d29yZHMgPSBbJ3dhcnR1bmcnLCAnbWFpbnRlbmFuY2UnLCAnd2FydHVuZ3NzZWl0ZSddCiAgICBpZiBhbnkoayBpbiB0ZXh0Lmxvd2VyKCkgZm9yIGsgaW4ga2V5d29yZHMpOgogICAgICAgIGxvZyhmJ1t7cHJvdmlkZXJ9XSBXQVJUVUZHIGAKT2l2IC0gdWViZXJzcHJpbmdlJykKICAgICAgICByZXR1cm4gVHJ1ZQogICAgcmV0dXJuIEZhbHNlCgojID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiMgQUxESSBUQUxLCiMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KYWxkaV9zZXNzaW9uID0gcmVxdWVzdHMuU2Vzc2lvbigpCmFsZGlfc2Vzc2lvbi5oZWFkZXJzLnVwZGF0ZShIRUFERVJTKQphbGRpX2xvZ2dlZF9pbiA9IEZhbHNlCgpkZWYgYWxkaV9nZXRfY3NyZih1cmwpOgogICAgdHJ5OgogICAgICAgIHIgPSBhbGRpX3Nlc3Npb24uZ2V0KHVybCwgdGltZW91dD0zMCkKICAgICAgICBzb3VwID0gQmVhdXRpZnVsU291cChyLnRleHQsICdodG1sLnBhcnNlcicpCiAgICAgICAgZm9yIG5hbWUgaW4gWydfY3NyZicsICdjc3JmX3Rva2VuJywgJ19jc3JmX3Rva2VuJ106CiAgICAgICAgICAgIHQgPSBzb3VwLmZpbmQoJ2lucHV0JywgeydubWUnOiBuYW1lfSkKICAgICAgICAgICAgaWYgdDoKICAgICAgICAgICAgICAgIHJldHVybiB0LmdldCgndmFsdWUnLCAnJyksIHIKICAgICAgICByZXR1cm4gJycsIHIKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBsb2coZidbQUxESV0gQ1NSRi1GZWhsZXI6IHtlfScpCiAgICAgICAgcmV0dXJuICcnLCBOb25lCgpkZWYgYWxkaV9sb2dpbigpOgogICAgZ2xvYmFsIGFsZGlfbG9nZ2VkX2luCiAgICB0cnk6CiAgICAgICAgY3NyZiwgciA9IGFsZGlfZ2V0X2NzcmYoQUxESV9MT0dJTikKICAgICAgICBpZiByIGlzIE5vbmUgb3Igd2FydHVuZ19jaGVjayhyLnRleHQsICdBTERJJyk6CiAgICAgICAgICAgIHJldHVybiBGYWxzZQogICAgICAgIHJlc3AgPSBhbGRpX3Nlc3Npb24ucG9zdChBTERJX0xPR0lOLCBkYXRhPXsKICAgICAgICAgICAgJ3VzZXJuYW1lJzogQUxESV9VU0VSLAogICAgICAgICAgICAncGFzc3dvcmQnOiBBTERJX1BBU1MsCiAgICAgICAgICAgICdfY3NyZic6IGNzcmYsCiAgICAgICAgfSwgYWxsb3dfcmVkaXJlY3RzPVRydWUsIHRpbWVvdXQ9MzApCiAgICAgICAgb2sgPSAndWViZXJzaWNodCcgaW4gcmVzcC51cmwgb3IgJ2F1dGgnIGluIHJlc3AudXJsCiAgICAgICAgbG9nKGYnW0FMREldIExvZ2luIHsiZXJmb2xncmVpY2giIGlmIG9rIGVsc2UgIkZFSExHRVNDSExBR0VOIn0gKEhUVFAge3Jlc3Auc3RhdHVzX2NvZGV9KScpCiAgICAgICAgYWxkaV9sb2dnZWRfaW4gPSBvawogICAgICAgIHJldHVybiBvawogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZyhmJ1tBTERJXSBMb2dpbi1GZWhsZXI6IHtlfScpCiAgICAgICAgcmV0dXJuIEZhbHNlCgpkZWYgYWxkaV9jaGVjaygpOgogICAgZ2xvYmFsIGFsZGlfbG9nZ2VkX2luCiAgICB0cnk6CiAgICAgICAgciA9IGFsZGlfc2Vzc2lvbi5nZXQoQUxESV9PVkVSVklFVywgdGltZW91dD0zMCkKICAgICAgICBpZiB3YXJ0dW5nX2NoZWNrKHIudGV4dCwgJ0FMREknKToKICAgICAgICAgICAgcmV0dXJuCiAgICAgICAgaWYgJ2xvZ2luJyBpbiByLnVybC5sb3dlcigpIG9yIHIuc3RhdHVzX2NvZGUgPT0gNDAxOgogICAgICAgICAgICBsb2coJ1tBTERJXSBTZXNzaW9uIGFiZ2VsYXVmZW4gLSByZS1sb2dpbi4uLicpCiAgICAgICAgICAgIGFsZGlfbG9nZ2VkX2luID0gRmFsc2UKICAgICAgICAgICAgaWYgbm90IGFsZGlfbG9naW4oKToKICAgICAgICAgICAgICAgIHJldHVybgogICAgICAgICAgICByID0gYWxkaV9zZXNzaW9uLmdldChBTERJX09WRVJWSUVXLCB0aW1lb3V0PTMwKQogICAgICAgIHNvdXAgPSBCZWF1dGlmdWxTb3VwKHIudGV4dCwgJ2h0bWwucGFyc2VyJykKICAgICAgICBtYiA9IGV4dHJhY3RfbWJfZnJvbV90ZXh0KHNvdXAuZ2V0X3RleHQoJyAnKSkKICAgICAgICBpZiBtYiBpcyBOb25lOgogICAgICAgICAgICBsb2coZidbQUxESV0gS2VpbiBWb2x1bWVuIGdlZnVuZGVuIChIVFRQIHtyLnN0YXR1c19jb2RlfSknKQogICAgICAgICAgICBsb2coci50ZXh0WzozMDBdKQogICAgICAgICAgICByZXR1cm4KICAgICAgICBsb2coZidbQUxESV0gVm9sdW1lbjoge21iOi4xZn0gTUIgKHttYi8xMDAwOi4yZn0gR0IpJykKICAgICAgICBpZiBtYiA8IFRIUEVTSF9NQVI6CiAgICAgICAgICAgIGxvZyhmJ1tBTERJXSBVTlRFUiB7VFJFU0hPTERfTUJ9IE1CISBCdWNoZSArMSBHQi4uLicpCiAgICAgICAgICAgIGNzcmYyLCBfID0gYWxkaV9nZXRfY3NyZihBTERJX0JPT0spCiAgICAgICAgICAgIGZvciBpIGluIHJhbmdlKDEsIE1BWF9SRVRSSUVTICsgMSk6CiAgICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgICAgYm9vayA9IGFsZGlfc2Vzc2lvbi5wb3N0KEFMQ0lfQk9PSywgZGF0YT17CiAgICAgICAgICAgICAgICAgICAgICAgICd0eXBlJzogJ0RBVEFfMUdCJywgJ19jc3JmJzogY3NyZjIsCiAgICAgICAgICAgICAgICAgICAgfSwgYWxsb3dfcmVkaXJlY3RzPVRydWUsIHRpbWVvdXQ9MzApCiAgICAgICAgICAgICAgICAgICAgbG9nKGYnW0FMREldIEJ1Y2h1bmcge2l9OiBIVFRQIHtib29rLnN0YXR1c19jb2RlfScpCiAgICAgICAgICAgICAgICAgICAgaWYgYm9vay5zdGF0dXNfY29kZSA9PSAyMDAgYW5kICdlcnJvcicgbm90IGluIGJvb2sudXJsLmxvd2VyKCk6CiAgICAgICAgICAgICAgICAgICAgICAgIGxvZygnW0FMREldICsxIEdCIGVyZm9sZ3JlaWNoIGdlYnVjaHQhJykKICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICAgICAgICAgICAgICBsb2coZidbQUxESV0gQnVjaHVuZ3MtRmVobGVyIHtpfToge2V9JykKICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMikKICAgICAgICBlbHNlOgogICAgICAgICAgICBsb2coZidbQUxESV0gT0sgLSBrZWluZSBCdWNodW5nIG5vZXRpZycpCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgbG9nKGYnW0FMREldIEZlaGxlcjoge2V9JykKCiMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KIyBMSURMIENPTk5FQ1QKIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQpsaWRsX3Nlc3Npb24gPSByZXF1ZXN0cy5TZXNzaW9uKCkKbGlkbF9zZXNzaW9uLmhlYWRlcnMudXBkYXRlKEhFQURFUlMpCmxpZGxfbG9nZ2VkX2luID0gRmFsc2UKCmRlZiBsaWRsX2xvZ2luKCk6CiAgICBnbG9iYWwgbGlkbF9sb2dnZWRfaW4KICAgIHRyeToKICAgICAgICByID0gbGlkbF9zZXNzaW9uLmdldChMSURMX0xPR0lOLCB0aW1lb3V0PTMwKQogICAgICAgIGlmIHdhcnR1bmdfY2hlY2socl50ZXh0LCAnTElETCcpOgogICAgICAgICAgICByZXR1cm4gRmFsc2UKICAgICAgICBzb3VwID0gQmVhdXRpZnVsU291cChyLnRleHQsICdodG1sLnBhcnNlcicpCiAgICAgICAgdG9rZW4gPSAnJwogICAgICAgIGZvciBuYW1lIGluIFsnX2NzcmYnLCAnY3NyZl90b2tlbicsICd0b2tlbicsICdfX1JlcXVlc3RWZXJpZmljYXRpb25Ub2tlbiddOgogICAgICAgICAgICB0ID0gc291cC5maW5kKCdpbnB1dCcsIHsnbmFtZSc6IG5hbWV9KQogICAgICAgICAgICBpZiB0OgogICAgICAgICAgICAgICAgdG9rZW4gPSB0LmdldCgndmFsdWUnLCAnJykKICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgbWV0YSA9IHNvdXAuZmluZCgnbWV0YScsIHsnbmFtZSc6ICdjc3JmLXRva2VuJ30pCiAgICAgICAgaWYgbWV0YSBhbmQgbm90IHRva2VuOgogICAgICAgICAgICB0b2tlbiA9IG1ldGEuZ2V0KCdjb250ZW50JywgJycpCiAgICAgICAgZm9ybSA9IHNvdXAuZmluZCgnZm9ybScpCiAgICAgICAgYWN0aW9uID0gTElETF9MT0dJTgogICAgICAgIGlmIGZvcm0gYW5kIGZvcm0uZ2V0KCdhY3Rpb24nKToKICAgICAgICAgICAgYSA9IGZvcm1bJ2FjdGlvbiddCiAgICAgICAgICAgIGFjdGlvbiA9IGEgaWYgYS5zdGFydHN3aXRoKCdodHRwJykgZWxzZSAnaHR0cHM6Ly9rdW5kZW5rb250by5saWRsLWNvbm5lY3QuZGUnICsgYQogICAgICAgIHJlc3AgPSBsaWRsX3Nlc3Npb24ucG9zdChhY3Rpb24sIGRhdGE9ewogICAgICAgICAgICAndXNlcm5hbWUnOiBMSURMX1VTRVIsICdwYXNzd29yZCc6IExJRExfUEFTUywgJ19jc3JmJzogdG9rZW4sCiAgICAgICAgfSwgYWxsb3dfcmVkaXJlY3RzPVRydWUsIHRpbWVvdXQ9MzApCiAgICAgICAgb2sgPSAnbG9naW4nIG5vdCBpbiByZXNwLnVybC5sb3dlcigpIGFuZCByZXNwLnN0YXR1c19jb2RlID09IDIwMAogICAgICAgIGxvZyhmJ1tMSURMXSBMb2dpbiB7ImVyZm9sZ3JlaWNoIiBpZiBvayBlbHNlICJGRUhMR0VTQ0hMQUdFTiJ9IChIVFRQIHtyZXNwLnN0YXR1c19jb2RlfSknKQogICAgICAgIGxpZGxfbG9nZ2VkX2luID0gb2sKICAgICAgICByZXR1cm4gb2sKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBsb2coZidbTElETF0gTG9naW4tRmVobGVyOiB7ZX0nKQogICAgICAgIHJldHVybiBGYWxzZQoKZGVmIGxpZGxfY2hlY2soKToKICAgIGdsb2JhbCBsaWRsX2xvZ2dlZF9pbgogICAgdHJ5OgogICAgICAgIHIgPSBsaWRsX3Nlc3Npb24uZ2V0KExJRExfT1ZFUlZJRVcsIHRpbWVvdXQ9MzApCiAgICAgICAgaWYgd2FydHVuZ19jaGVjayhyLnRleHQsICdMSURMJyk6CiAgICAgICAgICAgIHJldHVybgogICAgICAgIGlmICdsb2dpbicgaW4gci51cmwubG93ZXIoKSBvciByLnN0YXR1c19jb2RlIGluICg0MDEsIDQwMyk6CiAgICAgICAgICAgIGxvZygnW0xJRExdIFNlc3Npb24gYWJnZWxhdWZlbiAtIHJlLWxvZ2luLi4uJykKICAgICAgICAgICAgbGlkbF9sb2dnZWRfaW4gPSBGYWxzZQogICAgICAgICAgICBpZiBub3QgbGlkbF9sb2dpbigpOgogICAgICAgICAgICAgICAgcmV0dXJuCiAgICAgICAgICAgIHIgPSBsaWRsX3Nlc3Npb24uZ2V0KExJRExfT1ZFUlZJRVcsIHRpbWVvdXQ9MzApCiAgICAgICAgc291cCA9IEJlYXV0aWZ1bFNvdXAoci50ZXh0LCAnaHRtbC5wYXJzZXInKQogICAgICAgIG1iID0gZXh0cmFjdF9tYl9mcm9tX3RleHQoc291cC5nZXRfdGV4dCgnICcpKQogICAgICAgIGlmIG1iIGlzIE5vbmU6CiAgICAgICAgICAgIGxvZyhmJ1tMSURMXSBLZWluIFZvbHVtZW4gZ2VmdW5kZW4gKEhUVFAge3Iuc3RhdHVzX2NvZGV9KScpCiAgICAgICAgICAgIHJldHVybgogICAgICAgIGxvZyhmJ1tMSURMXSBWb2x1bWVuOiB7bWI6LjFmfSBNQiAoe21iLzEwMDA6LjJmfSBHQiknKQogICAgICAgIGlmIG1iIDwgVEhSRVNIT0xEX01COgogICAgICAgICAgICBsb2coZidbTElETF0gVU5URVIge1RIUkVTSE9MRF9NQn0gTUIhIEJ1Y2hlIG5hY2guLi4nKQogICAgICAgICAgICBmb3IgaSBpbiByYW5nZSgxLCBNQVhfUkVUUklFUyArIDEpOgogICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgIHJlZmlsbCA9IGxpZGxfc2Vzc2lvbi5wb3N0KExJRExfUkVGSUxMLCBkYXRhPXsKICAgICAgICAgICAgICAgICAgICAgICAgJ2FjdGlvbic6ICdyZWZpbGwnLCAndHlwZSc6ICdEQVRBXzFHQicsCiAgICAgICAgICAgICAgICAgICAgfSwgYWxsb3dfcmVkaXJlY3RzPVRydWUsIHRpbWVvdXQ9MzApCiAgICAgICAgICAgICAgICAgICAgbG9nKGYnW0xJRExdIE5hY2hidWNodW5nIHtpfTogSFRUUCB7cmVmaWxsLnN0YXR1c19jb2RlfScpCiAgICAgICAgICAgICAgICAgICAgaWYgcmVmaWxsLnN0YXR1c19jb2RlID09IDIwMDoKICAgICAgICAgICAgICAgICAgICAgICAgbG9nKCdbTElETF0gTmFjaGJ1Y2h1bmcgZXJmb2xncmVpY2ghJykKICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAgICAgICAgICBlbGlmIHJlZmlsbC5zdGF0dXNfY29kZSA+PSA1MDA6CiAgICAgICAgICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMTApCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgICAgICAgICAgICAgbG9nKGYnW0xJRExdIEZlaGxlciB7aX06IHtlfScpCiAgICAgICAgICAgICAgICAgICAgdGltZS5zbGVlcCg1KQogICAgICAgIGVsc2U6CiAgICAgICAgICAgIGxvZyhmJ1tMSURMXSBPSyAtIGtlaW5lIEJ1Y2h1bmcgbm9ldGlnJykKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBsb2coZidbTElETF0gRmVobGVyOiB7ZX0nKQoKIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQojIE1BSU4gLSBTY2hsZWlmZSBsYWV1ZnQgQ0hFQ0tfSU5URVJWQUwgU2VrdW5kZW4sIGluc2dlc2FtdCBSVU5fRFVSQVRJT04gU2VrdW5kZW4KIyBFcmdlYm5pczogUHJ1ZWZ1bmcgYWxsZSA2MCBTZWssIEdpdEh1YiBzdGFydGV0IGFsbGUgNSBNaW4gbmV1IC0+IGx1ZWNrZW5sb3MKIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQppZiBfX25hbWVfXyA9PSAnX19tYWluX18nOgogICAgbG9nKCc9PT0gQWxkaSArIExpZGwgV2F0Y2hlciBnZXN0YXJ0ZXQgPT09JykKICAgIGxvZyhmJ1BydWVmLUludGVydmFsbDoge0NIRUNLX0lOVEVSVkFMfXMgfCBMYXVmemVpdDoge1JVTl9EVVJBVElPTn1zIHwgU2Nod2VsbGU6IHtUSFJFU0hPTERfTUJ9IE1CJykKCiAgICAjIEVpbm1hbGlnIGVpbmxvZ2dlbgogICAgaWYgQUxESV9QQVNTOgogICAgICAgIGFsZGlfbG9naW4oKQogICAgaWYgTElETF9QQVNTOgogICAgICAgIGxpZGxfbG9naW4oKQoKICAgIHN0YXJ0X3RpbWUgPSB0aW1lLnRpbWUoKQogICAgcnVuZGUgPSAwCgogICAgd2hpbGUgdGltZS50aW1lKCkgLSBzdGFydF90aW1lIDwgUlVOX0RVUkFUSU9OOgogICAgICAgIHJ1bmRlICs9IDEKICAgICAgICBsb2coZictLS0gUnVuZGUge3J1bmRlfSAtLS0nKQoKICAgICAgICBpZiBBTERJX1BBU1M6CiAgICAgICAgICAgIGFsZGlfY2hlY2soKQogICAgICAgIGVsc2U6CiAgICAgICAgICAgIGxvZygnW0FMREldIEtlaW4gUGFzc3dvcnQgLSB1ZWJlcnNwcnVuZ2VuJykKCiAgICAgICAgaWYgTElETF9QQVNTOgogICAgICAgICAgICBsaWRsX2NoZWNrKCkKICAgICAgICBlbHNlOgogICAgICAgICAgICBsb2coJ1tMSURMXSBLZWluIFBhc3N3b3J0IC0gdWViZXJzcHJ1bmdlbicpCgogICAgICAgIHZlcmJsZWliZW5kID0gUlVOX0RVUkFUSU9OIC0gKHRpbWUudGltZSgpIC0gc3RhcnRfdGltZSkKICAgICAgICBpZiB2ZXJibGVpYmVuZCA+IENIRUNLX0lOVEVSVkFMOgogICAgICAgICAgICBsb2coZidXYXJ0ZSB7Q0hFQ0tfSU5URVJWQUx9cyBiaXMgbmFlY2hzdGUgUnVuZGUuLi4nKQogICAgICAgICAgICB0aW1lLnNsZWVwKENIRUNLX0lOVEVSVkFMKQogICAgICAgIGVsc2U6CiAgICAgICAgICAgIGJyZWFrCgogICAgbG9nKCc9PT0gV2F0Y2hlci1MYXVmIGFiZ2VzY2hsb3NzZW4gPT09JykK
+import os
+import re
+import time
+import datetime
+import requests
+from bs4 import BeautifulSoup
+
+# ===== KONFIGURATION =====
+ALDI_USER = os.environ.get('ALDI_USER', '016312321869')
+ALDI_PASS = os.environ.get('ALDI_PASS', '')
+LIDL_USER = os.environ.get('LIDL_USER', '01745248197')
+LIDL_PASS = os.environ.get('LIDL_PASS', '')
+
+THRESHOLD_MB  = 1000
+MAX_RETRIES   = 5
+CHECK_INTERVAL = 60
+RUN_DURATION   = 270
+
+# ===== ALDI URLs =====
+ALDI_LOGIN    = 'https://www.alditalk-kundenportal.de/portal/noauth/login'
+ALDI_OVERVIEW = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+ALDI_BOOK     = 'https://www.alditalk-kundenportal.de/portal/auth/nachbuchung/'
+
+# ===== LIDL URLs =====
+LIDL_LOGIN    = 'https://kundenkonto.lidl-connect.de/login.html'
+LIDL_OVERVIEW = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html'
+LIDL_REFILL   = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/nachbuchung/'
+
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/124.0.0.0 Mobile Safari/537.36',
+    'Accept-Language': 'de-DE,de;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Connection': 'keep-alive',
+}
+
+def log(msg):
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    line = f'[{ts}] {msg}'
+    print(line, flush=True)
+    with open('aldi_watcher.log', 'a', encoding='utf-8') as f:
+        f.write(line + '\n')
+
+def extract_mb_from_text(text):
+    gb_vals = [float(v.replace(',', '.')) * 1000
+               for v in re.findall(r'(\d+[,.]?\d*)\s*GB', text)]
+    mb_vals = [float(v.replace(',', '.'))
+               for v in re.findall(r'(\d+[,.]?\d*)\s*MB', text)]
+    all_vals = gb_vals + mb_vals
+    return min(all_vals) if all_vals else None
+
+def wartung_check(text, provider):
+    keywords = ['wartung', 'maintenance', 'wartungsseite']
+    if any(k in text.lower() for k in keywords):
+        log(f'[{provider}] WARTUNG aktiv - ueberspringe')
+        return True
+    return False
+
+# ============================================================
+# ALDI TALK
+# ============================================================
+aldi_session = requests.Session()
+aldi_session.headers.update(HEADERS)
+
+def aldi_get_csrf(url):
+    try:
+        r = aldi_session.get(url, timeout=30)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for name in ['_csrf', 'csrf_token', '_csrf_token']:
+            t = soup.find('input', {'name': name})
+            if t:
+                return t.get('value', ''), r
+        return '', r
+    except Exception as e:
+        log(f'[ALDI] CSRF-Fehler: {e}')
+        return '', None
+
+def aldi_login():
+    try:
+        csrf, r = aldi_get_csrf(ALDI_LOGIN)
+        if r is None or wartung_check(r.text, 'ALDI'):
+            return False
+        resp = aldi_session.post(ALDI_LOGIN, data={
+            'username': ALDI_USER,
+            'password': ALDI_PASS,
+            '_csrf': csrf,
+        }, allow_redirects=True, timeout=30)
+        ok = 'uebersicht' in resp.url or 'auth' in resp.url
+        log(f'[ALDI] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code})')
+        return ok
+    except Exception as e:
+        log(f'[ALDI] Login-Fehler: {e}')
+        return False
+
+def aldi_check():
+    try:
+        r = aldi_session.get(ALDI_OVERVIEW, timeout=30)
+        if wartung_check(r.text, 'ALDI'):
+            return
+        if 'login' in r.url.lower() or r.status_code == 401:
+            log('[ALDI] Session abgelaufen - re-login...')
+            if not aldi_login():
+                return
+            r = aldi_session.get(ALDI_OVERVIEW, timeout=30)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        mb = extract_mb_from_text(soup.get_text(' '))
+        if mb is None:
+            log(f'[ALDI] Kein Volumen gefunden (HTTP {r.status_code})')
+            log(r.text[:300])
+            return
+        log(f'[ALDI] Volumen: {mb:.1f} MB ({mb/1000:.2f} GB)')
+        if mb < THRESHOLD_MB:
+            log(f'[ALDI] UNTER {THRESHOLD_MB} MB! Buche +1 GB...')
+            csrf2, _ = aldi_get_csrf(ALDI_BOOK)
+            for i in range(1, MAX_RETRIES + 1):
+                try:
+                    book = aldi_session.post(ALDI_BOOK, data={
+                        'type': 'DATA_1GB', '_csrf': csrf2,
+                    }, allow_redirects=True, timeout=30)
+                    log(f'[ALDI] Buchung {i}: HTTP {book.status_code}')
+                    if book.status_code == 200 and 'error' not in book.url.lower():
+                        log('[ALDI] +1 GB erfolgreich gebucht!')
+                        break
+                except Exception as e:
+                    log(f'[ALDI] Buchungs-Fehler {i}: {e}')
+                time.sleep(2)
+        else:
+            log('[ALDI] OK - keine Buchung noetig')
+    except Exception as e:
+        log(f'[ALDI] Fehler: {e}')
+
+# ============================================================
+# LIDL CONNECT
+# ============================================================
+lidl_session = requests.Session()
+lidl_session.headers.update(HEADERS)
+
+def lidl_login():
+    try:
+        r = lidl_session.get(LIDL_LOGIN, timeout=30)
+        if wartung_check(r.text, 'LIDL'):
+            return False
+        soup = BeautifulSoup(r.text, 'html.parser')
+        token = ''
+        for name in ['_csrf', 'csrf_token', 'token', '__RequestVerificationToken']:
+            t = soup.find('input', {'name': name})
+            if t:
+                token = t.get('value', '')
+                break
+        meta = soup.find('meta', {'name': 'csrf-token'})
+        if meta and not token:
+            token = meta.get('content', '')
+        form = soup.find('form')
+        action = LIDL_LOGIN
+        if form and form.get('action'):
+            a = form['action']
+            action = a if a.startswith('http') else 'https://kundenkonto.lidl-connect.de' + a
+        resp = lidl_session.post(action, data={
+            'username': LIDL_USER, 'password': LIDL_PASS, '_csrf': token,
+        }, allow_redirects=True, timeout=30)
+        ok = 'login' not in resp.url.lower() and resp.status_code == 200
+        log(f'[LIDL] Login {"erfolgreich" if ok else "FEHLGESCHLAGEN"} (HTTP {resp.status_code})')
+        return ok
+    except Exception as e:
+        log(f'[LIDL] Login-Fehler: {e}')
+        return False
+
+def lidl_check():
+    try:
+        r = lidl_session.get(LIDL_OVERVIEW, timeout=30)
+        if wartung_check(r.text, 'LIDL'):
+            return
+        if 'login' in r.url.lower() or r.status_code in (401, 403):
+            log('[LIDL] Session abgelaufen - re-login...')
+            if not lidl_login():
+                return
+            r = lidl_session.get(LIDL_OVERVIEW, timeout=30)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        mb = extract_mb_from_text(soup.get_text(' '))
+        if mb is None:
+            log(f'[LIDL] Kein Volumen gefunden (HTTP {r.status_code})')
+            return
+        log(f'[LIDL] Volumen: {mb:.1f} MB ({mb/1000:.2f} GB)')
+        if mb < THRESHOLD_MB:
+            log('[LIDL] UNTER Schwellwert! Buche nach...')
+            for i in range(1, MAX_RETRIES + 1):
+                try:
+                    refill = lidl_session.post(LIDL_REFILL, data={
+                        'action': 'refill', 'type': 'DATA_1GB',
+                    }, allow_redirects=True, timeout=30)
+                    log(f'[LIDL] Nachbuchung {i}: HTTP {refill.status_code}')
+                    if refill.status_code == 200:
+                        log('[LIDL] Nachbuchung erfolgreich!')
+                        break
+                    elif refill.status_code >= 500:
+                        time.sleep(10)
+                except Exception as e:
+                    log(f'[LIDL] Fehler {i}: {e}')
+                    time.sleep(5)
+        else:
+            log('[LIDL] OK - keine Buchung noetig')
+    except Exception as e:
+        log(f'[LIDL] Fehler: {e}')
+
+# ============================================================
+# MAIN - prueft alle 60s, laeuft 4.5 Min, nahtlos mit 5-Min-Cron
+# ============================================================
+if __name__ == '__main__':
+    log('=== Aldi + Lidl Watcher gestartet ===')
+    log(f'Intervall: {CHECK_INTERVAL}s | Laufzeit: {RUN_DURATION}s | Schwelle: {THRESHOLD_MB} MB')
+
+    if ALDI_PASS:
+        aldi_login()
+    if LIDL_PASS:
+        lidl_login()
+
+    start_time = time.time()
+    runde = 0
+
+    while time.time() - start_time < RUN_DURATION:
+        runde += 1
+        log(f'--- Runde {runde} ---')
+        if ALDI_PASS:
+            aldi_check()
+        else:
+            log('[ALDI] Kein Passwort - uebersprungen')
+        if LIDL_PASS:
+            lidl_check()
+        else:
+            log('[LIDL] Kein Passwort - uebersprungen')
+        verbleibend = RUN_DURATION - (time.time() - start_time)
+        if verbleibend > CHECK_INTERVAL:
+            log(f'Warte {CHECK_INTERVAL}s...')
+            time.sleep(CHECK_INTERVAL)
+        else:
+            break
+
+    log('=== Watcher-Lauf abgeschlossen ===')
