@@ -118,7 +118,7 @@ def login(driver) -> bool:
 
         wait.until(EC.any_of(
             EC.url_contains('uebersicht'),
-            EC.url_contains('account-overview'),
+            EC.url_contains('account-overview'),             EC.url_contains('logged-in-home-page'),
         ))
         log('ALDI TALK: Login erfolgreich.')
         return True
