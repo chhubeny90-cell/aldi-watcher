@@ -1,4 +1,4 @@
-name: Aldi Watcher
+name: Multi-Provider Watcher
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +31,8 @@ jobs:
         env:
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          LIDL_USER: ${{ secrets.LIDL_USER }}
+          LIDL_PASS: ${{ secrets.LIDL_PASS }}
           AUTO_BOOK_ENABLED: 'true'
         run: python watcher.py
         continue-on-error: true
