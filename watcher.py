@@ -4,6 +4,7 @@ import time
 import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -80,27 +81,40 @@ def login(driver) -> bool:
 
         dismiss_cookie_banner(driver)
 
+        # Login-Formular: Felder haben dynamische IDs (input-5, input-6 etc.),
+        # daher ueber Label/aria-label bzw. Feldreihenfolge suchen statt fester ID.
         user_field = wait.until(
             EC.visibility_of_element_located((
-                By.CSS_SELECTOR,
-                "input#okta-signin-username, input[name='identifier'], input[type='text'], input[type='tel'], input[name*='user' i], input[id*='user' i]"
+                By.XPATH,
+                "//input[@type='text' or @type='tel' or contains(translate(@aria-label,'RUFNUMER','rufnumer'),'rufnummer') or contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'user')]"
             ))
         )
-        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input#okta-signin-username, input[name='identifier'], input[type='text'], input[type='tel']")))
         dismiss_cookie_banner(driver)
         user_field.clear()
         user_field.send_keys(ALDI_USER)
 
         pass_field = wait.until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "input#okta-signin-password, input[type='password']"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
         )
         pass_field.clear()
         pass_field.send_keys(ALDI_PASS)
 
-        submit_btn = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "input#okta-signin-submit, button[type='submit']"))
+        # Anmelden-Button ist teils ein <a>-Link statt <button type=submit>
+        submit_candidates = driver.find_elements(
+            By.XPATH,
+            "//button[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
+            "//a[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
+            "//button[@type='submit']"
         )
-        safe_click(driver, submit_btn)
+        clicked = False
+        for btn in submit_candidates:
+            if btn.is_displayed() and btn.is_enabled():
+                safe_click(driver, btn)
+                clicked = True
+                break
+        if not clicked:
+            # Fallback: Enter-Taste im Passwortfeld senden
+            pass_field.send_keys(Keys.ENTER)
 
         wait.until(EC.any_of(
             EC.url_contains('uebersicht'),
