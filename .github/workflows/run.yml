@@ -2,10 +2,17 @@ name: Aldi Watcher
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+
+concurrency:
+  group: aldi-watcher
+  cancel-in-progress: false
 
 jobs:
   watch:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
@@ -14,13 +21,16 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install selenium
 
       - name: Run watcher
         env:
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          LIDL_USER: ${{ secrets.LIDL_USER }}
-          LIDL_PASS: ${{ secrets.LIDL_PASS }}
+          AUTO_BOOK_ENABLED: 'true'
         run: python watcher.py
+        continue-on-error: true
