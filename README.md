@@ -5,7 +5,7 @@ Automatische Überwachung und Nachbuchung von Prepaid-Datenvolumen für **ALDI T
 ## Features
 
 - **ALDI Talk**: HTTP/API-basierte Überwachung
-- **Lidl Connect**: Playwright (Headless Browser) mit exponentiellem Backoff
+- **Lidl Connect**: Hybrid-Ansatz (API + Playwright Fallback)
 - **Sicherheit**: Fernet-Verschlsselung (.secret.key) mit .env-Fallback
 - **Safety-First**: DRY_RUN-Modus (default) verhindert echte Transaktionen
 - **Resilienz**: Fehler-isolierte Watcher, exponentieller Backoff für Captchas/Timeouts
@@ -21,7 +21,7 @@ cd aldi-watcher
 # Dependencies installieren
 pip install -r requirements.txt
 
-# Playwright-Browser installieren
+# Playwright-Browser installieren (fÃ¼r Lidl Fallback)
 playwright install chromium
 
 # Linux: ZusÃ¤tzliche SystemabhÃ¤ngigkeiten
@@ -75,25 +75,25 @@ python main.py
 
 ```
 aldi-watcher/
-â»¿â»¿core/
-â»¿â»¿â»¿â»¿â»¿â»¿__init__.py
-â»¿â»¿â»¿â»¿â»¿â»¿database.py      # SQLite-Schema mit provider-Spalte
-â»¿â»¿â»¿â»¿â»¿â»¿security.py      # Fernet-Verschlsselung
-â»¿â»¿â»¿â»¿â»¿â»¿config.py        # Zentrale Konfiguration
-â»¿â»¿plugins/
-â»¿â»¿â»¿â»¿â»¿â»¿__init__.py
-â»¿â»¿â»¿â»¿â»¿â»¿base_watcher.py  # BaseWatcher-Interface
-â»¿â»¿â»¿â»¿â»¿â»¿aldi_talk.py     # ALDI Talk Plugin
-â»¿â»¿â»¿â»¿â»¿â»¿lidl_connect.py  # Lidl Connect Plugin (Playwright)
-â»¿â»¿tests/
-â»¿â»¿â»¿â»¿â»¿â»¿__init__.py
-â»¿â»¿â»¿â»¿â»¿â»¿test_aldi_talk.py
-â»¿â»¿â»¿â»¿â»¿â»¿test_lidl_connect.py
-â»¿â»¿â»¿â»¿â»¿â»¿conftest.py
-â»¿â»¿main.py              # Orchestrator
-â»¿â»¿requirements.txt
-â»¿â»¿.env.example
-â»¿â»¿README.md
+├── core/
+│   ├── __init__.py
+│   ├── database.py      # SQLite-Schema mit provider-Spalte
+│   ├── security.py      # Fernet-Verschlsselung
+│   └── config.py        # Zentrale Konfiguration
+├── plugins/
+│   ├── __init__.py
+│   ├── base_watcher.py  # BaseWatcher-Interface
+│   ├── aldi_talk.py     # ALDI Talk Plugin
+│   └── lidl_connect.py  # Lidl Connect Plugin (API + Playwright Fallback)
+├── tests/
+│   ├── __init__.py
+│   ├── test_aldi_talk.py
+│   ├── test_lidl_connect.py
+│   └── conftest.py
+├── main.py              # Orchestrator
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
 ## Tests
@@ -123,39 +123,62 @@ class NewProviderWatcher(BaseWatcher):
         pass
 ```
 
-## ⚠️ Wichtiger Hinweis: Lidl Connect CSS-Selektoren
+## ⚠️ Lidl Connect: API vs. Playwright
 
-Die CSS-Selektoren in `plugins/lidl_connect.py` sind **PLATZHALTER** und müssen angepasst werden!
+`plugins/lidl_connect.py` verwendet einen **Hybrid-Ansatz**:
 
-### So ermittelst du die echten Selektoren:
+### **API-Ansatz (Standard)**
 
-1. **Playwright Codegen** (empfohlen):
-   ```bash
-   playwright codegen https://www.lidl-connect.de/login
-   ```
-   - Melde dich im Codegen-Fenster an
-   - Klicke durch die UI
-   - Kopiere die generierten Selektoren
+- **Endpoints**:
+  - Login: `POST https://api.lidl-connect.de/api/authenticate`
+  - Usage: `GET https://api.lidl-connect.de/api/consumption`
+  - Tariffs: `GET https://api.lidl-connect.de/api/tariff-options`
+  - Recharge: `POST https://api.lidl-connect.de/api/tariff-option/book`
 
-2. **DevTools manuell**:
-   - Öffne lidl-connect.de im Browser
-   - Rechtsklick → "Untersuchen"
-   - Notiere die echten IDs/Klassen für:
-     - Login-Form
-     - Username/Password-Inputs
-     - Login-Button
-     - Datenvolumen-Anzeige
-     - Nachbuchungs-Button
-     - Erfolgsmeldung
+- **Vorteile**:
+  - ✅ Schnell (kein Browser-Overhead)
+  - ✅ Stabil (API Ãndert sich seltener als UI)
+  - ✅ Weniger Dependencies
 
-3. **Ersetze in `plugins/lidl_connect.py`**:
-   ```python
-   SELECTORS = {
-       "login_form": "form#actualFormId",
-       "username_input": "input#actualUsernameId",
-       # ... etc.
-   }
-   ```
+- **Nachteile**:
+  - ⚠️ API kann sich Ãndern (reverse-engineered)
+  - ⚠️ Eventuell Captchas bei zu vielen Requests
+
+### **Playwright-Fallback**
+
+Falls die API nicht verfÃ¼gbar ist, wechselt das Script automatisch auf Playwright.
+
+**CSS-Selektoren (mÃ¼ssen ggf. angepasst werden)**:
+- `input[type='tel']`: Rufnummer-Input
+- `input[type='password']`: Passwort-Input
+- `button[type='submit']`: Login-Button
+- `div.consumption-tile`: Datenkachel
+- `span.consumption-value`: Verbrauchswert
+- `button[data-testid='book-tariff']`: Nachbuchung
+- `div.alert-success`: Erfolgsmeldung
+
+### **Selektoren ermitteln (falls API nicht geht)**
+
+```bash
+# Playwright Codegen starten
+playwright codegen https://kundenkonto.lidl-connect.de/mein-lidl-connect.html
+```
+
+- Im Browser anmelden
+- Durch die UI navigieren
+- Generierte Selektoren in `plugins/lidl_connect.py` eintragen
+
+### **API-Modus umschalten**
+
+In `plugins/lidl_connect.py`:
+
+```python
+# Standard: API-first
+LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=True)
+
+# Nur Playwright (falls API nicht geht)
+LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=False)
+```
 
 ## License
 
