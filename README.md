@@ -2,6 +2,23 @@
 
 Automatische Überwachung und Nachbuchung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**.
 
+## Quickstart (5 Minuten)
+
+```bash
+# 1. Clone & Install
+git clone https://github.com/chhubeny90-cell/aldi-watcher.git
+cd aldi-watcher
+pip install -r requirements.txt
+playwright install chromium
+
+# 2. Config
+cp .env.example .env
+# .env bearbeiten: ALDI_USER, ALDI_PASS, LIDL_USER, LIDL_PASS
+
+# 3. Test (DRY_RUN=true!)
+python main.py
+```
+
 ## Features
 
 - **ALDI Talk**: HTTP/API-basierte Überwachung
@@ -21,10 +38,10 @@ cd aldi-watcher
 # Dependencies installieren
 pip install -r requirements.txt
 
-# Playwright-Browser installieren (fÃ¼r Lidl Fallback)
+# Playwright-Browser installieren (für Lidl Fallback)
 playwright install chromium
 
-# Linux: ZusÃ¤tzliche SystemabhÃ¤ngigkeiten
+# Linux: Zusätzliche Systemabhängigkeiten
 # playwright install-deps chromium
 ```
 
@@ -90,6 +107,7 @@ aldi-watcher/
 │   ├── test_aldi_talk.py
 │   ├── test_lidl_connect.py
 │   └── conftest.py
+│   └── pytest.ini       # pytest-asyncio Konfiguration
 ├── main.py              # Orchestrator
 ├── requirements.txt
 ├── .env.example
@@ -137,18 +155,18 @@ class NewProviderWatcher(BaseWatcher):
 
 - **Vorteile**:
   - ✅ Schnell (kein Browser-Overhead)
-  - ✅ Stabil (API Ãndert sich seltener als UI)
+  - ✅ Stabil (API ändert sich seltener als UI)
   - ✅ Weniger Dependencies
 
 - **Nachteile**:
-  - ⚠️ API kann sich Ãndern (reverse-engineered)
+  - ⚠️ API kann sich ändern (reverse-engineered)
   - ⚠️ Eventuell Captchas bei zu vielen Requests
 
 ### **Playwright-Fallback**
 
-Falls die API nicht verfÃ¼gbar ist, wechselt das Script automatisch auf Playwright.
+Falls die API nicht verfügbar ist, wechselt das Script automatisch auf Playwright.
 
-**CSS-Selektoren (mÃ¼ssen ggf. angepasst werden)**:
+**CSS-Selektoren (müssen ggf. angepasst werden)**:
 - `input[type='tel']`: Rufnummer-Input
 - `input[type='password']`: Passwort-Input
 - `button[type='submit']`: Login-Button
@@ -176,8 +194,59 @@ In `plugins/lidl_connect.py`:
 # Standard: API-first
 LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=True)
 
-# Nur Playwright (falls API nicht geht)
+# Nur Playwright (falls API gar nicht geht)
 LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=False)
+```
+
+## Troubleshooting
+
+### **`ModuleNotFoundError: No module named 'aiohttp'`**
+
+```bash
+pip install -r requirements.txt
+```
+
+### **`pytest` zeigt Warnungen / DeprecationWarnings**
+
+```bash
+# pytest.ini ist vorhanden?
+cat tests/pytest.ini
+
+# Falls nicht: git pull
+git pull origin main
+```
+
+### **Lidl-API: `401 Unauthorized`**
+
+- Credentials in `.env` prüfen
+- API kann sich geändert haben → Playwright-Fallback wird automatisch genutzt
+- Console-Log: `"Lidl API failed, falling back to Playwright"`
+
+### **Playwright: `Element not found`**
+
+- Selektoren sind veraltet → `playwright codegen` ausführen
+- Neue Selektoren in `plugins/lidl_connect.py` eintragen
+
+### **`git pull` gibt Merge-Konflikte**
+
+```bash
+# Lokale Änderungen prüfen
+git status
+
+# Falls lokale Änderungen: stash oder committen
+git stash
+
+# Dann pullen
+git pull origin main
+```
+
+### **Python Version**
+
+- **Empfohlen**: Python 3.9 oder höher
+- **Minimum**: Python 3.8
+
+```bash
+python --version  # Sollte 3.8+ sein
 ```
 
 ## License
