@@ -1,38 +1,51 @@
-name: Multi-Provider Watcher
+name: CI and Safe Watcher
 
 on:
+  push:
+    branches: [main, develop, 'hardening/**', 'feature/**']
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: '*/10 * * * *'
 
 concurrency:
-  group: aldi-watcher
+  group: aldi-watcher-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  watch:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run full test suite
+        run: pytest -q
 
+  watch:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
       - name: Python setup
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
-
       - name: Install dependencies
         run: pip install selenium
-
-      - name: Run watcher
+      - name: Run watcher in safety mode
         env:
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           LIDL_USER: ${{ secrets.LIDL_USER }}
           LIDL_PASS: ${{ secrets.LIDL_PASS }}
-          AUTO_BOOK_ENABLED: 'true'
+          AUTO_BOOK_ENABLED: 'false'
         run: python watcher.py
-        continue-on-error: true
