@@ -169,3 +169,24 @@ def test_http_status_classified(monkeypatch):
     monkeypatch.setattr(m, 'diagnostics', lambda _: {'http_status': 429})
     result = m.execute_provider('aldi_talk', driver, Mock(side_effect=TimeoutException()), Mock(), 'test')
     assert result['status'] == 'rate_limited'
+
+
+@pytest.mark.parametrize('status', ['unknown', 'pending', 'UNKNOWN', 'PENDING'])
+def test_unresolved_states_are_explicit_and_fail_closed(status):
+    summary = m.evaluate_run([{'provider': 'aldi_talk', 'login_ok': True, 'status': status}])
+    assert summary['status'] == 'failed'
+    assert summary['exit_code'] == 1
+    assert summary['unresolved_count'] == 1
+    assert summary['unresolved_providers'] == ['aldi_talk']
+    assert summary['auto_booking'] == {'enabled': False, 'executed': False, 'reason': 'monitoring_only'}
+
+
+def test_mixed_success_and_pending_is_degraded_not_success():
+    summary = m.evaluate_run([
+        {'provider': 'aldi_talk', 'login_ok': True, 'status': 'ok'},
+        {'provider': 'lidl_connect', 'login_ok': True, 'status': 'pending'},
+    ])
+    assert summary['status'] == 'degraded'
+    assert summary['exit_code'] == 2
+    assert summary['unresolved_count'] == 1
+    assert summary['unresolved_providers'] == ['lidl_connect']
