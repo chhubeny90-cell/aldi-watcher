@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-ACTIVE_RECHARGE_STATUSES = ("PENDING", "UNKNOWN", "SUCCESS")
+ACTIVE_RECHARGE_STATUSES = ("PENDING", "UNKNOWN")
 
 
 @dataclass
@@ -149,7 +149,7 @@ class Database:
             row = conn.execute("""
                 SELECT recharge_id, status FROM recharges
                 WHERE provider = ? AND username = ?
-                  AND status IN ('PENDING','UNKNOWN','SUCCESS')
+                  AND status IN ('PENDING','UNKNOWN')
                 ORDER BY created_at DESC LIMIT 1
             """, (provider, username)).fetchone()
             if row:
