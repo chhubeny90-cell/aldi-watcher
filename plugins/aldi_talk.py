@@ -81,6 +81,13 @@ class AldiTalkWatcher(BaseWatcher):
             
             return {"used_mb": used_mb, "total_mb": total_mb}
 
+    def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
+        """Fail closed unless the provider check verified a free refill."""
+        return bool(
+            usage.get("refill_eligible") is True
+            and usage.get("refill_type") == "FREE_UNLIMITED"
+        )
+
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
         """
         Lst ALDI Talk Nachbuchung aus.
