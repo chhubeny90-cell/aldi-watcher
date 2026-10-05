@@ -51,6 +51,29 @@ class TestAldiTalkWatcher:
                 result = await watcher.run()
                 
                 assert result.success is True
-                assert result.should_recharge is True
+                assert result.should_recharge is False
                 assert result.recharge_triggered is False  # DRY_RUN!
                 mock_recharge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_free_unlimited_refill_requires_verified_eligibility(self, watcher):
+        usage = {
+            "used_mb": 9999,
+            "total_mb": 10000,
+            "refill_eligible": True,
+            "refill_type": "FREE_UNLIMITED",
+        }
+        with patch.object(watcher, 'check_usage', new=AsyncMock(return_value=usage)):
+            result = await watcher.run()
+        assert result.should_recharge is True
+        assert result.recharge_triggered is False
+
+    @pytest.mark.asyncio
+    async def test_paid_or_unverified_refill_is_blocked(self, watcher):
+        for usage in (
+            {"used_mb": 9999, "total_mb": 10000},
+            {"used_mb": 9999, "total_mb": 10000, "refill_eligible": True, "refill_type": "PAID"},
+        ):
+            with patch.object(watcher, 'check_usage', new=AsyncMock(return_value=usage)):
+                result = await watcher.run()
+            assert result.should_recharge is False
