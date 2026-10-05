@@ -68,12 +68,16 @@ def evaluate_run(results, auto_book_enabled=False):
     successful = sum(r.get('login_ok') is True and r.get('status') == 'ok' for r in results)
     status = 'success' if results and successful == len(results) else ('degraded' if successful else 'failed')
     config_error = any(r.get('status') == 'config_error' for r in results)
+    unresolved_statuses = {'unknown', 'pending'}
+    unresolved = [r.get('provider') for r in results
+                  if str(r.get('status', '')).lower() in unresolved_statuses]
     return dict(status=status, monitoring_status=status,
                 reason=('Alle Anbieter erfolgreich geprüft' if status == 'success' else
                         'Mindestens ein Anbieter konnte nicht geprüft werden' if status == 'degraded' else
                         'Keine erfolgreiche Anbieterprüfung'),
                 login_failures=sum(r.get('login_ok') is not True for r in results),
                 check_failures=len(results)-successful, providers_checked=len(results),
+                unresolved_count=len(unresolved), unresolved_providers=[p for p in unresolved if p],
                 successful_logins=sum(r.get('login_ok') is True for r in results),
                 exit_code=3 if config_error else {'success': 0, 'failed': 1, 'degraded': 2}[status],
                 auto_book_enabled=auto_book_enabled,
