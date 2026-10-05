@@ -69,7 +69,7 @@ class AlDiWatcher:
             username=result.username,
             data_used_mb=result.data_used_mb,
             data_total_mb=result.data_total_mb,
-            threshold_mb=self.config.threshold_aldi_mb if result.provider == "aldi" else self.config.threshold_lidl_mb,
+            threshold_mb=self.config.threshold_aldi_mb if result.provider in {"aldi", "alditalk"} else self.config.threshold_lidl_mb,
             should_recharge=result.should_recharge,
             recharge_triggered=result.recharge_triggered,
             error_message=result.error_message,
