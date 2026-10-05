@@ -59,6 +59,14 @@ def test_begin_recharge_blocks_duplicate(tmp_path):
     assert db.get_unresolved_recharges("fake", "user")[0].recharge_id == first
 
 
+def test_success_does_not_permanently_block_later_recharge(tmp_path):
+    db = Database(str(tmp_path / "db.sqlite"))
+    first = db.begin_recharge("fake", "user")
+    db.set_recharge_status(first, "SUCCESS")
+    second = db.begin_recharge("fake", "user")
+    assert second != first
+
+
 def test_timeout_becomes_unknown_and_never_retries(tmp_path):
     class TimeoutWatcher(FakeWatcher):
         async def trigger_recharge(self, recharge_id=None):
