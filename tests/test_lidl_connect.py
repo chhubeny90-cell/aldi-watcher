@@ -18,7 +18,8 @@ class TestLidlConnectWatcher:
             username="test@example.com",
             password="testpass",
             threshold_mb=500,
-            dry_run=True
+            dry_run=True,
+            use_api=False
         )
 
     def test_init(self, watcher):
@@ -31,11 +32,12 @@ class TestLidlConnectWatcher:
     @pytest.mark.asyncio
     async def test_check_usage_success(self, watcher):
         """Testet erfolgreiche Usage-Prfung."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
-                
-                result = await watcher.check_usage()
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
+        watcher.page = mock_page
+
+        result = await watcher.check_usage()
                 
                 assert result["used_mb"] == 1234
                 assert result["total_mb"] == 5000
@@ -43,26 +45,27 @@ class TestLidlConnectWatcher:
     @pytest.mark.asyncio
     async def test_check_usage_parse_error(self, watcher):
         """Testet Parsing-Fehler."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.text_content = AsyncMock(return_value="Invalid format")
-                
-                with pytest.raises(Exception, match="Could not parse"):
-                    await watcher.check_usage()
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.text_content = AsyncMock(return_value="Invalid format")
+        watcher.page = mock_page
+
+        with pytest.raises(Exception, match="Could not parse"):
+            await watcher.check_usage()
 
     @pytest.mark.asyncio
     async def test_trigger_recharge_success(self, watcher):
         """Testet erfolgreiche Nachbuchung."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.click = AsyncMock()
-                mock_page.wait_for_load_state = AsyncMock()
-                mock_page.wait_for_selector = AsyncMock()
-                
-                result = await watcher.trigger_recharge()
-                
-                assert result is True
-                mock_page.click.assert_called_once_with("button.reload-data", timeout=10000)
+        mock_page = MagicMock()
+        mock_page.click = AsyncMock()
+        mock_page.wait_for_load_state = AsyncMock()
+        mock_page.wait_for_selector = AsyncMock()
+        watcher.page = mock_page
+
+        result = await watcher.trigger_recharge()
+
+        assert result is True
+        mock_page.click.assert_called_once_with(watcher.SELECTORS["recharge_button"], timeout=10000)
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self, watcher):
