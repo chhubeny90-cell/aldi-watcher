@@ -38,9 +38,9 @@ class TestLidlConnectWatcher:
         watcher.page = mock_page
 
         result = await watcher.check_usage()
-                
-                assert result["used_mb"] == 1234
-                assert result["total_mb"] == 5000
+
+        assert result["used_mb"] == 1234
+        assert result["total_mb"] == 5000
 
     @pytest.mark.asyncio
     async def test_check_usage_parse_error(self, watcher):
@@ -71,16 +71,16 @@ class TestLidlConnectWatcher:
     async def test_exponential_backoff(self, watcher):
         """Testet exponentiellen Backoff."""
         call_count = 0
-        
+
         async def failing_func():
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise Exception("Timeout")
             return "success"
-        
+
         result = await watcher._exponential_backoff(failing_func, max_retries=5, base_delay=0.01)
-        
+
         assert result == "success"
         assert call_count == 3
 
@@ -90,7 +90,7 @@ class TestLidlConnectWatcher:
         with patch.object(watcher, 'check_usage', new=AsyncMock(return_value={"used_mb": 600, "total_mb": 1000})):
             with patch.object(watcher, 'trigger_recharge', new=AsyncMock()) as mock_recharge:
                 result = await watcher.run()
-                
+
                 assert result.success is True
                 assert result.should_recharge is True
                 assert result.recharge_triggered is False  # DRY_RUN!
@@ -101,6 +101,6 @@ class TestLidlConnectWatcher:
         """Testet Fehlerbehandlung."""
         with patch.object(watcher, 'check_usage', new=AsyncMock(side_effect=Exception("Network error"))):
             result = await watcher.run()
-            
+
             assert result.success is False
             assert result.error_message == "Network error"
