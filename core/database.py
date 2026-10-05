@@ -2,7 +2,7 @@
 
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from dataclasses import dataclass
 from pathlib import Path
@@ -140,7 +140,7 @@ class Database:
                 """, (limit,))
             return [UsageLog.from_row(row) for row in cursor.fetchall()]
 
-    def begin_recharge(self, provider: str, username: str) -> str:
+    def begin_recharge(self, provider: str, username: str, recent_success_guard_seconds: float = 0) -> str:
         recharge_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
         conn = self._connect()
@@ -157,6 +157,19 @@ class Database:
                 raise RechargeLockedError(
                     f"Recharge blocked by existing {row[1]} operation {row[0]}"
                 )
+            if recent_success_guard_seconds > 0:
+                cutoff = (datetime.now() - timedelta(seconds=recent_success_guard_seconds)).isoformat()
+                recent_success = conn.execute("""
+                    SELECT recharge_id FROM recharges
+                    WHERE provider = ? AND username = ? AND status = 'SUCCESS'
+                      AND updated_at >= ?
+                    ORDER BY updated_at DESC LIMIT 1
+                """, (provider, username, cutoff)).fetchone()
+                if recent_success:
+                    conn.rollback()
+                    raise RechargeLockedError(
+                        f"Recharge blocked by recent SUCCESS operation {recent_success[0]}"
+                    )
             conn.execute("""
                 INSERT INTO recharges
                 (recharge_id, provider, username, status, error_message, created_at, updated_at)
