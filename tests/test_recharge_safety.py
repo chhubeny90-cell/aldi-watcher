@@ -17,6 +17,10 @@ class FakeWatcher(BaseWatcher):
         self.crash = crash
         self.status = status
 
+    @property
+    def provider_name(self):
+        return "fake"
+
     async def check_usage(self):
         return {"used_mb": 600, "total_mb": 1000}
 
