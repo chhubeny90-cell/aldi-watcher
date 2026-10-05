@@ -1,0 +1,109 @@
+# Monitoring recovery: verified scope and remaining rollout
+
+## Active deployment
+
+Baseline main commit: `ea482c9a8e868b3ce3ebe63ca74f99e5d55708c3`.
+GitHub Actions `.github/workflows/run.yml` launches `watcher.py` in an ephemeral
+Python 3.11 runner. It does not launch `main.py` or the plugin orchestrator.
+No systemd service, virtual environment, encrypted home configuration or persistent
+SQLite database is configured by this workflow. Local systemctl output would not
+establish anything about the GitHub runner or another user's machine.
+
+The plugin recharge concurrency/crash tests do not cover the old Selenium booking
+functions. This change removes those booking functions from the monitoring entry
+point. Setting AUTO_BOOK_ENABLED=true now produces exit 3 before opening a browser.
+The plugin implementation remains separate and is not production-approved by this PR.
+
+## Execution and result contract
+
+```
+AUTO_BOOK_ENABLED=false python watcher.py --run-once
+AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
+AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider lidl_connect
+python -m pytest -q
+```
+
+Credentials remain ALDI_USER/ALDI_PASS and LIDL_USER/LIDL_PASS environment variables
+or GitHub Secrets. Selecting one provider needs only that provider's credentials.
+
+Exit 0: all selected providers successfully authenticated and usage validated.
+Exit 1: no successful check (including zero providers).
+Exit 2: some successful checks and some failed checks.
+Exit 3: missing credentials or unsafe/invalid booking configuration.
+GitHub marks both exit 1 and 2 red; degraded is yellow only conceptually, not a native
+Actions job conclusion. Details appear in the step summary and JSON artifact.
+
+Unknown statuses, circuit_open, missing usage, ambiguous volume, NaN, negative
+volume and authentication failures never count as success.
+
+Each provider gets a separate browser. Result records include run_id, provider,
+phase, status and elapsed_seconds. A run_id is shared with the start/end heartbeat.
+The atomic report is mode 0600. GitHub preserves only this allowlisted report for
+seven days, including failed runs. No screenshot, HTML, account text, password,
+phone number, cookie value, authorization header or token is stored in the report.
+HTTP metadata is diagnostic evidence, not proof of successful authentication.
+
+## Login evidence and diagnostics
+
+The existing provider URLs and input selectors are retained pending live evidence.
+URLs alone cannot establish login. A visible logout control, absence of a visible
+password field, cookies, protected-page validation and unambiguous labelled volume
+are required. This is intentionally conservative and may reject a legitimate portal
+with different markup. A redirect to another origin is rejected before credential
+entry; observed legitimate SSO hosts must be reviewed before adding support.
+
+Phases distinguish login_page, username_field, password_field, login_submit,
+session_validation, protected_page, usage_parse and browser_start. Browser page
+loads have a 20-second timeout; element waits are 30 seconds. Only idempotent page
+GET navigation is retried, once with exponential delay and jitter. Form submission
+is never automatically repeated. Driver shutdown and provider isolation are tested.
+
+HTTP status, redirect count, DOM CSRF indicator, visible password field, host
+allowlist result and cookie count are best-effort evidence. Unavailable values
+remain null; DOM csrf_found=false is not proof that a JavaScript portal lacks CSRF
+protection. Network metadata currently covers document responses, not every fetch/
+XHR request. DNS/TCP/TLS timings and full SSO/API diagnosis are not yet implemented.
+401/403/429/5xx document responses classify failed checks where available.
+No HTTP-rate-limit retry is implemented: 429 is reported, not retried, so Retry-After
+is not ignored by an aggressive retry loop. No circuit breaker is deployed; a new
+one would need state persisted across ephemeral runners.
+
+## Scheduler and independent alerting
+
+The workflow keeps `*/10 * * * *`. API inspection on 2026-10-05 returned the newest
+scheduled run as 2026-07-31T22:17:09Z (2026-08-01 00:17 Berlin), run 30669457678.
+This does not establish why scheduling stopped. Manual green runs do not validate
+scheduled operation. After merge, check workflow enablement in GitHub, enable it
+if disabled, and observe several runs whose event is `schedule` on the new commit.
+
+Step summaries and Actions error annotations are implemented. Delivery of GitHub
+failure notifications depends on the account's notification settings. Telegram/
+email delivery and an independent >20-minute missing-heartbeat alarm are not
+configured. An alarm running inside the same unscheduled job cannot detect that
+job's absence. A separate scheduler/service and an explicit destination are needed.
+Artifacts retain per-run history; there is no persistent monitoring SQLite history
+in the active Actions deployment.
+
+## Live rollout gate
+
+1. Merge reviewed PR; run workflow_dispatch on the new commit with booking false.
+2. Inspect per-provider phase and safe diagnostic metadata; confirm or fix actual
+   portal selectors/SSO based on observed evidence, without logging secrets.
+3. Confirm authenticated protected data on both providers; test failures as well.
+4. Observe multiple real schedule events and retained finished heartbeat artifacts.
+5. Configure and independently test missing-heartbeat and failure notifications.
+6. Only then design controlled booking through the persistent idempotent engine,
+   with verified tariff option, balance, volume threshold, daily limits, minimum
+   interval, cross-run persistence and unambiguous post-booking reconciliation.
+
+No live booking or authenticated production success is claimed by this PR.
+The suggested 20/day and 300-second limits are proposals, not validated provider
+limits or permission to perform real transactions.
+
+## Public endpoint probe (no credentials)
+
+A probe from the development environment on 2026-10-05 returned HTML HTTP 200
+after redirects for the configured ALDI login URL (about 53 seconds), and HTTP
+401 for the configured LIDL URL (about 14 seconds). This was not a browser login
+and does not prove invalid user credentials or reproduce GitHub runner behavior.
+Both endpoints require further browser-specific diagnosis before declaring a fix.
