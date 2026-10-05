@@ -46,6 +46,11 @@ class BaseWatcher(ABC):
         """Trigger one recharge. Providers should forward recharge_id when supported."""
         pass
 
+    def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
+        """Provider decision hook. Default preserves legacy threshold behavior."""
+        used_mb = usage.get("used_mb", 0)
+        return used_mb >= self.threshold_mb
+
     async def check_recharge_status(self, recharge_id: str) -> str:
         """Return SUCCESS, FAILED or UNKNOWN. Providers must override when status lookup exists."""
         return "UNKNOWN"
@@ -99,7 +104,7 @@ class BaseWatcher(ABC):
             usage = await self.check_usage()
             used_mb = usage.get("used_mb", 0)
             total_mb = usage.get("total_mb", 0)
-            should_recharge = used_mb >= self.threshold_mb
+            should_recharge = self.should_recharge_for_usage(usage)
             recharge_triggered = False
             recharge_id = None
             recharge_status = "NOT_TRIGGERED"
