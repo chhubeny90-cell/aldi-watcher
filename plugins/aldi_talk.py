@@ -26,8 +26,8 @@ class AldiTalkWatcher(BaseWatcher):
     OVERVIEW_URL = f"{BASE_URL}/konto/uebersicht"
     RECHARGE_URL = f"{BASE_URL}/konto/datenvolumen/nachbuchen"
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True):
-        super().__init__(username, password, threshold_mb, dry_run)
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, database=None):
+        super().__init__(username, password, threshold_mb, dry_run, database)
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -81,7 +81,7 @@ class AldiTalkWatcher(BaseWatcher):
             
             return {"used_mb": used_mb, "total_mb": total_mb}
 
-    async def trigger_recharge(self) -> bool:
+    async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
         """
         Lst ALDI Talk Nachbuchung aus.
         """

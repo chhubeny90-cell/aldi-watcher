@@ -64,8 +64,8 @@ class LidlConnectWatcher(BaseWatcher):
         "success_message": "div.alert-success",  # Erfolgsmeldung
     }
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = True):
-        super().__init__(username, password, threshold_mb, dry_run)
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = True, database=None):
+        super().__init__(username, password, threshold_mb, dry_run, database)
         self.use_api = use_api  # True = API, False = Playwright
         self.session: Optional[aiohttp.ClientSession] = None
         self.browser: Optional[Browser] = None
@@ -293,7 +293,7 @@ class LidlConnectWatcher(BaseWatcher):
         # Fallback: Playwright
         return await self._pw_check_usage()
 
-    async def trigger_recharge(self) -> bool:
+    async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
         """
         LÃ¶st Nachbuchung aus (API oder Playwright).
         """
