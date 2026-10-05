@@ -293,6 +293,13 @@ class LidlConnectWatcher(BaseWatcher):
         # Fallback: Playwright
         return await self._pw_check_usage()
 
+    def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
+        """Fail closed unless the provider check verified a free refill."""
+        return bool(
+            usage.get("refill_eligible") is True
+            and usage.get("refill_type") == "FREE_UNLIMITED"
+        )
+
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
         """
         LÃ¶st Nachbuchung aus (API oder Playwright).
