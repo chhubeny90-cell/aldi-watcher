@@ -19,7 +19,7 @@ ALDI_USER = os.environ.get('ALDI_USER', '')
 ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
-AUTO_BOOK_ENABLED = os.environ.get('AUTO_BOOK_ENABLED', 'true').lower() == 'true'
+AUTO_BOOK_ENABLED = os.environ.get('AUTO_BOOK_ENABLED', 'false').lower() == 'true'
 
 ALDI_LOGIN_URL = 'https://www.alditalk-kundenportal.de/portal/noauth/login'
 ALDI_OVERVIEW_URL = 'https://www.alditalk-kundenportal.de/user/auth/account-overview/'
