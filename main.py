@@ -34,7 +34,8 @@ class AlDiWatcher:
                     config.aldi_user,
                     config.aldi_pass,
                     config.threshold_aldi_mb,
-                    config.dry_run
+                    config.dry_run,
+                    self.db
                 )
             )
         
@@ -44,7 +45,8 @@ class AlDiWatcher:
                     config.lidl_user,
                     config.lidl_pass,
                     config.threshold_lidl_mb,
-                    config.dry_run
+                    config.dry_run,
+                    database=self.db
                 )
             )
 
