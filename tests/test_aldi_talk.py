@@ -28,18 +28,17 @@ class TestAldiTalkWatcher:
     @pytest.mark.asyncio
     async def test_check_usage_success(self, watcher):
         """Testet erfolgreiche Usage-Prfung."""
-        with patch.object(watcher, '_get_session', new=AsyncMock()) as mock_session:
-            mock_session_instance = MagicMock()
-            mock_session.return_value = mock_session_instance
-            
-            # Mock response
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.text = AsyncMock(return_value="1234 MB von 5000 MB")
-            
-            mock_session_instance.get = AsyncMock(return_value=mock_response)
-            
-            result = await watcher.check_usage()
+        mock_response = AsyncMock()
+        mock_response.text = AsyncMock(return_value="1234 MB von 5000 MB")
+        response_cm = MagicMock()
+        response_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        response_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_session = MagicMock()
+        mock_session.get.return_value = response_cm
+
+        with patch.object(watcher, '_get_session', new=AsyncMock(return_value=mock_session)):
+            with patch.object(watcher, 'login', new=AsyncMock(return_value="session-cookie")):
+                result = await watcher.check_usage()
             
             assert result["used_mb"] == 1234
             assert result["total_mb"] == 5000
