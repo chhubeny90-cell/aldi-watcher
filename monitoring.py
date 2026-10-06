@@ -158,6 +158,23 @@ def execute_provider(name, factory, login, read, run_id):
             phase('usage_read')
             usage = read(driver)
             remaining = usage.get('inland_frei_gb')
+            if name == 'lidl_connect':
+                # Derived, allowlisted evidence only; never raw tariff/account text.
+                from core.lidl_refill import unavailable
+                reasons = {'selectors_unconfigured', 'session_unverified', 'offer_unverified',
+                           'active_tariff_unverified', 'not_exactly_one_gb', 'not_unlimited_refill',
+                           'paid_option', 'price_unverified', 'conflicting_terms', 'button_unverified',
+                           'button_disabled', 'free_one_gb_button_available'}
+                reason = usage.get('refill_reason')
+                if reason not in reasons:
+                    result.update(unavailable('offer_unverified'))
+                else:
+                    eligible = (usage.get('refill_eligible') is True
+                                and usage.get('refill_type') == 'FREE_UNLIMITED'
+                                and reason == 'free_one_gb_button_available')
+                    result.update(refill_eligible=eligible,
+                                  refill_type='FREE_UNLIMITED' if eligible else 'UNKNOWN',
+                                  refill_reason=reason)
             if isinstance(remaining, bool) or not isinstance(remaining, (int, float)) or not math.isfinite(remaining) or remaining < 0:
                 raise ValueError('usage_invalid')
             result.update(status='ok', message='Session und Restvolumen geprüft', phase='complete')

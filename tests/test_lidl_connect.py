@@ -54,18 +54,12 @@ class TestLidlConnectWatcher:
             await watcher.check_usage()
 
     @pytest.mark.asyncio
-    async def test_trigger_recharge_success(self, watcher):
-        """Testet erfolgreiche Nachbuchung."""
+    async def test_direct_dry_run_never_clicks(self, watcher):
         mock_page = MagicMock()
         mock_page.click = AsyncMock()
-        mock_page.wait_for_load_state = AsyncMock()
-        mock_page.wait_for_selector = AsyncMock()
         watcher.page = mock_page
-
-        result = await watcher.trigger_recharge()
-
-        assert result is True
-        mock_page.click.assert_called_once_with(watcher.SELECTORS["recharge_button"], timeout=10000)
+        assert await watcher.trigger_recharge() is False
+        mock_page.click.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self, watcher):

@@ -28,20 +28,15 @@ def test_api_timeout_never_falls_back_or_rebooks(tmp_path):
     assert db.get_unresolved_recharges()[0].status == "UNKNOWN"
 
 
-@pytest.mark.parametrize("stage", ["wait_for_load_state", "wait_for_selector"])
-def test_browser_timeout_after_click_preserves_unknown_and_single_click(tmp_path, stage):
-    watcher, db = eligible_watcher(tmp_path, False)
-    page = MagicMock()
-    page.click = AsyncMock()
-    page.wait_for_load_state = AsyncMock()
-    page.wait_for_selector = AsyncMock()
-    page.close = AsyncMock()
-    getattr(page, stage).side_effect = asyncio.TimeoutError()
-    watcher.page = page
+def test_browser_timeout_after_click_preserves_unknown_and_single_click(tmp_path):
+    from tests.test_lidl_refill_availability import browser_watcher, ELIGIBLE
+    watcher, db, page, offer, button, success = browser_watcher(tmp_path)
+    watcher.check_usage = AsyncMock(return_value={"used_mb": 999, "total_mb": 1000, **ELIGIBLE})
+    success.wait_for.side_effect = asyncio.TimeoutError()
     result = asyncio.run(watcher.run())
     assert result.recharge_status == "UNKNOWN"
     assert not result.recharge_triggered
-    page.click.assert_awaited_once()
+    button.click.assert_awaited_once()
     assert db.get_unresolved_recharges()[0].status == "UNKNOWN"
     assert asyncio.run(watcher.run()).recharge_status == "BLOCKED"
-    page.click.assert_awaited_once()
+    button.click.assert_awaited_once()

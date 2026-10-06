@@ -46,7 +46,10 @@ class AlDiWatcher:
                     config.lidl_pass,
                     config.threshold_lidl_mb,
                     config.dry_run,
-                    database=self.db
+                    use_api=config.lidl_use_api,
+                    database=self.db,
+                    refill_selectors=config.lidl_refill_selectors,
+                    refill_mode=config.lidl_refill_mode
                 )
             )
 
