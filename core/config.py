@@ -4,6 +4,7 @@ Liest .env-Variablen mit Fernet-Entschlsselung.
 """
 
 import os
+import math
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -30,9 +31,24 @@ class Config:
         self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "500"))
         
         # Betriebsmodi
-        self.dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+        self.dry_run = self._get_bool("DRY_RUN", True)
+        self.auto_book_enabled = self._get_bool("AUTO_BOOK_ENABLED", False)
+        if not self.dry_run and not self.auto_book_enabled:
+            raise ValueError("Live plugin mode requires AUTO_BOOK_ENABLED=true")
         self.poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "3600"))
         self.db_path = os.getenv("DB_PATH", "aldi_watcher.db")
+        if self.poll_interval <= 0:
+            raise ValueError("POLL_INTERVAL_SECONDS must be positive")
+        for value in (self.threshold_aldi_mb, self.threshold_lidl_mb):
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Volume thresholds must be finite and nonnegative")
+
+    @staticmethod
+    def _get_bool(key: str, default: bool) -> bool:
+        value = os.getenv(key, str(default)).strip().lower()
+        if value not in {"true", "false"}:
+            raise ValueError(f"{key} must be true or false")
+        return value == "true"
 
     def _get_credential(self, key: str) -> Optional[str]:
         """
@@ -43,7 +59,7 @@ class Config:
             try:
                 return self.security.decrypt(encrypted_value)
             except Exception:
-                pass
+                raise ValueError(f"Cannot decrypt {key}_ENC") from None
         
         # Fallback auf unverschlsselte .env
         return os.getenv(key)

@@ -18,10 +18,14 @@ ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
 
-ALDI_LOGIN_URL = 'https://www.alditalk-kundenportal.de/portal/noauth/login'
-ALDI_OVERVIEW_URL = 'https://www.alditalk-kundenportal.de/user/auth/account-overview/'
-LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html'
-LIDL_OVERVIEW_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html'
+# Current customer-area link published on https://www.alditalk.de/.
+ALDI_LOGIN_URL = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+ALDI_OVERVIEW_URL = ALDI_LOGIN_URL
+# Observed redirect from the configured ALDI portal; official ALDI login host.
+ALDI_LOGIN_HOSTS = ('login.alditalk-kundenbetreuung.de',)
+# Official www.lidl-connect.de customer-account link redirects to this page.
+LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
+LIDL_OVERVIEW_URL = LIDL_LOGIN_URL
 
 WAIT_TIMEOUT = 30
 
@@ -33,7 +37,7 @@ def build_driver():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--window-size=1400,1000')
     options.add_argument('--lang=de-DE')
-    options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    options.set_capability('goog:loggingPrefs', {'performance': 'ALL', 'browser': 'ALL'})
     driver = webdriver.Chrome(options=options)
     driver.set_page_load_timeout(20)
     return driver
@@ -78,7 +82,7 @@ def aldi_login(driver) -> bool:
         return False
     phase('login_page')
     navigate(driver, ALDI_LOGIN_URL)
-    require_origin(driver, ALDI_LOGIN_URL)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')

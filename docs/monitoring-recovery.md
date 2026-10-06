@@ -1,5 +1,60 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Full-run hardening, 2026-10-06
+
+The scheduled run `37399082074` on main `585b515` executed the watcher,
+retained a finished report, and failed correctly: ALDI was rejected on the
+official SSO redirect; LIDL returned HTTP 403 at username_field. Scheduling
+therefore exists, but the configured ten-minute interval is not proven reliable.
+The earlier statement below that the latest run was in July is historical.
+
+ALDI's login redirect was verified without credentials from the configured
+portal, to `login.alditalk-kundenbetreuung.de/signin/XUI/`. Only that exact
+HTTPS host and login path are accepted as an additional credential-entry origin.
+Protected-page validation still requires the configured portal origin.
+Official source: https://www.alditalk.de/tarifverwaltung (Mein ALDI TALK).
+
+The official https://www.lidl-connect.de/ customer-account link points to
+https://kundenkonto.lidl-connect.de/, which was observed redirecting to
+/mein-lidl-connect.html with HTTP 200 and a login form. Monitoring now uses
+that entry instead of the /mein-lidl-connect/uebersicht.html URL that returned
+403 in Actions. Public endpoint reachability is not authenticated live success.
+
+The second full run `37421394774` on `ff5836b` passed tests but failed live:
+ALDI had zero visible inputs at username_field; LIDL still returned HTTP 403
+on its corrected public entry, despite HTTP 200 from the development environment.
+Both provider checks finished with booking disabled. A final check uses ALDI's
+customer-area link published directly on https://www.alditalk.de/:
+https://www.alditalk-kundenportal.de/portal/auth/uebersicht/.
+SSO document-status matching now ignores URL fragments, without retaining URLs.
+
+LIDL booking now makes one attempt on the selected channel. An uncertain API
+outcome never falls back to browser booking; a click followed by timeout never
+repeats the click and is persisted as UNKNOWN. Terminal DB outcomes cannot be
+overwritten by stale recovery results. Tests cover both crash boundaries,
+terminal recovery, concurrent stale recovery, lock timeout, and invalid flags.
+
+Three explicitly authorized complete test-and-monitoring jobs ran on the
+validation branch, using existing Actions Secrets without retrieving or exposing
+them. The temporary push-to-watch condition has been removed. Regular push/PR
+runs execute tests only; schedule and workflow_dispatch execute the safe watcher.
+
+Final full run: https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37421795572
+Commit: `cdb87edc182bfecf537e4d6466a11946b6325c74`.
+Tests: 85 passed without warnings. Live result: failed, exit 1; both providers
+were attempted, a finished heartbeat was uploaded, and no booking was executed.
+ALDI: official SSO host, HTTP 200, username_field timeout, zero visible inputs,
+one frame, one severe browser log entry and one failed resource.
+LIDL: corrected entry, HTTP 403, access_denied, zero visible inputs.
+These counts do not identify the ALDI script-error cause or prove that LIDL is
+blocking by IP. No invalid-password conclusion is supported: no visible username
+field was found in either provider run. Further live repair requires investigating
+the frontend resource failure and the portal's access-denied response.
+
+Remaining gates: real session/usage success; verified tariff/refill evidence;
+provider status reconciliation; enforced branch checks; independent heartbeat
+delivery with an explicitly chosen destination. No live booking is enabled.
+
 ## Active deployment
 
 Baseline main commit: `ea482c9a8e868b3ce3ebe63ca74f99e5d55708c3`.

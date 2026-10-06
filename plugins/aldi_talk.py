@@ -1,4 +1,4 @@
-"""
+r"""
 ALDI Talk Watcher Plugin.
 HTTP/API-basierte Implementierung (aus watcher.py extrahiert).
 
@@ -12,7 +12,7 @@ DOM-Selektoren & Requests (aus watcher.py):
 import re
 import aiohttp
 from typing import Dict, Optional
-from .base_watcher import BaseWatcher
+from .base_watcher import BaseWatcher, RechargeUnknownError
 
 
 class AldiTalkWatcher(BaseWatcher):
@@ -99,7 +99,9 @@ class AldiTalkWatcher(BaseWatcher):
             self.RECHARGE_URL,
             headers={"Cookie": f"PHPSESSID={await self.login()}"}
         ) as response:
-            return response.status == 200
+            if response.status != 200:
+                raise RechargeUnknownError("ALDI booking response is not confirmed")
+            return True
 
     async def close(self):
         """Schliet die HTTP-Session."""

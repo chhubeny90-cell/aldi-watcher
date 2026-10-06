@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from core.database import Database, RechargeLockedError
 
 
+class RechargeUnknownError(RuntimeError):
+    """An external booking may have happened; reconciliation is required."""
+
+
 @dataclass
 class WatcherResult:
     provider: str
@@ -65,15 +69,15 @@ class BaseWatcher(ABC):
             try:
                 status = (await self.check_recharge_status(record.recharge_id)).upper()
             except Exception as exc:
-                self.database.set_recharge_status(
-                    record.recharge_id, "UNKNOWN", str(exc)
+                actual = self.database.set_recharge_status(
+                    record.recharge_id, "UNKNOWN", type(exc).__name__
                 )
-                resolved.append((record.recharge_id, "UNKNOWN"))
+                resolved.append((record.recharge_id, actual))
                 continue
             if status not in {"SUCCESS", "FAILED", "UNKNOWN"}:
                 status = "UNKNOWN"
-            self.database.set_recharge_status(record.recharge_id, status)
-            resolved.append((record.recharge_id, status))
+            actual = self.database.set_recharge_status(record.recharge_id, status)
+            resolved.append((record.recharge_id, actual))
         return resolved
 
     async def _recharge_once(self):
@@ -85,16 +89,16 @@ class BaseWatcher(ABC):
         try:
             ok = await self.trigger_recharge(recharge_id)
         except (asyncio.TimeoutError, TimeoutError) as exc:
-            self.database.set_recharge_status(recharge_id, "UNKNOWN", str(exc))
-            return recharge_id, "UNKNOWN", False
+            status = self.database.set_recharge_status(recharge_id, "UNKNOWN", type(exc).__name__)
+            return recharge_id, status, status == "SUCCESS"
         except Exception as exc:
             # The external side effect may have happened before the exception.
-            self.database.set_recharge_status(recharge_id, "UNKNOWN", str(exc))
-            return recharge_id, "UNKNOWN", False
+            status = self.database.set_recharge_status(recharge_id, "UNKNOWN", type(exc).__name__)
+            return recharge_id, status, status == "SUCCESS"
 
         status = "SUCCESS" if ok else "FAILED"
-        self.database.set_recharge_status(recharge_id, status)
-        return recharge_id, status, ok
+        status = self.database.set_recharge_status(recharge_id, status)
+        return recharge_id, status, status == "SUCCESS"
 
     async def run(self) -> WatcherResult:
         try:

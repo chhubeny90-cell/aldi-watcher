@@ -35,7 +35,7 @@ import aiohttp
 import re
 from typing import Dict, Optional
 from playwright.async_api import async_playwright, Browser, Page
-from .base_watcher import BaseWatcher
+from .base_watcher import BaseWatcher, RechargeUnknownError
 
 
 class LidlConnectWatcher(BaseWatcher):
@@ -194,7 +194,9 @@ class LidlConnectWatcher(BaseWatcher):
                 json={"tariffOptionId": tariff_id},
                 headers={"Authorization": f"Bearer {self.auth_token}"}
             ) as response:
-                return response.status in [200, 201]
+                if response.status not in [200, 201]:
+                    raise RechargeUnknownError("Lidl booking response is not confirmed")
+                return True
 
     # ==================== PLAYWRIGHT-METHODEN (FALLBACK) ====================
 
@@ -262,7 +264,7 @@ class LidlConnectWatcher(BaseWatcher):
         """
         LÃ¶st Nachbuchung via Playwright aus.
         """
-        async def _recharge():
+        try:
             # Buchungs-Button klicken
             await self.page.click(self.SELECTORS["recharge_button"], timeout=10000)
             await self.page.wait_for_load_state("networkidle")
@@ -271,11 +273,8 @@ class LidlConnectWatcher(BaseWatcher):
             await self.page.wait_for_selector(self.SELECTORS["success_message"], timeout=10000)
             return True
         
-        try:
-            await self._exponential_backoff(_recharge)
-            return True
         except Exception:
-            return False
+            raise RechargeUnknownError("Lidl browser booking outcome is unknown") from None
 
     # ==================== PUBLIC METHODS ====================
 
@@ -305,11 +304,8 @@ class LidlConnectWatcher(BaseWatcher):
         LÃ¶st Nachbuchung aus (API oder Playwright).
         """
         if self.use_api:
-            try:
-                return await self._api_trigger_recharge()
-            except Exception as e:
-                print(f"Lidl API recharge failed, falling back to Playwright: {e}")
-                self.use_api = False
+            # Never switch channels after a booking request with uncertain outcome.
+            return await self._api_trigger_recharge()
         
         # Fallback: Playwright
         return await self._pw_trigger_recharge()

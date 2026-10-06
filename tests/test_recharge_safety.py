@@ -51,6 +51,23 @@ def _crash_worker(db_path, counter_file):
     asyncio.run(watcher.run())
 
 
+def _crash_before_call_worker(db_path, counter_file):
+    class CrashAfterCommitDatabase(Database):
+        def begin_recharge(self, *args, **kwargs):
+            super().begin_recharge(*args, **kwargs)
+            os._exit(24)
+    asyncio.run(FakeWatcher(CrashAfterCommitDatabase(db_path), counter_file).run())
+
+
+def _recovery_worker(db_path, counter_file, status, started, release):
+    class DelayedRecoveryWatcher(FakeWatcher):
+        async def check_recharge_status(self, recharge_id):
+            started.set()
+            assert release.wait(10)
+            return self.status
+    asyncio.run(DelayedRecoveryWatcher(Database(db_path), counter_file, status=status).recover_pending())
+
+
 def test_begin_recharge_blocks_duplicate(tmp_path):
     db = Database(str(tmp_path / "db.sqlite"))
     first = db.begin_recharge("fake", "user")
@@ -131,3 +148,79 @@ def test_crash_after_external_call_leaves_pending_and_recovery_does_not_rebook(t
     asyncio.run(recovery.recover_pending())
     assert len(Path(counter_file).read_text().splitlines()) == 1
     assert db.get_unresolved_recharges("fake", "user")[0].status == "UNKNOWN"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX crash boundary")
+def test_crash_after_pending_commit_before_call_stays_blocked(tmp_path):
+    db_path = str(tmp_path / "db.sqlite")
+    counter_file = str(tmp_path / "calls.txt")
+    Database(db_path)
+    ctx = mp.get_context("spawn")
+    process = ctx.Process(target=_crash_before_call_worker, args=(db_path, counter_file))
+    process.start()
+    process.join(15)
+    assert process.exitcode == 24
+    assert not Path(counter_file).exists()
+    db = Database(db_path)
+    assert db.get_unresolved_recharges("fake", "user")[0].status == "PENDING"
+    result = asyncio.run(FakeWatcher(db, counter_file).run())
+    assert result.recharge_status == "BLOCKED"
+    assert not Path(counter_file).exists()
+
+
+@pytest.mark.parametrize("outcome", ["SUCCESS", "FAILED"])
+def test_recovery_resolves_terminal_outcomes_without_booking(tmp_path, outcome):
+    db = Database(str(tmp_path / "db.sqlite"))
+    recharge_id = db.begin_recharge("fake", "user")
+    counter_file = tmp_path / "calls.txt"
+    result = asyncio.run(FakeWatcher(db, str(counter_file), status=outcome).recover_pending())
+    assert result == [(recharge_id, outcome)]
+    assert db.get_unresolved_recharges("fake", "user") == []
+    assert not counter_file.exists()
+    assert db.set_recharge_status(recharge_id, "UNKNOWN") == outcome
+
+
+def test_stale_multiprocess_recovery_cannot_undo_success(tmp_path):
+    db_path = str(tmp_path / "db.sqlite")
+    counter_file = str(tmp_path / "calls.txt")
+    db = Database(db_path)
+    recharge_id = db.begin_recharge("fake", "user")
+    ctx = mp.get_context("spawn")
+    unknown_started, success_started = ctx.Event(), ctx.Event()
+    unknown_release, success_release = ctx.Event(), ctx.Event()
+    stale = ctx.Process(target=_recovery_worker, args=(db_path, counter_file, "UNKNOWN", unknown_started, unknown_release))
+    success = ctx.Process(target=_recovery_worker, args=(db_path, counter_file, "SUCCESS", success_started, success_release))
+    for process in (stale, success):
+        process.start()
+    assert unknown_started.wait(10)
+    assert success_started.wait(10)
+    success_release.set()
+    success.join(15)
+    unknown_release.set()
+    stale.join(15)
+    assert success.exitcode == stale.exitcode == 0
+    assert db.set_recharge_status(recharge_id, "UNKNOWN") == "SUCCESS"
+    assert db.get_unresolved_recharges("fake", "user") == []
+    assert not Path(counter_file).exists()
+
+
+def test_sqlite_lock_timeout_prevents_external_call(tmp_path):
+    db_path = str(tmp_path / "db.sqlite")
+    counter_file = tmp_path / "calls.txt"
+    db = Database(db_path, timeout=.05)
+    with sqlite3.connect(db_path) as blocker:
+        blocker.execute("BEGIN IMMEDIATE")
+        result = asyncio.run(FakeWatcher(db, str(counter_file)).run())
+        assert result.success is False
+        assert "locked" in result.error_message
+        assert not counter_file.exists()
+        blocker.rollback()
+    assert db.get_unresolved_recharges("fake", "user") == []
+
+
+def test_unknown_cannot_return_to_pending(tmp_path):
+    db = Database(str(tmp_path / "db.sqlite"))
+    recharge_id = db.begin_recharge("fake", "user")
+    db.set_recharge_status(recharge_id, "UNKNOWN")
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        db.set_recharge_status(recharge_id, "PENDING")

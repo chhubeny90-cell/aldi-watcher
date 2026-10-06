@@ -1,6 +1,38 @@
 # aldi-watcher
 
-Automatische Überwachung und Nachbuchung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**.
+Read-only-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem separaten, noch nicht live freigegebenen Buchungskern.
+
+## Aktiver Betrieb und Full Run
+
+GitHub Actions startet `watcher.py --run-once` mit Selenium/Chrome und
+`AUTO_BOOK_ENABLED=false`. Der Workflow plant einen Lauf alle zehn Minuten;
+GitHub kann Starts verzögern. Ein grüner Push-/PR-Testlauf ist kein Live-Nachweis.
+`watcher.py` enthält keine Buchungsfunktion und liest Zugangsdaten nur aus
+Umgebungsvariablen beziehungsweise GitHub Secrets; es lädt keine `.env`.
+
+```bash
+# Tests: ohne echte Providerzugriffe
+python -m pytest -q
+# Monitoring: Zugangsdaten vorher über sichere Umgebungsvariablen bereitstellen
+AUTO_BOOK_ENABLED=false python watcher.py --run-once
+# Nur ALDI prüfen
+AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
+```
+
+Die Secrets heißen `ALDI_USER`, `ALDI_PASS`, `LIDL_USER` und `LIDL_PASS`.
+Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
+Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
+Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
+3 Konfigurationsfehler. Tarif-/Refill-Berechtigung und echte Status-Reconciliation
+sind noch nicht live nachgewiesen. Ein Session-/Volumen-Erfolg ist keine
+Buchungsfreigabe.
+
+`main.py` ist der separate Plugin-Dauerbetrieb mit `.env` und SQLite.
+Seine DB muss über Neustarts auf demselben persistenten Datenträger liegen.
+Der sichere Standard ist `DRY_RUN=true`, `AUTO_BOOK_ENABLED=false`.
+Ungültige Flags werden abgelehnt. Live-Pluginbetrieb verlangt beide expliziten
+Flags `DRY_RUN=false` und `AUTO_BOOK_ENABLED=true`, darf aber erst nach belegter
+Tarifentscheidung und Provider-Reconciliation aktiviert werden.
 
 ## Quickstart (5 Minuten)
 
@@ -76,8 +108,8 @@ playwright install chromium
 ## Usage
 
 ```bash
-# Einmaliger Durchlauf
-python main.py
+# Einmaliger Read-only-Durchlauf
+AUTO_BOOK_ENABLED=false python watcher.py --run-once
 
 # Dauerbetrieb (mit Polling)
 python main.py
@@ -86,7 +118,7 @@ python main.py
 ### DRY_RUN-Modus
 
 - **DRY_RUN=true** (default): Nur Simulation, keine echten Buchungen
-- **DRY_RUN=false**: Echte Nachbuchungen werden ausgelst
+- **DRY_RUN=false**: Plugin-Livebetrieb erfordert zusätzlich `AUTO_BOOK_ENABLED=true`; die Live-Abnahme steht noch aus.
 
 ## Architektur
 
