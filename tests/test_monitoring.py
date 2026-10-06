@@ -165,6 +165,29 @@ def test_unexpected_origin_rejected():
         m.require_origin(obj, watcher.ALDI_LOGIN_URL)
 
 
+@pytest.mark.parametrize('url', [
+    'https://login.alditalk-kundenbetreuung.de/signin/XUI/?state=PRIVATE',
+    'https://www.alditalk-kundenportal.de/portal/noauth/login',
+])
+def test_verified_aldi_login_origin_is_allowed(url):
+    obj = driver()
+    obj.current_url = url
+    m.require_origin(obj, watcher.ALDI_LOGIN_URL, watcher.ALDI_LOGIN_HOSTS)
+
+
+@pytest.mark.parametrize('url', [
+    'http://login.alditalk-kundenbetreuung.de/signin/XUI/',
+    'https://login.alditalk-kundenbetreuung.de.attacker.invalid/signin/XUI/',
+    'https://login.alditalk-kundenbetreuung.de/unreviewed/',
+    'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html',
+])
+def test_aldi_sso_allowlist_rejects_other_origins_and_paths(url):
+    obj = driver()
+    obj.current_url = url
+    with pytest.raises(PermissionError):
+        m.require_origin(obj, watcher.ALDI_LOGIN_URL, watcher.ALDI_LOGIN_HOSTS)
+
+
 def test_http_status_classified(monkeypatch):
     monkeypatch.setattr(m, 'diagnostics', lambda _: {'http_status': 429})
     result = m.execute_provider('aldi_talk', driver, Mock(side_effect=TimeoutException()), Mock(), 'test')

@@ -30,7 +30,8 @@ jobs:
         run: python -m pytest -q
 
   watch:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # One explicitly authorized validation branch also runs the complete read-only job.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/hardening/full-run-20261006')
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10

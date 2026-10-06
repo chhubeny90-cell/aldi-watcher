@@ -184,12 +184,21 @@ class Database:
         if status not in {"PENDING", "UNKNOWN", "SUCCESS", "FAILED"}:
             raise ValueError(f"Invalid recharge status: {status}")
         with self._connect() as conn:
-            cursor = conn.execute("""
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT status FROM recharges WHERE recharge_id = ?", (recharge_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown recharge_id: {recharge_id}")
+            current = row[0]
+            # A late UNKNOWN result must never undo an already reconciled outcome.
+            if current in {"SUCCESS", "FAILED"}:
+                return current
+            if status == "PENDING" and current != "PENDING":
+                raise ValueError("UNKNOWN cannot transition back to PENDING")
+            conn.execute("""
                 UPDATE recharges SET status = ?, error_message = ?, updated_at = ?
                 WHERE recharge_id = ?
             """, (status, error_message, datetime.now().isoformat(), recharge_id))
-            if cursor.rowcount != 1:
-                raise KeyError(f"Unknown recharge_id: {recharge_id}")
+            return status
 
     def get_unresolved_recharges(self, provider: Optional[str] = None, username: Optional[str] = None):
         query = """

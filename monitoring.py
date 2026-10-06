@@ -21,9 +21,11 @@ def phase(name):
         context['phase'] = name
 
 
-def require_origin(driver, expected):
+def require_origin(driver, expected, login_hosts=()):
     actual = urlsplit(driver.current_url)
-    if actual.scheme != 'https' or actual.hostname != urlsplit(expected).hostname:
+    expected_host = urlsplit(expected).hostname
+    trusted_login = actual.hostname in login_hosts and actual.path.startswith('/signin/XUI/')
+    if actual.scheme != 'https' or not (actual.hostname == expected_host or trusted_login):
         raise PermissionError('unexpected_origin')
 
 
@@ -93,7 +95,8 @@ def diagnostics(driver):
     try:
         from selenium.webdriver.common.by import By
         host = urlsplit(driver.current_url).hostname
-        allowed = {'www.alditalk-kundenportal.de', 'kundenkonto.lidl-connect.de'}
+        allowed = {'www.alditalk-kundenportal.de', 'kundenkonto.lidl-connect.de',
+                   'login.alditalk-kundenbetreuung.de', 'www.alditalk-kundenbetreuung.de'}
         result['page_host'] = host if host in allowed else 'other'
         result['cookie_count'] = len(driver.get_cookies())
         result['login_form_visible'] = any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, "input[type='password']"))

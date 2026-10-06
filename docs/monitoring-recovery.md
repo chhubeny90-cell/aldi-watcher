@@ -1,5 +1,35 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Full-run hardening, 2026-10-06
+
+The scheduled run `37399082074` on main `585b515` executed the watcher,
+retained a finished report, and failed correctly: ALDI was rejected on the
+official SSO redirect; LIDL returned HTTP 403 at username_field. Scheduling
+therefore exists, but the configured ten-minute interval is not proven reliable.
+The earlier statement below that the latest run was in July is historical.
+
+ALDI's login redirect was verified without credentials from the configured
+portal, to `login.alditalk-kundenbetreuung.de/signin/XUI/`. Only that exact
+HTTPS host and login path are accepted as an additional credential-entry origin.
+Protected-page validation still requires the configured portal origin.
+Official source: https://www.alditalk.de/tarifverwaltung (Mein ALDI TALK).
+
+LIDL booking now makes one attempt on the selected channel. An uncertain API
+outcome never falls back to browser booking; a click followed by timeout never
+repeats the click and is persisted as UNKNOWN. Terminal DB outcomes cannot be
+overwritten by stale recovery results. Tests cover both crash boundaries,
+terminal recovery, concurrent stale recovery, lock timeout, and invalid flags.
+
+For the explicitly authorized full run, pushes to the single branch
+`hardening/full-run-20261006` also execute the safe watcher job after tests.
+Other push/PR runs remain tests only. The full run uses the existing Actions
+Secrets and does not retrieve or expose them. Remove this temporary branch
+condition after validation before merging into main.
+
+Remaining gates: real session/usage success; verified tariff/refill evidence;
+provider status reconciliation; enforced branch checks; independent heartbeat
+delivery with an explicitly chosen destination. No live booking is enabled.
+
 ## Active deployment
 
 Baseline main commit: `ea482c9a8e868b3ce3ebe63ca74f99e5d55708c3`.

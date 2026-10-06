@@ -20,6 +20,8 @@ LIDL_PASS = os.environ.get('LIDL_PASS', '')
 
 ALDI_LOGIN_URL = 'https://www.alditalk-kundenportal.de/portal/noauth/login'
 ALDI_OVERVIEW_URL = 'https://www.alditalk-kundenportal.de/user/auth/account-overview/'
+# Observed redirect from the configured ALDI portal; official ALDI login host.
+ALDI_LOGIN_HOSTS = ('login.alditalk-kundenbetreuung.de',)
 LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html'
 LIDL_OVERVIEW_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect/uebersicht.html'
 
@@ -78,7 +80,7 @@ def aldi_login(driver) -> bool:
         return False
     phase('login_page')
     navigate(driver, ALDI_LOGIN_URL)
-    require_origin(driver, ALDI_LOGIN_URL)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
