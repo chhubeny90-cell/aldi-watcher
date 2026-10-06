@@ -7,7 +7,7 @@ from core.config import Config
 @pytest.fixture
 def config_env(monkeypatch):
     for key in ("DRY_RUN", "AUTO_BOOK_ENABLED", "POLL_INTERVAL_SECONDS",
-                "THRESHOLD_ALDI_MB", "THRESHOLD_LIDL_MB", "ALDI_PASS_ENC", "LIDL_PASS_ENC"):
+                "THRESHOLD_ALDI_MB", "THRESHOLD_LIDL_MB", "LIDL_USE_API", "LIDL_REFILL_MODE", "ALDI_PASS_ENC", "LIDL_PASS_ENC"):
         monkeypatch.delenv(key, raising=False)
     with patch("core.config.SecurityManager"), patch("core.config.load_dotenv"):
         yield monkeypatch
@@ -50,3 +50,12 @@ def test_decryption_failure_does_not_use_plaintext_fallback(config_env):
     with patch("core.config.SecurityManager", return_value=Mock(decrypt=Mock(side_effect=ValueError))):
         with pytest.raises(ValueError, match="Cannot decrypt ALDI_PASS_ENC"):
             Config()
+
+
+def test_lidl_defaults_to_button_availability(config_env):
+    config = Config()
+    assert config.lidl_use_api is False
+    assert config.lidl_refill_mode == 'available'
+    config_env.setenv('LIDL_REFILL_MODE', 'typo')
+    with pytest.raises(ValueError, match='LIDL_REFILL_MODE'):
+        Config()

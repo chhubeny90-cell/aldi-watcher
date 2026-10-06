@@ -1,5 +1,6 @@
 import os
 import time
+from core.lidl_refill import inspect_selenium
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -217,6 +218,8 @@ def lidl_read_status(driver) -> dict:
         if ('guthaben' in ll or 'balance' in ll) and status['guthaben'] == '':
             status['guthaben'] = line.strip()
     status['inland_frei_gb'] = remaining_gb(body_text)
+    phase('refill_availability')
+    status.update(inspect_selenium(driver))
     return status
 
 

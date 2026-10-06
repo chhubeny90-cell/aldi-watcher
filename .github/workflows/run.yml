@@ -53,6 +53,9 @@ jobs:
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           LIDL_USER: ${{ secrets.LIDL_USER }}
           LIDL_PASS: ${{ secrets.LIDL_PASS }}
+          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ vars.LIDL_ACTIVE_TARIFF_SELECTOR }}
+          LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
+          LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}
           AUTO_BOOK_ENABLED: 'false'
         run: python watcher.py --run-once
       - name: Preserve sanitized heartbeat and diagnosis

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 from .security import SecurityManager
+from .lidl_refill import configured_selectors
 
 
 class Config:
@@ -30,6 +31,12 @@ class Config:
         self.lidl_pass = self._get_credential("LIDL_PASS")
         self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "500"))
         
+        self.lidl_use_api = self._get_bool("LIDL_USE_API", False)
+        self.lidl_refill_mode = os.getenv("LIDL_REFILL_MODE", "available").strip()
+        if self.lidl_refill_mode not in {"available", "needed"}:
+            raise ValueError("LIDL_REFILL_MODE must be available or needed")
+        self.lidl_refill_selectors = configured_selectors()
+
         # Betriebsmodi
         self.dry_run = self._get_bool("DRY_RUN", True)
         self.auto_book_enabled = self._get_bool("AUTO_BOOK_ENABLED", False)

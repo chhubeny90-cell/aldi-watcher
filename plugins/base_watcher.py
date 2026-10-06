@@ -84,7 +84,7 @@ class BaseWatcher(ABC):
         if self.database is None:
             raise RuntimeError("Live recharge requires persistent Database")
         recharge_id = self.database.begin_recharge(
-            self.provider_name, self.username, recent_success_guard_seconds=30
+            self.provider_name, self.username, recent_success_guard_seconds=getattr(self, "recharge_guard_seconds", 30)
         )
         try:
             ok = await self.trigger_recharge(recharge_id)

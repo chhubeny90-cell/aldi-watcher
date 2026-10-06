@@ -240,3 +240,23 @@ def test_mixed_success_and_pending_is_degraded_not_success():
     assert summary['exit_code'] == 2
     assert summary['unresolved_count'] == 1
     assert summary['unresolved_providers'] == ['lidl_connect']
+
+
+def test_monitoring_reports_refill_evidence_without_booking(monkeypatch):
+    monkeypatch.setattr(m, 'session_visible', lambda _: True)
+    result = m.execute_provider('lidl_connect', driver, lambda _: True,
+        lambda _: {'inland_frei_gb': .1, 'refill_eligible': True,
+                   'refill_type': 'FREE_UNLIMITED',
+                   'refill_reason': 'free_one_gb_button_available'}, 'test')
+    assert result['status'] == 'ok'
+    assert result['refill_eligible'] is True
+    assert result['refill_type'] == 'FREE_UNLIMITED'
+
+
+def test_monitoring_does_not_copy_raw_refill_text(monkeypatch):
+    monkeypatch.setattr(m, 'session_visible', lambda _: True)
+    result = m.execute_provider('lidl_connect', driver, lambda _: True,
+        lambda _: {'inland_frei_gb': .1, 'refill_eligible': True,
+                   'refill_type': 'FREE_UNLIMITED', 'refill_reason': 'PRIVATE_TOKEN'}, 'test')
+    assert not result['refill_eligible']
+    assert 'PRIVATE' not in json.dumps(result)
