@@ -91,7 +91,8 @@ def main():
         probe(name, url) for name, url in [('aldi_talk', ALDI_LOGIN_URL), ('lidl_connect', LIDL_LOGIN_URL)]]}
     write_report('portal-probe-report.json', report)
     print(json.dumps(report))
+    return 1 if any(provider.get('status') != 'complete' for provider in report['providers']) else 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
