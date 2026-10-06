@@ -18,7 +18,6 @@ def test_host_discards_credentials_path_query_and_fragment():
     assert probe.host('https://secret:password@example.invalid/account?token=PRIVATE#PRIVATE') == 'example.invalid'
 
 
-
 @pytest.mark.parametrize(
     ("statuses", "expected_exit_code"),
     [
