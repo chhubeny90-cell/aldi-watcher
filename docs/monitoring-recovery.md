@@ -34,11 +34,22 @@ repeats the click and is persisted as UNKNOWN. Terminal DB outcomes cannot be
 overwritten by stale recovery results. Tests cover both crash boundaries,
 terminal recovery, concurrent stale recovery, lock timeout, and invalid flags.
 
-For the explicitly authorized full run, pushes to the single branch
-`hardening/full-run-20261006` also execute the safe watcher job after tests.
-Other push/PR runs remain tests only. The full run uses the existing Actions
-Secrets and does not retrieve or expose them. Remove this temporary branch
-condition after validation before merging into main.
+Three explicitly authorized complete test-and-monitoring jobs ran on the
+validation branch, using existing Actions Secrets without retrieving or exposing
+them. The temporary push-to-watch condition has been removed. Regular push/PR
+runs execute tests only; schedule and workflow_dispatch execute the safe watcher.
+
+Final full run: https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37421795572
+Commit: `cdb87edc182bfecf537e4d6466a11946b6325c74`.
+Tests: 85 passed without warnings. Live result: failed, exit 1; both providers
+were attempted, a finished heartbeat was uploaded, and no booking was executed.
+ALDI: official SSO host, HTTP 200, username_field timeout, zero visible inputs,
+one frame, one severe browser log entry and one failed resource.
+LIDL: corrected entry, HTTP 403, access_denied, zero visible inputs.
+These counts do not identify the ALDI script-error cause or prove that LIDL is
+blocking by IP. No invalid-password conclusion is supported: no visible username
+field was found in either provider run. Further live repair requires investigating
+the frontend resource failure and the portal's access-denied response.
 
 Remaining gates: real session/usage success; verified tariff/refill evidence;
 provider status reconciliation; enforced branch checks; independent heartbeat
