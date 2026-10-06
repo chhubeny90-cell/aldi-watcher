@@ -1,8 +1,6 @@
 name: Public portal diagnosis
 on:
   workflow_dispatch:
-  push:
-    branches: ['hardening/readiness-diagnostics-20261006']
 permissions:
   contents: read
 jobs:
@@ -20,7 +18,9 @@ jobs:
           install-chromedriver: true
       - run: pip install -r requirements.txt
       - name: Inspect public pages without credentials
-        run: python portal_probe.py
+        run: |
+          echo 'Public-page diagnosis only; success does not establish authenticated monitoring or booking readiness.' >> "$GITHUB_STEP_SUMMARY"
+          python portal_probe.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

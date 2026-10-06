@@ -1,5 +1,43 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Readiness follow-up, 2026-10-06
+
+PR: https://github.com/chhubeny90-cell/aldi-watcher/pull/6
+Public browser diagnosis: https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37482318763
+Scheduled full run: https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37479323642
+
+The latest scheduled full run still fails before credential entry on both providers.
+A separate probe with no provider secrets narrowed the evidence:
+
+- ALDI: SSO document loads; zero visible input fields; the single hidden frame is
+  Usercentrics consent management, not a login form. An XHR on the SSO host returns
+  HTTP 401. This does not establish bad credentials or the root cause of the
+  missing form. The endpoint, response body and credentials are not recorded.
+- LIDL: the public login document itself returns HTTP 403, as do two resources.
+  No login fields or frames are visible. This does not establish an IP block.
+- Diagnostic workflow success means the public inspection completed, not that
+  either account authenticated. `portal_probe.py` refuses provider credentials,
+  submits no form, retains only classified metadata, and is manual-only after merge.
+
+88 local tests pass. The temporary diagnostic branch push trigger is removed.
+No booking was enabled. Repeated authenticated runs without a new explanation for
+these public-page failures would not validate a repair.
+
+Release remains blocked pending these external prerequisites and acceptance tests:
+
+1. Resolve the official portal's public-login failures with the provider or a
+   supported execution host. Re-run the credential-free probe there, then prove
+   session and protected usage for both accounts with booking disabled.
+2. Select a persistent execution host and an independent heartbeat service plus
+   notification destination. Configure the scheduler, observe multiple real runs,
+   deliberately stop it and verify a delivered missing-heartbeat alert after the
+   agreed deadline. A GitHub cron or successful artifact upload is not that test.
+3. Enable required branch checks using repository administration access; the
+   current GitHub connection cannot write branch protection.
+4. Implement and validate actual tariff/refill evidence and provider reconciliation
+   before any controlled booking rollout; neither public diagnostics nor mocked
+   recharge tests prove those live prerequisites.
+
 ## Full-run hardening, 2026-10-06
 
 The scheduled run `37399082074` on main `585b515` executed the watcher,
