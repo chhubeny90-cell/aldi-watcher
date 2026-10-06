@@ -20,6 +20,14 @@ https://kundenkonto.lidl-connect.de/, which was observed redirecting to
 that entry instead of the /mein-lidl-connect/uebersicht.html URL that returned
 403 in Actions. Public endpoint reachability is not authenticated live success.
 
+The second full run `37421394774` on `ff5836b` passed tests but failed live:
+ALDI had zero visible inputs at username_field; LIDL still returned HTTP 403
+on its corrected public entry, despite HTTP 200 from the development environment.
+Both provider checks finished with booking disabled. A final check uses ALDI's
+customer-area link published directly on https://www.alditalk.de/:
+https://www.alditalk-kundenportal.de/portal/auth/uebersicht/.
+SSO document-status matching now ignores URL fragments, without retaining URLs.
+
 LIDL booking now makes one attempt on the selected channel. An uncertain API
 outcome never falls back to browser booking; a click followed by timeout never
 repeats the click and is persisted as UNKNOWN. Terminal DB outcomes cannot be

@@ -209,6 +209,18 @@ def test_resource_diagnostics_count_without_leaking_messages_or_urls():
     assert 'secret.invalid' not in json.dumps(result)
 
 
+def test_sso_url_fragment_does_not_hide_http_status():
+    obj = driver()
+    obj.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/?state=PRIVATE#login/'
+    obj.get_log.side_effect = lambda kind: [] if kind == 'browser' else [{
+        'message': json.dumps({'message': {'method': 'Network.responseReceived', 'params': {
+            'type': 'Document', 'response': {'status': 200,
+            'url': 'https://login.alditalk-kundenbetreuung.de/signin/XUI/?state=PRIVATE'}}}})}]
+    result = m.diagnostics(obj)
+    assert result['http_status'] == 200
+    assert 'PRIVATE' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('status', ['unknown', 'pending', 'UNKNOWN', 'PENDING'])
 def test_unresolved_states_are_explicit_and_fail_closed(status):
     summary = m.evaluate_run([{'provider': 'aldi_talk', 'login_ok': True, 'status': status}])

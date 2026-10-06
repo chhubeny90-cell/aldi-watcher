@@ -9,7 +9,7 @@ import random
 import re
 from pathlib import Path
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urldefrag
 from uuid import uuid4
 
 _CONTEXT = contextvars.ContextVar('monitor_context', default=None)
@@ -128,7 +128,7 @@ def diagnostics(driver):
                 redirects += 1
             if message['method'] == 'Network.responseReceived':
                 response = params['response']
-                if response.get('url') == driver.current_url:
+                if urldefrag(response.get('url', ''))[0] == urldefrag(driver.current_url)[0]:
                     result['http_status'] = int(response['status'])
         result['redirect_count'] = redirects
         result['failed_resource_count'] = failed_resources
