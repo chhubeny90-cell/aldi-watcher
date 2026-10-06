@@ -89,7 +89,9 @@ def evaluate_run(results, auto_book_enabled=False):
 def diagnostics(driver):
     """Allowlisted metadata only; no bodies, URLs, headers, cookie values or tokens."""
     result = dict(http_status=None, redirect_count=None, csrf_found=None,
-                  cookie_count=None, login_form_visible=None, page_host=None)
+                  cookie_count=None, login_form_visible=None, page_host=None,
+                  visible_input_count=None, frame_count=None, captcha_detected=None,
+                  script_error_count=None, failed_resource_count=None)
     if driver is None:
         return result
     try:
@@ -101,10 +103,25 @@ def diagnostics(driver):
         result['cookie_count'] = len(driver.get_cookies())
         result['login_form_visible'] = any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, "input[type='password']"))
         result['csrf_found'] = bool(driver.find_elements(By.CSS_SELECTOR, "input[name*='csrf'], input[name*='CSRF'], meta[name*='csrf']"))
+        result['visible_input_count'] = sum(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, 'input'))
+        result['frame_count'] = len(driver.find_elements(By.CSS_SELECTOR, 'iframe'))
+        result['captcha_detected'] = bool(driver.find_elements(By.CSS_SELECTOR,
+            "iframe[src*='captcha'], iframe[src*='challenge'], .g-recaptcha, .h-captcha, [id*='captcha']"))
+        # Counts only: never retain JS messages or failed resource URLs.
+        try:
+            result['script_error_count'] = sum(entry.get('level') == 'SEVERE' for entry in driver.get_log('browser'))
+        except Exception:
+            pass
         redirects = 0
+        failed_resources = 0
         for entry in driver.get_log('performance'):
             message = json.loads(entry['message'])['message']
             params = message.get('params', {})
+            if message['method'] == 'Network.loadingFailed':
+                failed_resources += 1
+            if message['method'] == 'Network.responseReceived' and params.get('type') != 'Document':
+                if params.get('response', {}).get('status', 0) >= 400:
+                    failed_resources += 1
             if params.get('type') != 'Document':
                 continue
             if message['method'] == 'Network.requestWillBeSent' and 'redirectResponse' in params:
@@ -114,6 +131,7 @@ def diagnostics(driver):
                 if response.get('url') == driver.current_url:
                     result['http_status'] = int(response['status'])
         result['redirect_count'] = redirects
+        result['failed_resource_count'] = failed_resources
     except Exception:
         pass
     return result

@@ -14,6 +14,12 @@ HTTPS host and login path are accepted as an additional credential-entry origin.
 Protected-page validation still requires the configured portal origin.
 Official source: https://www.alditalk.de/tarifverwaltung (Mein ALDI TALK).
 
+The official https://www.lidl-connect.de/ customer-account link points to
+https://kundenkonto.lidl-connect.de/, which was observed redirecting to
+/mein-lidl-connect.html with HTTP 200 and a login form. Monitoring now uses
+that entry instead of the /mein-lidl-connect/uebersicht.html URL that returned
+403 in Actions. Public endpoint reachability is not authenticated live success.
+
 LIDL booking now makes one attempt on the selected channel. An uncertain API
 outcome never falls back to browser booking; a click followed by timeout never
 repeats the click and is persisted as UNKNOWN. Terminal DB outcomes cannot be

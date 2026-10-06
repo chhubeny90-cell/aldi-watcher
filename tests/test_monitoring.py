@@ -194,6 +194,21 @@ def test_http_status_classified(monkeypatch):
     assert result['status'] == 'rate_limited'
 
 
+def test_resource_diagnostics_count_without_leaking_messages_or_urls():
+    obj = driver()
+    obj.get_log.side_effect = lambda kind: (
+        [{'level': 'SEVERE', 'message': 'PRIVATE_PASSWORD https://secret.invalid/token'}]
+        if kind == 'browser' else [
+            {'message': json.dumps({'message': {'method': 'Network.loadingFailed', 'params': {'type': 'Script', 'errorText': 'PRIVATE_TOKEN'}}})},
+            {'message': json.dumps({'message': {'method': 'Network.responseReceived', 'params': {'type': 'Script', 'response': {'status': 403, 'url': 'https://secret.invalid/token'}}}})},
+        ])
+    result = m.diagnostics(obj)
+    assert result['script_error_count'] == 1
+    assert result['failed_resource_count'] == 2
+    assert 'PRIVATE' not in json.dumps(result)
+    assert 'secret.invalid' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('status', ['unknown', 'pending', 'UNKNOWN', 'PENDING'])
 def test_unresolved_states_are_explicit_and_fail_closed(status):
     summary = m.evaluate_run([{'provider': 'aldi_talk', 'login_ok': True, 'status': status}])

@@ -1,4 +1,4 @@
-"""
+r"""
 ALDI Talk Watcher Plugin.
 HTTP/API-basierte Implementierung (aus watcher.py extrahiert).
 
