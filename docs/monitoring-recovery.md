@@ -1,5 +1,22 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Browser startup correction, 2026-10-07
+
+The latest scheduled run's second attempt
+(https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37597714666)
+failed at `browser_start` for both providers. Its setup step installed Chrome
+and ChromeDriver 155.0.8059.39, but Selenium selected the runner's preinstalled
+Chrome 154.0.8037.57 and warned about the incompatible driver. Neither account
+reached credential entry in that attempt.
+
+Both browser workflows now pass `setup-chrome`'s `chrome-path` and
+`chromedriver-path` outputs as `CHROME_BINARY` and `CHROMEDRIVER_PATH`.
+`build_driver()` uses these explicit paths when supplied and retains local
+discovery when they are absent. Provider login logic and the read-only workflow
+remain unchanged. All 127 local tests pass, including regression coverage for
+explicit paths and default discovery. Authenticated monitoring still needs a
+successful live run; fixing browser selection does not establish portal access.
+
 ## Readiness follow-up, 2026-10-06
 
 PR: https://github.com/chhubeny90-cell/aldi-watcher/pull/6

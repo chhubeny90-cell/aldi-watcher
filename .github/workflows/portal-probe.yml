@@ -13,11 +13,15 @@ jobs:
         with:
           python-version: '3.11'
       - uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
         with:
           chrome-version: stable
           install-chromedriver: true
       - run: pip install -r requirements.txt
       - name: Inspect public pages without credentials
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
         run: |
           echo 'Public-page diagnosis only; success does not establish authenticated monitoring or booking readiness.' >> "$GITHUB_STEP_SUMMARY"
           python portal_probe.py
