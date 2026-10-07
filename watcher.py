@@ -6,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
@@ -14,7 +15,7 @@ from selenium.common.exceptions import (
 )
 
 # ===== KONFIGURATION =====
-ALDI_USER = os.environ.get('ALDI_USER', '')
+ALDI_USER = ''.join(os.environ.get('ALDI_USER', '').split())
 ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
@@ -39,7 +40,12 @@ def build_driver():
     options.add_argument('--window-size=1400,1000')
     options.add_argument('--lang=de-DE')
     options.set_capability('goog:loggingPrefs', {'performance': 'ALL', 'browser': 'ALL'})
-    driver = webdriver.Chrome(options=options)
+    chrome_binary = os.environ.get('CHROME_BINARY')
+    if chrome_binary:
+        options.binary_location = chrome_binary
+    driver_path = os.environ.get('CHROMEDRIVER_PATH')
+    service = Service(executable_path=driver_path) if driver_path else Service()
+    driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(20)
     return driver
 

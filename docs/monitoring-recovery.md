@@ -1,5 +1,33 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Browser startup correction, 2026-10-07
+
+The latest scheduled run's second attempt
+(https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37597714666)
+failed at `browser_start` for both providers. Its setup step installed Chrome
+and ChromeDriver 155.0.8059.39, but Selenium selected the runner's preinstalled
+Chrome 154.0.8037.57 and warned about the incompatible driver. Neither account
+reached credential entry in that attempt.
+
+Both browser workflows now pass `setup-chrome`'s `chrome-path` and
+`chromedriver-path` outputs as `CHROME_BINARY` and `CHROMEDRIVER_PATH`.
+`build_driver()` uses these explicit paths when supplied and retains local
+discovery when they are absent. Provider login logic and the read-only workflow
+remain unchanged. All 127 local tests pass, including regression coverage for
+explicit paths and default discovery. Authenticated monitoring still needs a
+successful live run; fixing browser selection does not establish portal access.
+
+The validation run on the corrected branch
+(https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37640387233)
+passed its tests and successfully started both browsers. ALDI then timed out at
+`username_field`: HTTP 200 on the official SSO host, zero visible inputs, two
+failed resources and two severe script log entries. LIDL returned HTTP 403 with
+zero visible inputs. Neither provider reached credential entry. These observations
+do not establish an incorrect username or password. ALDI's configured login
+number now has whitespace removed before form entry; the password is used as
+configured. Further authenticated retries need new evidence that the public
+login form is available on the execution host.
+
 ## Readiness follow-up, 2026-10-06
 
 PR: https://github.com/chhubeny90-cell/aldi-watcher/pull/6

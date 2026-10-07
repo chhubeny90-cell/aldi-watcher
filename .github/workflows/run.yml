@@ -41,6 +41,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Chrome
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -49,6 +50,8 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run watcher in safety mode
         env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           LIDL_USER: ${{ secrets.LIDL_USER }}

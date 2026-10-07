@@ -73,6 +73,30 @@ def test_browser_start_failure():
     assert result['phase'] == 'browser_start'
 
 
+@pytest.mark.parametrize('explicit_paths', [True, False])
+def test_browser_uses_configured_paths_or_local_discovery(monkeypatch, explicit_paths):
+    for name, value in [('CHROME_BINARY', '/opt/chrome/chrome'),
+                        ('CHROMEDRIVER_PATH', '/opt/chromedriver/chromedriver')]:
+        if explicit_paths:
+            monkeypatch.setenv(name, value)
+        else:
+            monkeypatch.delenv(name, raising=False)
+    service = Mock()
+    browser = Mock()
+    monkeypatch.setattr(watcher, 'Service', service)
+    monkeypatch.setattr(watcher.webdriver, 'Chrome', browser)
+
+    assert watcher.build_driver() is browser.return_value
+    options = browser.call_args.kwargs['options']
+    assert options.binary_location == ('/opt/chrome/chrome' if explicit_paths else '')
+    if explicit_paths:
+        service.assert_called_once_with(executable_path='/opt/chromedriver/chromedriver')
+    else:
+        service.assert_called_once_with()
+    assert browser.call_args.kwargs['service'] is service.return_value
+    browser.return_value.set_page_load_timeout.assert_called_once_with(20)
+
+
 @pytest.mark.parametrize('value', [None, float('nan'), float('inf'), -1, '3', True])
 def test_invalid_usage_fails(monkeypatch, value):
     monkeypatch.setattr(m, 'session_visible', lambda _: True)
