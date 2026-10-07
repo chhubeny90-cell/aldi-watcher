@@ -17,6 +17,17 @@ remain unchanged. All 127 local tests pass, including regression coverage for
 explicit paths and default discovery. Authenticated monitoring still needs a
 successful live run; fixing browser selection does not establish portal access.
 
+The validation run on the corrected branch
+(https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37640387233)
+passed its tests and successfully started both browsers. ALDI then timed out at
+`username_field`: HTTP 200 on the official SSO host, zero visible inputs, two
+failed resources and two severe script log entries. LIDL returned HTTP 403 with
+zero visible inputs. Neither provider reached credential entry. These observations
+do not establish an incorrect username or password. ALDI's configured login
+number now has whitespace removed before form entry; the password is used as
+configured. Further authenticated retries need new evidence that the public
+login form is available on the execution host.
+
 ## Readiness follow-up, 2026-10-06
 
 PR: https://github.com/chhubeny90-cell/aldi-watcher/pull/6

@@ -15,7 +15,7 @@ from selenium.common.exceptions import (
 )
 
 # ===== KONFIGURATION =====
-ALDI_USER = os.environ.get('ALDI_USER', '')
+ALDI_USER = ''.join(os.environ.get('ALDI_USER', '').split())
 ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
