@@ -6,13 +6,13 @@ DOM-Selektoren & Requests (aus watcher.py):
 - Login: POST /konto/login
 - Overview: GET /konto/uebersicht
 - Datenvolumen-Parsing: Regex '(\d+\.?\d*)\s*MB\s*von\s*(\d+\.?\d*)\s*MB'
-- Recharge: POST /konto/datenvolumen/nachbuchen
+- Recharge: disabled until an authorized real provider flow is verified.
 """
 
 import re
 import aiohttp
 from typing import Dict, Optional
-from .base_watcher import BaseWatcher, RechargeUnknownError
+from .base_watcher import BaseWatcher
 
 
 class AldiTalkWatcher(BaseWatcher):
@@ -89,19 +89,10 @@ class AldiTalkWatcher(BaseWatcher):
         )
 
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
-        """
-        Lst ALDI Talk Nachbuchung aus.
-        """
-        session = await self._get_session()
-        
-        # Recharge-Endpoint (aus watcher.py)
-        async with session.post(
-            self.RECHARGE_URL,
-            headers={"Cookie": f"PHPSESSID={await self.login()}"}
-        ) as response:
-            if response.status != 200:
-                raise RechargeUnknownError("ALDI booking response is not confirmed")
-            return True
+        """Do not mutate an account through the unverified legacy endpoint."""
+        raise NotImplementedError(
+            "ALDI refill requires an authorized and verified provider flow"
+        )
 
     async def close(self):
         """Schliet die HTTP-Session."""

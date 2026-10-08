@@ -1,5 +1,68 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Shadow-DOM login repair and readiness, 2026-10-08
+
+Remote main remains `807ed5a7288f78a5cc3674f1ed34657ed4259044` (PR #9).
+Its latest scheduled run
+(https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/37689214098)
+passed the test job and failed monitoring: ALDI timed out at `username_field`
+on the official SSO host; LIDL returned HTTP 403. Scheduled starts were observed
+at 16:21 and 21:24 UTC on 2026-10-07, so the configured ten-minute cadence is
+not established by those events.
+
+Credential-free browser inspection found ALDI's rendered login controls inside
+nested open shadow roots. Ordinary DOM input counts therefore did not establish
+that the login form was missing. The native username input has
+`autocomplete="username"`; the password input has
+`autocomplete="current-password"`; the native submit anchor is labelled
+`Anmelden`. The expected unauthenticated session request returning 401 does not
+establish a broken login or invalid credentials.
+
+The prepared repair traverses open shadow roots for visible controls and rendered
+text. It requires unique enabled credential fields and one exact `Anmelden`
+action, rechecks the official origin before each credential entry and submit,
+and never falls back to Enter or repeats a submit. Session evidence still
+requires cookies, a visible logout action, and no visible password field.
+Local Chromium fixture checks verify nested inputs, slots, labels,
+hidden/form-value exclusion and unique submission; they do not authenticate
+a real account.
+
+Unscoped whole-page remaining volume is rejected for ALDI: it may belong to
+roaming. The old `Inland` ancestor XPath is also removed because it can include
+neighboring roaming volume. Domestic usage remains unknown pending observation
+of an authenticated account; missing volume fails validation.
+No account text or credential is retained by the helper or monitoring report.
+
+The prepared workflow runs only `--provider aldi_talk`; absent LIDL credentials
+or LIDL's access-denied response no longer fail an otherwise valid ALDI check.
+The CLI retains explicit LIDL and all-provider selection for separate runs.
+
+No live login or booking is established by this repair. The separate ALDI plugin
+still uses unverified legacy login/usage endpoints and lacks actual refill evidence
+and provider status reconciliation. Its booking method now rejects even direct
+calls before any network request. `AUTO_BOOK_ENABLED` remains false. The next
+live step is an authenticated read-only observation of domestic usage, current
+tariff, exact free refill offer and eligibility, and the real confirmation/status
+flow. A `+1 GB` label alone is not price evidence. No automatic refill may be
+enabled before the persistent journal and provider reconciliation are connected
+to that verified flow. Independent missing-heartbeat alert delivery remains
+unconfigured.
+
+There is also an authorization gate: the reviewed ALDI service terms supplied
+on 2026-09-05, sections 10.3(f) and 10.3(g), restrict third-party access and software
+or scripts not authorized by the provider. No provider authorization for this
+watcher has been established. These code changes are prepared for review only;
+do not merge to activate unattended portal access or initiate a live check until
+the applicable provider authorization is resolved. Contractual free-refill terms
+alone do not establish authorization for scripted access.
+
+Reproduce the local browser fixture checks with an installed matching browser
+and driver:
+
+```bash
+RUN_BROWSER_DOM_TESTS=1 CHROME_BINARY=/path/to/chrome CHROMEDRIVER_PATH=/path/to/chromedriver python -m pytest -q tests/test_browser_dom.py
+```
+
 ## Browser startup correction, 2026-10-07
 
 The latest scheduled run's second attempt

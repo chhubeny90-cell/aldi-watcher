@@ -7,12 +7,27 @@ import asyncio
 import signal
 from typing import List
 from datetime import datetime
+from uuid import UUID
 
 from core.database import Database, UsageLog
 from core.config import Config
 from plugins.base_watcher import WatcherResult
 from plugins.aldi_talk import AldiTalkWatcher
 from plugins.lidl_connect import LidlConnectWatcher
+
+
+REDACTED_ACCOUNT = "[redacted]"
+RECHARGE_STATUSES = {
+    "NOT_TRIGGERED", "PENDING", "UNKNOWN", "SUCCESS", "FAILED", "BLOCKED"
+}
+
+
+def _safe_recharge_id(recharge_id):
+    """Only the journal's UUID is suitable for diagnostic output."""
+    try:
+        return str(UUID(recharge_id))
+    except (AttributeError, TypeError, ValueError):
+        return "unavailable"
 
 
 class AlDiWatcher:
@@ -66,29 +81,46 @@ class AlDiWatcher:
         """
         Verarbeitet Watcher-Ergebnis und loggt in DB.
         """
+        recharge_status = (
+            result.recharge_status
+            if result.recharge_status in RECHARGE_STATUSES else "UNKNOWN"
+        )
+        if not result.success:
+            error_code = "PROVIDER_ERROR"
+        elif recharge_status in {"PENDING", "UNKNOWN", "FAILED", "BLOCKED"}:
+            error_code = f"RECHARGE_{recharge_status}"
+        elif result.error_message:
+            error_code = "ERROR_REPORTED"
+        else:
+            error_code = None
+
         log = UsageLog(
             id=None,
             provider=result.provider,
-            username=result.username,
+            # Usage logs are diagnostics; account identity remains solely in
+            # the recharge journal, which owns the duplicate-booking lock.
+            username=REDACTED_ACCOUNT,
             data_used_mb=result.data_used_mb,
             data_total_mb=result.data_total_mb,
             threshold_mb=self.config.threshold_aldi_mb if result.provider in {"aldi", "alditalk"} else self.config.threshold_lidl_mb,
             should_recharge=result.should_recharge,
             recharge_triggered=result.recharge_triggered,
-            error_message=result.error_message,
+            error_message=error_code,
             created_at=datetime.now()
         )
         
         self.db.log_usage(log)
         
         # Logging
-        status = "OK" if result.success else "ERROR"
-        print(f"[{status}] {result.provider.upper()} | {result.username} | "
+        status = "ERROR" if not result.success else "WARN" if error_code else "OK"
+        print(f"[{status}] {result.provider.upper()} | "
               f"{result.data_used_mb:.0f}/{result.data_total_mb:.0f} MB | "
-              f"Recharge: {result.recharge_triggered}")
+              f"Recharge: {result.recharge_triggered} | "
+              f"Recharge status: {recharge_status} | "
+              f"Recharge ID: {_safe_recharge_id(result.recharge_id)}")
         
-        if result.error_message:
-            print(f"  Error: {result.error_message}")
+        if error_code:
+            print(f"  Error: {error_code}")
 
     async def run_once(self):
         """
@@ -103,13 +135,13 @@ class AlDiWatcher:
                 
             except Exception as e:
                 # Fehler-Isolierung: Ein Absturz blockiert nicht andere Watcher
-                error_msg = f"Watcher crashed: {type(watcher).__name__}: {e}"
+                error_msg = f"Watcher crashed: {type(watcher).__name__}: {type(e).__name__}"
                 print(f"[ERROR] {error_msg}")
                 
                 # ERROR-Eintrag in DB
                 self.db.log_error(
                     provider=watcher.__class__.__name__.replace("Watcher", "").lower(),
-                    username=watcher.username,
+                    username=REDACTED_ACCOUNT,
                     error_message=error_msg
                 )
 
@@ -137,7 +169,7 @@ class AlDiWatcher:
                 if hasattr(watcher, 'close'):
                     await watcher.close()
             except Exception as e:
-                print(f"Error closing {watcher.__class__.__name__}: {e}")
+                print(f"Error closing {watcher.__class__.__name__}: {type(e).__name__}")
 
 
 async def main():

@@ -115,7 +115,7 @@ class BaseWatcher(ABC):
 
             if should_recharge:
                 if self.dry_run:
-                    print(f"DRY RUN: Would trigger recharge for {self.username}")
+                    print("DRY RUN: Would trigger recharge")
                 else:
                     try:
                         recharge_id, recharge_status, recharge_triggered = (
