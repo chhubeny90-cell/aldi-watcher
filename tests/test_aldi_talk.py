@@ -6,26 +6,34 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from plugins.aldi_talk import AldiTalkWatcher
 from core.database import Database
+from plugins.base_watcher import RechargeUnknownError
 import asyncio
 
 
-def test_uncertain_aldi_post_response_blocks_rebooking(tmp_path):
+def test_legacy_aldi_booking_is_disabled_before_any_network(tmp_path):
+    db = Database(str(tmp_path / 'db.sqlite'))
+    watcher = AldiTalkWatcher('fake', 'fake', 500, dry_run=False, database=db)
+    watcher.login = AsyncMock(side_effect=AssertionError('legacy login must not run'))
+    watcher._get_session = AsyncMock(side_effect=AssertionError('legacy session must not open'))
+    with pytest.raises(RechargeUnknownError, match='Legacy ALDI booking disabled'):
+        asyncio.run(watcher.trigger_recharge('test-recharge'))
+    watcher.login.assert_not_awaited()
+    watcher._get_session.assert_not_awaited()
+    assert db.get_unresolved_recharges() == []
+
+
+def test_legacy_run_never_posts_even_for_mocked_eligible_refill(tmp_path):
     db = Database(str(tmp_path / 'db.sqlite'))
     watcher = AldiTalkWatcher('fake', 'fake', 500, dry_run=False, database=db)
     watcher.check_usage = AsyncMock(return_value={
         'used_mb': 999, 'total_mb': 1000,
         'refill_eligible': True, 'refill_type': 'FREE_UNLIMITED'})
-    watcher.login = AsyncMock(return_value='fake-cookie')
-    response = MagicMock(status=504)
-    response_cm = MagicMock()
-    response_cm.__aenter__ = AsyncMock(return_value=response)
-    response_cm.__aexit__ = AsyncMock(return_value=None)
-    session = MagicMock()
-    session.post.return_value = response_cm
-    watcher._get_session = AsyncMock(return_value=session)
+    watcher.login = AsyncMock(side_effect=AssertionError('legacy login must not run'))
+    watcher._get_session = AsyncMock(side_effect=AssertionError('legacy session must not open'))
     assert asyncio.run(watcher.run()).recharge_status == 'UNKNOWN'
     assert asyncio.run(watcher.run()).recharge_status == 'BLOCKED'
-    session.post.assert_called_once()
+    watcher.login.assert_not_awaited()
+    watcher._get_session.assert_not_awaited()
     assert db.get_unresolved_recharges()[0].status == 'UNKNOWN'
 
 

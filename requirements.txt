@@ -15,3 +15,6 @@ typing-extensions>=4.9.0
 
 # GitHub Actions monitoring entrypoint
 selenium>=4.20,<5
+
+# Verify Google-signed Pub/Sub push identity; no OpenAI API is used.
+google-auth[requests]>=2.38,<3

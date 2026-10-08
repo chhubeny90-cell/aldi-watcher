@@ -1,0 +1,42 @@
+services:
+  lite:
+    build:
+      context: ../..
+      dockerfile: deploy/v5/Dockerfile
+    env_file: .env.v5
+    environment:
+      LITE_DB_PATH: /data/lite.sqlite
+    volumes:
+      - lite-state:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    init: true
+    shm_size: 256m
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ready',timeout=3)"]
+      start_period: 120s
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      options:
+        max-size: "1m"
+        max-file: "3"
+  tls:
+    image: caddy:2
+    profiles: [pubsub]
+    environment:
+      LITE_PUBLIC_DOMAIN: ${LITE_PUBLIC_DOMAIN:-}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - tls-data:/data
+      - tls-config:/config
+    restart: unless-stopped
+    depends_on: [lite]
+volumes:
+  lite-state:
+  tls-data:
+  tls-config:

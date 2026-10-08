@@ -1,5 +1,22 @@
 # aldi-watcher
 
+## V5: ereignisgesteuerte ALDI-Watcher LITE
+
+`python -m lite` verarbeitet echte ALDI-Verbrauchsmails über Gmail History,
+wahlweise durch authentifiziertes Pub/Sub Push oder sparsames Mail-Polling.
+Im Leerlauf erfolgen keine ALDI-Anfragen. Nur LITE kann ALDI nachbuchen;
+der bisherige ALDI-Plugin-Buchungspfad ist gesperrt. SQLite erhält Mail-IDs,
+Fortschritt und offene Buchungen über Neustarts. WATCHDOG beobachtet,
+PRO wertet die Ereignisse ausschließlich lesend aus.
+
+Die Implementierung ist **noch nicht live READY**. Erfolgreicher Kontologin,
+beobachtete Konto-/Tarif-/Gratisangebots-Selektoren, Provider-Reconciliation,
+Runtime-Mailzugang und dauerhafter Host müssen verifiziert werden. Es gibt keine
+erfundenen geschützten Selektoren oder Buchungsendpunkte. Startanleitung:
+[V5 Runbook](docs/v5-runbook.md). Untersuchte Referenzen:
+[V5 GitHub-Recherche](docs/v5-reference-research.md).
+Verifizierte Ergebnisse und verbleibende Blocker: [V5 Status](docs/v5-status.md).
+
 Read-only-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem separaten, noch nicht live freigegebenen Buchungskern.
 
 ## Aktiver Betrieb und Full Run

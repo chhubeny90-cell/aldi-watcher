@@ -40,6 +40,9 @@ def build_driver():
     options.add_argument('--window-size=1400,1000')
     options.add_argument('--lang=de-DE')
     options.set_capability('goog:loggingPrefs', {'performance': 'ALL', 'browser': 'ALL'})
+    proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
+    if proxy_url:
+        options.add_argument('--proxy-server=' + proxy_url)
     chrome_binary = os.environ.get('CHROME_BINARY')
     if chrome_binary:
         options.binary_location = chrome_binary

@@ -1,6 +1,11 @@
 name: Public portal diagnosis
 on:
   workflow_dispatch:
+    inputs:
+      authenticated_aldi:
+        description: 'Perform one read-only ALDI login using existing Secrets; never book'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -30,5 +35,21 @@ jobs:
         with:
           name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
           path: portal-probe-report.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: ALDI V5 read-only login diagnosis
+        if: ${{ inputs.authenticated_aldi }}
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          AUTO_BOOK_ENABLED: 'false'
+        run: python -m lite.probe
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.authenticated_aldi }}
+        with:
+          name: aldi-v5-login-${{ github.run_id }}-${{ github.run_attempt }}
+          path: v5-login-report.json
           retention-days: 7
           if-no-files-found: error

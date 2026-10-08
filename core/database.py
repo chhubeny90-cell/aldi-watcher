@@ -2,7 +2,7 @@
 
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,7 +142,7 @@ class Database:
 
     def begin_recharge(self, provider: str, username: str, recent_success_guard_seconds: float = 0) -> str:
         recharge_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -158,7 +158,7 @@ class Database:
                     f"Recharge blocked by existing {row[1]} operation {row[0]}"
                 )
             if recent_success_guard_seconds > 0:
-                cutoff = (datetime.now() - timedelta(seconds=recent_success_guard_seconds)).isoformat()
+                cutoff = (datetime.now(timezone.utc) - timedelta(seconds=recent_success_guard_seconds)).isoformat()
                 recent_success = conn.execute("""
                     SELECT recharge_id FROM recharges
                     WHERE provider = ? AND username = ? AND status = 'SUCCESS'
@@ -197,7 +197,7 @@ class Database:
             conn.execute("""
                 UPDATE recharges SET status = ?, error_message = ?, updated_at = ?
                 WHERE recharge_id = ?
-            """, (status, error_message, datetime.now().isoformat(), recharge_id))
+            """, (status, error_message, datetime.now(timezone.utc).isoformat(), recharge_id))
             return status
 
     def get_unresolved_recharges(self, provider: Optional[str] = None, username: Optional[str] = None):
