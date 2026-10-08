@@ -90,13 +90,30 @@ docker compose run --rm --no-deps lite python -m lite watch-renew
 docker compose --env-file .env.v5 --profile pubsub up -d
 ```
 
-Gmail watches expire within seven days. Install the provided renewal service and
-timer with the actual repository path; it renews every six days without accessing
-ALDI. Watch renewal preserves the processing cursor. The optional Gmail-only
-poll service is a fallback for demonstrated push-delivery problems and polls no
-faster than once per minute. No idle Gmail poll or renewal logs into ALDI.
+The `serve` process now renews Gmail watch on startup and every day, and catches
+up Gmail History every five minutes even when a push notification is lost. Both
+use the same transport lock and persistent cursor as push delivery. Failures are
+retried at most once per minute. No idle Gmail poll or renewal logs into ALDI;
+only verified messages start LITE. Watch renewal preserves the processing cursor.
+Do not install the separate renewal/poll units alongside this supervised server.
+Those units remain alternatives for a deployment without `serve`.
 The TLS container receives only `LITE_PUBLIC_DOMAIN`; ALDI and Gmail credentials
 are passed solely to the LITE container.
+
+`/health` reports HTTP liveness only. `/ready` reports **mail transport** readiness
+and returns 503 before the first successful renewal/sync, after a maintenance
+error, or when successful maintenance becomes stale. Docker checks `/ready`.
+`booking_readiness=not_assessed` deliberately distinguishes this from successful
+provider login, refill eligibility or cleared PENDING/UNKNOWN reservations.
+Inspect those separately with WATCHDOG and the account probes. Docker marking a
+container unhealthy does not restart it automatically; `restart: unless-stopped`
+only restarts an exited process. An independent monitor on another host must
+observe the health status and alert on missing responses. That monitor and its
+delivery destination have not been provisioned by these files.
+
+The five-minute fallback covers missed Gmail push notifications, **not missing
+ALDI warning emails**. A provider-side fallback still requires verified account
+state and an authorized durable host; it is not enabled by this transport change.
 
 Each processed event writes one concise UTC status line, for example
 `07:32 MAIL → CHECK → REFILL → SUCCESS` or

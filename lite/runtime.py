@@ -304,9 +304,12 @@ class MailRuntime:
 
 
 def serve(runtime, bind="0.0.0.0", port=8080):
+    from .supervisor import TransportSupervisor
+
     runtime.config.validate_push()
     if runtime.cursor() is None:
         raise RuntimeErrorClass("gmail_cursor_not_initialized")
+    supervisor = TransportSupervisor(runtime)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -321,7 +324,12 @@ def serve(runtime, bind="0.0.0.0", port=8080):
             self.wfile.write(encoded)
 
         def do_GET(self):
-            self._reply(200, {"ok": True}) if self.path == "/health" else self._reply(404, {})
+            if self.path == "/health":
+                return self._reply(200, {"alive": True})
+            if self.path == "/ready":
+                report = supervisor.readiness()
+                return self._reply(200 if report["transport_ready"] else 503, report)
+            self._reply(404, {})
 
         def do_POST(self):
             if self.path != "/pubsub/gmail":
@@ -341,15 +349,20 @@ def serve(runtime, bind="0.0.0.0", port=8080):
     # Finish an in-flight event on a normal container stop. A hard kill is still
     # safe through the durable reservation and redelivery paths.
     server.daemon_threads = False
+    worker = threading.Thread(target=supervisor.run, name="gmail-maintenance")
     handlers = {}
     if threading.current_thread() is threading.main_thread():
         def stop(*_):
+            supervisor.stopped.set()
             threading.Thread(target=server.shutdown, daemon=True).start()
         for sig in (signal.SIGTERM, signal.SIGINT):
             handlers[sig] = signal.signal(sig, stop)
     try:
+        worker.start()
         server.serve_forever()
     finally:
+        supervisor.stopped.set()
         server.server_close()
+        worker.join()
         for sig, previous in handlers.items():
             signal.signal(sig, previous)

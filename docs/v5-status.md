@@ -59,6 +59,32 @@ Es gibt kein als funktionsfähig markiertes Release, solange die echte Kette
 Mail → Login → kostenloses Angebot → Buchung → Erfolgsbestätigung nicht läuft.
 Der Branch und seine Commits sichern den überprüfbaren Entwicklungsstand.
 
+## Weiterarbeit am 08.10.2026: überwachte Mail-Laufzeit
+
+Der bestehende Stand wurde erneut mit 329 erfolgreichen lokalen Tests geprüft.
+Die Ergänzung bringt 14 weitere Tests einschließlich eines echten lokalen
+HTTP-Servers mit: `/health` zeigt nur Erreichbarkeit, `/ready` prüft den
+Mailtransport. Vor dem ersten erfolgreichen Abgleich, bei Fehlern und bei
+überfälligem Abgleich wird keine Bereitschaft behauptet. Die Prüfung sagt
+ausdrücklich nichts über Live-Buchungsbereitschaft aus.
+
+`serve` erneuert den Gmail-Watch täglich und gleicht Gmail History alle fünf
+Minuten ab. Dadurch werden verlorene Push-Benachrichtigungen nachgeholt. Cursor,
+Account-Sperren und Ereignisdeduplizierung gelten auch für diesen Weg. Fehler
+werden frühestens nach 60 Sekunden erneut versucht. Im mailfreien Leerlauf
+gibt es weiterhin keinen Portalzugriff. Die Docker-Bereitschaftsprüfung nutzt
+`/ready`; ein unabhängiger Alarmempfänger ist weiterhin nicht eingerichtet.
+
+Aktuelle Warn- und Verbrauchsmails wurden erneut in zwei verbundenen Postfächern
+gefunden. Die SIM-Zuordnung und zuverlässige Zustellung nach jedem Zusatzpaket
+sind dadurch weiterhin nicht bewiesen. Ein fehlendes ALDI-Mailereignis wird durch
+den Gmail-Abgleich nicht ersetzt. Eine unabhängige Portal-Kontrolle ist offen.
+
+In der aktuellen Entwicklungsruntime sind weder ALDI-Zugangsdaten noch Gmail-
+OAuth-Laufzeitzugänge oder Docker vorhanden. Es wurde kein Dienst deployed,
+kein vollständiger Liveflow getestet und keine Buchung ausgeführt. Der lokale
+HTTP-Test ist kein externer Verfügbarkeits- oder Benachrichtigungsnachweis.
+
 Startbefehle und sichere Konfiguration: [Runbook](v5-runbook.md).
 Mailnachweis: [Echte Validierung](v5-real-validation.md).
 Referenzen und verworfene Ansätze: [GitHub-Recherche](v5-reference-research.md).
