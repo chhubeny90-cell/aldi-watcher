@@ -89,19 +89,8 @@ class AldiTalkWatcher(BaseWatcher):
         )
 
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
-        """
-        Lst ALDI Talk Nachbuchung aus.
-        """
-        session = await self._get_session()
-        
-        # Recharge-Endpoint (aus watcher.py)
-        async with session.post(
-            self.RECHARGE_URL,
-            headers={"Cookie": f"PHPSESSID={await self.login()}"}
-        ) as response:
-            if response.status != 200:
-                raise RechargeUnknownError("ALDI booking response is not confirmed")
-            return True
+        """Legacy ALDI booking is disabled; only the event-driven LITE may book."""
+        raise RechargeUnknownError("Legacy ALDI booking disabled; use verified LITE")
 
     async def close(self):
         """Schliet die HTTP-Session."""

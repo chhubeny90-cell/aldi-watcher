@@ -31,3 +31,6 @@ Thumbs.db
 
 .venv/
 monitoring-report.json
+v5-login-report.json
+*.lock
+.runtime/
