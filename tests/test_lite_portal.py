@@ -111,6 +111,10 @@ def test_exact_free_one_gb_offer_is_recognized(price):
     assert assess_offer(f'1 GB nachbuchen für {price}', 'Nachbuchen', True) == Offer(1000, 0, True)
 
 
+def test_compact_one_gb_label_remains_a_valid_explicit_quantity():
+    assert assess_offer('1GB nachbuchen für 0€', 'Nachbuchen', True) == Offer(1000, 0, True)
+
+
 @pytest.mark.parametrize('text', [
     '1 GB für 0,01 €',
     '1 GB für 1,00 €',
@@ -210,6 +214,8 @@ def test_new_specific_provider_confirmation_marks_success(protected_portal):
 @pytest.mark.parametrize('notice', [
     None, 'Erfolgreich', '2 GB erfolgreich nachgebucht',
     '1 GB nicht erfolgreich nachgebucht', '1 GB nachgebucht, Fehler',
+    '-1 GB erfolgreich nachgebucht',
+    '1 GB und .2 GB erfolgreich nachgebucht',
 ])
 def test_timeout_or_incomplete_confirmation_is_unknown_without_click_retry(protected_portal, notice):
     portal, driver, _, _, _, _, button = protected_portal
@@ -295,7 +301,7 @@ def test_login_timeout_never_retries_or_bypasses_a_challenge(browser, monkeypatc
     monkeypatch.setenv('ALDI_PASS', 'synthetic-password')
     _, _, submit = login_controls(browser)
     if captcha:
-        selector = "iframe[src*='captcha'],iframe[src*='challenge'],.g-recaptcha,.h-captcha"
+        selector = "iframe[src*='captcha'],iframe[src*='challenge'],.g-recaptcha,.h-captcha,input[autocomplete='one-time-code']"
         browser.elements[(selector, id(None))] = [Element('synthetic challenge')]
     portal = AldiPortal(driver_factory=lambda: browser)
     expected = 'user_action_required' if captcha else 'login_not_confirmed'
@@ -303,6 +309,21 @@ def test_login_timeout_never_retries_or_bypasses_a_challenge(browser, monkeypatc
         portal.login()
     assert submit.clicks == 1
     assert browser.navigations == [portal_module.ALDI_LOGIN_URL]
+
+
+def test_otp_requires_user_action_without_filling_or_resubmitting(browser, monkeypatch):
+    monkeypatch.setenv('ALDI_USER', '+49 170 0000001')
+    monkeypatch.setenv('ALDI_PASS', 'synthetic-password')
+    _, _, submit = login_controls(browser)
+    otp = Element(attrs={'autocomplete': 'one-time-code'})
+    selector = "iframe[src*='captcha'],iframe[src*='challenge'],.g-recaptcha,.h-captcha,input[autocomplete='one-time-code']"
+    browser.elements[(selector, id(None))] = [otp]
+    portal = AldiPortal(driver_factory=lambda: browser)
+    with pytest.raises(PortalError, match='user_action_required'):
+        portal.login()
+    assert otp.value == ''
+    assert otp.clicks == 0
+    assert submit.clicks == 1
 
 
 def test_unconfigured_account_flow_does_not_start_browser(browser):

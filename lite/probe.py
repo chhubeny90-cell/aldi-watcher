@@ -1,5 +1,6 @@
 """Read-only authenticated diagnosis; retains no account fields or response bodies."""
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -53,6 +54,16 @@ def main():
         allowed = {'credentials_missing', 'user_action_required', 'login_not_confirmed',
                    'protected_element_unverified', 'account_flow_unconfigured'}
         report['error_class'] = str(exc) if str(exc) in allowed else type(exc).__name__
+        report['phase'] = portal.phase
+        if type(exc).__name__ == 'JavascriptException':
+            # Classified browser failure only; no raw JS message or account body.
+            report['javascript_error_categories'] = [category for category, pattern in {
+                'reference_error': r'ReferenceError|is not defined',
+                'type_error': r'TypeError|is not a function|parameter .* is not',
+                'syntax_error': r'SyntaxError|Unexpected token',
+                'recursion_limit': r'call stack|too much recursion',
+                'detached_node': r'detached|stale',
+            }.items() if re.search(pattern, str(exc), re.I)] or ['other']
     finally:
         try:
             portal.close()

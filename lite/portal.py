@@ -34,14 +34,18 @@ def normalized_number(value):
     return value
 
 
+def exactly_one_gb(text):
+    quantities = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*GB\b", text, re.I)
+    return (bool(quantities) and len(quantities) == len(re.findall(r'(?<![A-Za-z])GB\b', text, re.I))
+            and all(re.fullmatch(r'1(?:[.,]0{1,2})?', q) for q in quantities))
+
+
 def assess_offer(text, button_label, enabled):
     """One scoped offer, exactly 1 GB and an explicit zero-euro price."""
-    quantities = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*GB\b", text, re.I)
-    prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|\bEUR\b)", text, re.I)
-    if (not quantities or len(quantities) != len(re.findall(r'\bGB\b', text, re.I))
-            or any(not re.fullmatch(r'1(?:[.,]0{1,2})?', q) for q in quantities)):
+    prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
+    if not exactly_one_gb(text):
         return None
-    if (not prices or len(prices) != len(re.findall(r'€|\bEUR\b', text, re.I))
+    if (not prices or len(prices) != len(re.findall(r'€|(?<![A-Za-z])EUR\b', text, re.I))
             or any(not re.fullmatch(r'0(?:[.,]0{1,2})?', p) for p in prices)):
         return None
     if re.search(r"\b(?:kostenpflichtig|einmalig\s+\d|monatlich\s+\d)\b", text, re.I):
@@ -77,6 +81,7 @@ class AldiPortal:
         self.driver_factory = driver_factory
         self.wait_seconds = wait_seconds
         self.driver = None
+        self.phase = 'not_started'
         self.username = ''.join(os.getenv('ALDI_USER', '').split())
         self.password = os.getenv('ALDI_PASS', '')
 
@@ -108,7 +113,9 @@ class AldiPortal:
             self.close()
         if not self.username or not self.password:
             raise PortalError('credentials_missing')
+        self.phase = 'browser_start'
         self.driver = self.driver_factory()
+        self.phase = 'login_page'
         self.driver.get(ALDI_LOGIN_URL)
         self._origin(login=True)
         dismiss_cookie_banner(self.driver)
@@ -117,14 +124,17 @@ class AldiPortal:
             values = find_visible_elements(self.driver, selector)
             return values[0] if len(values) == 1 and values[0].is_enabled() else False
         try:
+            self.phase = 'username_field'
             username = wait.until(lambda _: unique_enabled("input[autocomplete='username']"))
             self._origin(login=True)
             username.clear()
             username.send_keys(self.username)
+            self.phase = 'password_field'
             password = wait.until(lambda _: unique_enabled("input[type='password']"))
             self._origin(login=True)
             password.clear()
             password.send_keys(self.password)
+            self.phase = 'submit_control'
             def submit(_):
                 buttons = [e for e in find_visible_elements(self.driver, "button,a,[role='button'],input[type='submit']")
                            if element_label(self.driver, e).strip().casefold() == 'anmelden'
@@ -132,8 +142,11 @@ class AldiPortal:
                 return buttons[0] if len(buttons) == 1 else False
             button = wait.until(submit)
             self._origin(login=True)
+            self.phase = 'login_submit'
             button.click()  # A login submission is never repeated on a timeout.
+            self.phase = 'session_validation'
             wait.until(lambda _: self._session())
+            self.phase = 'login_confirmed'
         except TimeoutException:
             challenges = find_visible_elements(self.driver, "iframe[src*='captcha'],iframe[src*='challenge'],.g-recaptcha,.h-captcha,input[autocomplete='one-time-code']")
             raise PortalError('user_action_required' if challenges else 'login_not_confirmed') from None
@@ -185,8 +198,7 @@ class AldiPortal:
                 if len(notices) != 1:
                     return False
                 text = rendered_text(self.driver, notices[0])
-                quantities = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d+)?)\s*GB\b", text, re.I)
-                return (quantities and all(float(q.replace(',', '.')) == 1 for q in quantities)
+                return (exactly_one_gb(text)
                         and re.search(r'\berfolgreich\b', text, re.I)
                         and re.search(r'\b(?:nachgebucht|gebucht|nachgeladen)\b', text, re.I)
                         and not re.search(r'\b(?:nicht|fehler|fehlgeschlagen)\b', text, re.I))
