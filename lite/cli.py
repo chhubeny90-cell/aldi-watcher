@@ -44,6 +44,27 @@ def main(argv=None):
     listener.add_argument("--port", type=int, default=8080)
     args = parser.parse_args(argv)
     try:
+        if args.command == "login-probe":
+            from .portal import AldiPortal
+            portal = None
+            output = {"login_confirmed": False}
+            try:
+                portal = AldiPortal()
+                portal.login()
+                output.update(login_confirmed=bool(portal._session()),
+                              provider_flow_configured=bool(portal.config.configured()))
+                if not output["login_confirmed"]:
+                    output["error_class"] = "login_not_confirmed"
+            except Exception as error:
+                output["error_class"] = classified(error, "login_probe_failed")
+            finally:
+                if portal is not None:
+                    try:
+                        portal.close()
+                    except Exception:
+                        output.setdefault("error_class", "browser_close_failed")
+            _print(output)
+            return 0 if output["login_confirmed"] and "error_class" not in output else 1
         config = RuntimeConfig.from_env()
         if args.command == "event":
             if not config.dry_run:
@@ -75,17 +96,6 @@ def main(argv=None):
                     "error_classes": dict(Counter(result.error_class for result in results if result.error_class)),
                     "remaining_unresolved": len(pending), "recovery_clear": clear})
             return 0 if clear else 1
-        if args.command == "login-probe":
-            from .portal import AldiPortal
-            portal = AldiPortal()
-            try:
-                portal.login()
-                confirmed = bool(portal._session())
-                _print({"login_confirmed": confirmed,
-                        "provider_flow_configured": bool(portal.config.configured())})
-            finally:
-                portal.close()
-            return 0 if confirmed else 1
         runtime = _mail_runtime(config)
         if args.command == "mailbox-check":
             runtime.gmail.get_profile()

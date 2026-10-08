@@ -16,6 +16,10 @@ checked in the actual account. No service was provisioned by these files.
 
 ## Initial setup
 
+Windows users can first follow [the Windows login check](v5-windows.md).
+The read-only login probe needs only ALDI credentials, without mailbox or Gmail
+configuration. Productive events still require the full verified runtime setup.
+
 Use the existing repository. Copy `deploy/v5/.env.example` to the ignored
 `deploy/v5/.env.v5`, set mode 0600 and provision credentials privately. Explicitly
 map `ALDI_MAILBOX` to the account named by `ALDI_ACCOUNT_ALIAS`. Use a logical

@@ -348,3 +348,47 @@ def test_broken_log_pipe_does_not_fail_committed_event(monkeypatch):
         raise BrokenPipeError("pipe unavailable")
     monkeypatch.setattr("builtins.print", broken_print)
     log_event_result(ProcessResult("SUCCESS", "REFILL"), timestamp=0)
+
+
+@pytest.mark.parametrize("failure,expected_code", [
+    (None, None),
+    ("classified", "credentials_missing"),
+    ("untrusted", "login_probe_failed"),
+    ("unconfirmed", "login_not_confirmed"),
+])
+def test_login_probe_works_before_mailbox_setup_and_never_books(monkeypatch, capsys,
+                                                             failure, expected_code):
+    from lite import cli, portal
+    calls = []
+    for key in ("ALDI_MAILBOX", "ALDI_ACCOUNT_ALIAS", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    def unrelated_config():
+        pytest.fail("Read-only login probe must not validate mailbox/live runtime configuration")
+    monkeypatch.setattr(cli.RuntimeConfig, "from_env", unrelated_config)
+    class Config:
+        def configured(self):
+            return False
+    class LoginOnlyPortal:
+        config = Config()
+        def login(self):
+            calls.append("login")
+            if failure == "classified":
+                raise portal.PortalError("credentials_missing")
+            if failure == "untrusted":
+                raise ValueError("password=private-token; mailbox@example.com")
+        def _session(self):
+            return failure != "unconfirmed"
+        def close(self):
+            calls.append("close")
+        def inspect(self):
+            pytest.fail("Login probe must not inspect a productive refill")
+        def book(self, *args):
+            pytest.fail("Login probe must never book")
+    monkeypatch.setattr(portal, "AldiPortal", LoginOnlyPortal)
+    assert cli.main(["login-probe"]) == (0 if failure is None else 1)
+    output = json.loads(capsys.readouterr().out)
+    assert output["login_confirmed"] is (failure is None)
+    assert output.get("error_class") == expected_code
+    assert calls == ["login", "close"]
+    assert "private-token" not in json.dumps(output)
+    assert "mailbox@example.com" not in json.dumps(output)
