@@ -32,6 +32,7 @@ def driver():
     obj.get_cookies.return_value = [{'name': 'session', 'value': 'PRIVATE_COOKIE'}]
     obj.get_log.return_value = []
     obj.find_elements.return_value = []
+    obj.execute_script.return_value = []
     return obj
 
 
@@ -45,9 +46,39 @@ def test_visible_password_overrides_logout():
     assert not m.session_visible(obj)
 
 
-def test_session_requires_cookie_and_logout():
+def test_session_requires_cookie_and_logout(monkeypatch):
     obj = driver()
     obj.find_elements.side_effect = lambda by, query: [] if 'password' in query else [Mock(is_displayed=lambda: True)]
+    monkeypatch.setattr(m, 'element_label', lambda *_: 'Abmelden')
+    assert m.session_visible(obj)
+    obj.get_cookies.return_value = []
+    assert not m.session_visible(obj)
+
+
+def test_logout_word_in_help_link_is_not_session_evidence(monkeypatch):
+    obj = driver()
+    help_link = Mock(is_displayed=lambda: True)
+    help_link.get_attribute.return_value = 'https://example.invalid/help/logout-explanation'
+    obj.find_elements.side_effect = lambda by, query: [] if 'password' in query else [help_link]
+    monkeypatch.setattr(m, 'element_label', lambda *_: 'Hilfe')
+    monkeypatch.setattr(m, 'find_visible_elements', lambda _, selector: [] if 'password' in selector else [help_link])
+    assert not m.session_visible(obj)
+
+
+def test_shadow_password_prevents_false_authenticated_session(monkeypatch):
+    obj = driver()
+    obj.find_elements.side_effect = lambda by, query: [] if 'password' in query else [Mock(is_displayed=lambda: True)]
+    password = Mock(is_displayed=lambda: True)
+    monkeypatch.setattr(m, 'find_visible_elements', lambda _, selector: [password] if 'password' in selector else [])
+    assert not m.session_visible(obj)
+
+
+def test_shadow_logout_still_requires_cookie_and_no_password(monkeypatch):
+    obj = driver()
+    logout = Mock(is_displayed=lambda: True)
+    logout.get_attribute.return_value = ''
+    monkeypatch.setattr(m, 'element_label', lambda *_: 'Abmelden')
+    monkeypatch.setattr(m, 'find_visible_elements', lambda _, selector: [] if 'password' in selector else [logout])
     assert m.session_visible(obj)
     obj.get_cookies.return_value = []
     assert not m.session_visible(obj)

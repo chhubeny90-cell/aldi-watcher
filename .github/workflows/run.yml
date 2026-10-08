@@ -60,7 +60,7 @@ jobs:
           LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
           LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}
           AUTO_BOOK_ENABLED: 'false'
-        run: python watcher.py --run-once
+        run: python watcher.py --run-once --provider aldi_talk
       - name: Preserve sanitized heartbeat and diagnosis
         if: always()
         uses: actions/upload-artifact@v4

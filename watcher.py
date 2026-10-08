@@ -2,6 +2,7 @@ import os
 import time
 from core.lidl_refill import inspect_selenium
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
+from browser_dom import find_visible_elements, rendered_text, element_label
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -10,7 +11,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
-    NoSuchElementException,
     ElementClickInterceptedException, ElementNotInteractableException
 )
 
@@ -93,36 +93,32 @@ def aldi_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
-    user_field = wait.until(
-        EC.visibility_of_element_located((
-            By.XPATH,
-            "//input[@type='text' or @type='tel' or contains(translate(@aria-label,'RUFNUMER','rufnumer'),'rufnummer') or contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'user')]"
-        ))
-    )
+    def unique_field(selector):
+        fields = find_visible_elements(driver, selector)
+        return fields[0] if len(fields) == 1 and fields[0].is_enabled() else False
+
+    user_field = wait.until(lambda _: unique_field("input[autocomplete='username']"))
     dismiss_cookie_banner(driver)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     user_field.clear()
     user_field.send_keys(ALDI_USER)
     phase('password_field')
-    pass_field = wait.until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
-    )
+    pass_field = wait.until(lambda _: unique_field("input[type='password']"))
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     pass_field.clear()
     pass_field.send_keys(ALDI_PASS)
-    submit_candidates = driver.find_elements(
-        By.XPATH,
-        "//button[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
-        "//a[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
-        "//button[@type='submit']"
-    )
     phase('login_submit')
-    clicked = False
-    for btn in submit_candidates:
-        if btn.is_displayed() and btn.is_enabled():
-            safe_click(driver, btn)
-            clicked = True
-            break
-    if not clicked:
-        pass_field.send_keys(Keys.ENTER)
+    def submit_control(_):
+        candidates = [element for element in find_visible_elements(
+            driver, "button, a, [role='button'], input[type='submit']")
+            if element_label(driver, element).strip().casefold() == 'anmelden'
+            and element.is_enabled()
+            and element.get_attribute('aria-disabled') != 'true']
+        return candidates[0] if len(candidates) == 1 else False
+
+    submit = wait.until(submit_control)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+    safe_click(driver, submit)
     phase('session_validation')
     wait.until(session_visible)
     return True
@@ -134,22 +130,14 @@ def aldi_read_status(driver) -> dict:
     navigate(driver, ALDI_OVERVIEW_URL)
     require_origin(driver, ALDI_OVERVIEW_URL)
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
-    wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Guthaben')]")))
+    wait.until(lambda _: 'Guthaben' in rendered_text(driver))
     time.sleep(2)
     if not session_visible(driver):
         raise PermissionError('session_invalid')
     phase('usage_parse')
-    body_text = driver.find_element(By.TAG_NAME, 'body').text
-    for line in body_text.splitlines():
-        if 'Guthaben' in line and status['guthaben'] == '':
-            status['guthaben'] = line.strip()
-    try:
-        inland_label = driver.find_element(By.XPATH, "//*[text()='Inland']")
-        container = inland_label.find_element(By.XPATH, "./ancestor::*[self::div or self::li][1]/..")
-        text = container.text
-        status['inland_frei_gb'] = remaining_gb(text)
-    except NoSuchElementException:
-        pass
+    # Neither page-wide matching nor the old "Inland" ancestor XPath proves a
+    # domestic scope: both can include neighboring EU roaming allowances. Keep
+    # usage unknown until the actual authenticated domestic scope is observed.
     return status
 
 

@@ -4,9 +4,11 @@ Read-only-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Co
 
 ## Aktiver Betrieb und Full Run
 
-GitHub Actions startet `watcher.py --run-once` mit Selenium/Chrome und
+GitHub Actions startet `watcher.py --run-once --provider aldi_talk` mit Selenium/Chrome und
 `AUTO_BOOK_ENABLED=false`. Der Workflow plant einen Lauf alle zehn Minuten;
 GitHub kann Starts verzögern. Ein grüner Push-/PR-Testlauf ist kein Live-Nachweis.
+Der aktive ALDI-Lauf benötigt keine LIDL-Secrets und wird nicht durch einen
+fehlgeschlagenen LIDL-Zugriff beeinflusst. LIDL bleibt separat manuell auswählbar.
 `watcher.py` enthält keine Buchungsfunktion und liest Zugangsdaten nur aus
 Umgebungsvariablen beziehungsweise GitHub Secrets; es lädt keine `.env`.
 

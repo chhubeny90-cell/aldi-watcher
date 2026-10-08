@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 from urllib.parse import urlsplit, urldefrag
 from uuid import uuid4
+from browser_dom import find_visible_elements, element_label
 
 _CONTEXT = contextvars.ContextVar('monitor_context', default=None)
 
@@ -61,8 +62,12 @@ def session_visible(driver):
     logout = driver.find_elements(By.XPATH,
         "//a[contains(@href,'logout') or contains(@href,'logoff')] | "
         "//button[contains(.,'Abmelden') or contains(.,'Logout')]")
+    passwords = list(passwords) + find_visible_elements(driver, "input[type='password']")
+    logout += find_visible_elements(driver, "a, button, [role='button']")
     return (not any(e.is_displayed() for e in passwords)
-            and any(e.is_displayed() for e in logout)
+            and any(e.is_displayed() and
+                    element_label(driver, e).strip().casefold() in {'abmelden', 'logout'}
+                    for e in logout)
             and bool(driver.get_cookies()))
 
 
@@ -101,9 +106,9 @@ def diagnostics(driver):
                    'login.alditalk-kundenbetreuung.de', 'www.alditalk-kundenbetreuung.de'}
         result['page_host'] = host if host in allowed else 'other'
         result['cookie_count'] = len(driver.get_cookies())
-        result['login_form_visible'] = any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, "input[type='password']"))
+        result['login_form_visible'] = bool(find_visible_elements(driver, "input[type='password']"))
         result['csrf_found'] = bool(driver.find_elements(By.CSS_SELECTOR, "input[name*='csrf'], input[name*='CSRF'], meta[name*='csrf']"))
-        result['visible_input_count'] = sum(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, 'input'))
+        result['visible_input_count'] = len(find_visible_elements(driver, 'input'))
         result['frame_count'] = len(driver.find_elements(By.CSS_SELECTOR, 'iframe'))
         result['captcha_detected'] = bool(driver.find_elements(By.CSS_SELECTOR,
             "iframe[src*='captcha'], iframe[src*='challenge'], .g-recaptcha, .h-captcha, [id*='captcha']"))
