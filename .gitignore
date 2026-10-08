@@ -16,6 +16,8 @@ ENV/
 
 # Environment
 .env
+.env.*
+!.env.example
 .secret.key
 
 # Database

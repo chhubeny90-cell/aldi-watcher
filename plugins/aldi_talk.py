@@ -1,12 +1,12 @@
 r"""
 ALDI Talk Watcher Plugin.
-HTTP/API-basierte Implementierung (aus watcher.py extrahiert).
+Historische HTTP-Implementierung; ihre Login-/Lesepfade sind nicht aktuell verifiziert.
 
 DOM-Selektoren & Requests (aus watcher.py):
 - Login: POST /konto/login
 - Overview: GET /konto/uebersicht
 - Datenvolumen-Parsing: Regex '(\d+\.?\d*)\s*MB\s*von\s*(\d+\.?\d*)\s*MB'
-- Recharge: POST /konto/datenvolumen/nachbuchen
+Nachbuchung ist hier gesperrt. Ausschließlich die ereignisgesteuerte LITE darf buchen.
 """
 
 import re
@@ -24,7 +24,6 @@ class AldiTalkWatcher(BaseWatcher):
     BASE_URL = "https://www.alditalk.de"
     LOGIN_URL = f"{BASE_URL}/konto/login"
     OVERVIEW_URL = f"{BASE_URL}/konto/uebersicht"
-    RECHARGE_URL = f"{BASE_URL}/konto/datenvolumen/nachbuchen"
 
     def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, database=None):
         super().__init__(username, password, threshold_mb, dry_run, database)

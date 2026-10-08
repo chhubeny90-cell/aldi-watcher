@@ -26,6 +26,12 @@ def _exception_class(exc):
     return _error_class(getattr(exc, "error_class", None), _error_class(type(exc).__name__))
 
 
+def _transient_check_failure(exc, code):
+    return (code == "login_not_confirmed"
+            or isinstance(exc, (TimeoutError, ConnectionError))
+            or type(exc).__name__ in {"TimeoutException", "TimeoutError", "ConnectionError"})
+
+
 def _confirmation(value):
     if not isinstance(value, Confirmation) or value.status not in {"SUCCESS", "FAILED", "UNKNOWN"}:
         return Confirmation("UNKNOWN", error_class="INVALID_CONFIRMATION")
@@ -39,17 +45,20 @@ class Engine:
     PROVIDER = "aldi_talk"
 
     def __init__(self, database_path, provider, account, dry_run=True,
-                 recent_success_guard_seconds=1800, event_max_age_seconds=3600):
+                 recent_success_guard_seconds=0, event_max_age_seconds=None):
         if not isinstance(account, str) or not _ALIAS.fullmatch(account):
             raise ValueError("account must be a logical alias, not credentials or a phone number")
         if type(dry_run) is not bool:
             raise ValueError("dry_run must be an explicit boolean")
         if (not math.isfinite(recent_success_guard_seconds) or recent_success_guard_seconds < 0
-                or not math.isfinite(event_max_age_seconds) or event_max_age_seconds <= 0):
+                or (event_max_age_seconds is not None and (
+                    type(event_max_age_seconds) not in (int, float)
+                    or not math.isfinite(event_max_age_seconds) or event_max_age_seconds <= 0))):
             raise ValueError("Invalid event age or recent-success guard")
         path = Path(database_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.store = EventStore(str(path))
+        self.store.bind_account(account)
         self.provider = provider
         self.account = account
         self.dry_run = dry_run
@@ -59,6 +68,7 @@ class Engine:
 
     def _recover(self):
         """Only authoritative provider evidence may resolve a previous request."""
+        results = []
         for record in self.store.get_unresolved_recharges(self.PROVIDER, self.account):
             linked = self.store.event_for_recharge(record.recharge_id)
             if linked:
@@ -68,10 +78,34 @@ class Engine:
             except Exception as exc:
                 confirmation = Confirmation("UNKNOWN", error_class=_exception_class(exc))
             status = self.store.apply_confirmation(record.recharge_id, confirmation)
+            result = ProcessResult(status, "RECONCILED", record.recharge_id, confirmation.error_class)
+            results.append(result)
             if linked:
-                self.store.finish(linked["event_id"], ProcessResult(
-                    status, "RECONCILED", record.recharge_id, confirmation.error_class), confirmation.booking_id)
-        return self.store.get_unresolved_recharges(self.PROVIDER, self.account)
+                self.store.finish(linked["event_id"], result, confirmation.booking_id)
+        return results
+
+    def recover_pending(self):
+        """Provider reconciliation only, including when no new mail arrives."""
+        lock = None
+        try:
+            lock = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return [ProcessResult("BUSY", "RETRY", error_class="ACCOUNT_BUSY")]
+            if self.store.has_unmapped_aldi_recharge(self.PROVIDER, self.account):
+                return [ProcessResult("BLOCKED", "PROVIDER_CHECK_REQUIRED",
+                                      error_class="legacy_unresolved_requires_account_mapping")]
+            return self._recover()
+        except Exception as exc:
+            return [ProcessResult("FAILED", "PROVIDER_CHECK_REQUIRED", error_class=_exception_class(exc))]
+        finally:
+            try:
+                self.provider.close()
+            except Exception:
+                pass
+            if lock is not None:
+                os.close(lock)
 
     def process(self, event: MailEvent) -> ProcessResult:
         lock = None
@@ -95,6 +129,15 @@ class Engine:
             row, completed = self.store.claim_event(event)
             claimed_id = row["event_id"]
             if completed:
+                if row["status"] == "UNKNOWN" and row["recharge_id"]:
+                    if self.store.has_unmapped_aldi_recharge(self.PROVIDER, self.account):
+                        return ProcessResult("BLOCKED", "PROVIDER_CHECK_REQUIRED", row["recharge_id"],
+                                             "legacy_unresolved_requires_account_mapping")
+                    self._recover()
+                    refreshed = self.store.get_event(claimed_id)
+                    committed = self.store.recharge_status(row["recharge_id"])
+                    status = committed["status"] if committed else refreshed["status"]
+                    return ProcessResult(status, "RECONCILED", row["recharge_id"], refreshed["error_class"])
                 return ProcessResult("DUPLICATE", "IGNORE", row["recharge_id"])
 
             if self.store.has_unmapped_aldi_recharge(self.PROVIDER, self.account):
@@ -102,7 +145,8 @@ class Engine:
                     "BLOCKED", "PROVIDER_CHECK_REQUIRED",
                     error_class="legacy_unresolved_requires_account_mapping"))
 
-            unresolved = self._recover()
+            self._recover()
+            unresolved = self.store.get_unresolved_recharges(self.PROVIDER, self.account)
             row = self.store.get_event(claimed_id)
             if row["state"] == "COMPLETED":
                 return ProcessResult(row["status"], row["action"], row["recharge_id"], row["error_class"])
@@ -119,13 +163,20 @@ class Engine:
                     "BLOCKED", "PROVIDER_CHECK_REQUIRED", unresolved[0].recharge_id, "UNRESOLVED_RECHARGE"))
 
             age = time.time() - event.received_at
-            if age > self.event_max_age_seconds or age < -300:
+            if ((self.event_max_age_seconds is not None and age > self.event_max_age_seconds)
+                    or age < -300):
                 return self.store.finish(claimed_id, ProcessResult("REJECTED", "IGNORE", error_class="STALE_EVENT"))
-            if self.store.has_recent_success(self.PROVIDER, self.account, self.guard_seconds):
-                return self.store.finish(claimed_id, ProcessResult("NO_ACTION", "IGNORE", error_class="RECENT_SUCCESS"))
-
-            self.store.progress(claimed_id, "PROVIDER_CHECK_STARTED")
-            snapshot = self.provider.inspect()
+            self.store.start_check(claimed_id)
+            try:
+                snapshot = self.provider.inspect()
+            except Exception as exc:
+                code = _exception_class(exc)
+                if code == "user_action_required":
+                    return self.store.finish(claimed_id, ProcessResult(
+                        "BLOCKED", "HUMAN_ACTION_REQUIRED", error_class=code))
+                if _transient_check_failure(exc, code) and not self.store.has_check_retry(claimed_id):
+                    return self.store.defer(claimed_id, code, "TRANSIENT_CHECK_RETRY")
+                return self.store.finish(claimed_id, ProcessResult("FAILED", "CHECK", error_class=code))
             self.store.progress(claimed_id, "PROVIDER_CHECK_COMPLETED")
             if snapshot.account_verified is not True or snapshot.tariff_verified is not True:
                 return self.store.finish(claimed_id, ProcessResult("BLOCKED", "IGNORE", error_class="ACCOUNT_OR_TARIFF_UNVERIFIED"))
@@ -139,6 +190,8 @@ class Engine:
                     or type(offer.price_cents) is not int or offer.price_cents != 0
                     or offer.free_unlimited is not True):
                 return self.store.finish(claimed_id, ProcessResult("NO_ACTION", "IGNORE", error_class="OFFER_NOT_FREE_1GB"))
+            if self.store.has_recent_success(self.PROVIDER, self.account, self.guard_seconds):
+                return self.store.defer(claimed_id, "RECENT_SUCCESS")
             if self.dry_run:
                 return self.store.finish(claimed_id, ProcessResult("DRY_RUN", "WOULD_REFILL"))
 
@@ -153,8 +206,10 @@ class Engine:
         except EventCollisionError:
             return ProcessResult("REJECTED", "IGNORE", error_class="EVENT_ID_COLLISION")
         except RechargeLockedError as exc:
-            # Only our short reservation codes are permitted in result/log fields.
-            result = ProcessResult("BLOCKED", "IGNORE", recharge_id, _error_class(str(exc), "RECHARGE_LOCKED"))
+            code = _exception_class(exc)
+            if code == "RECENT_SUCCESS" and claimed_id:
+                return self.store.defer(claimed_id, code)
+            result = ProcessResult("BLOCKED", "IGNORE", recharge_id, code)
             return self.store.finish(claimed_id, result) if claimed_id else result
         except Exception as exc:
             error = _exception_class(exc)

@@ -4,13 +4,14 @@ import multiprocessing as mp
 import os
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from core.database import Database
 from lite import Confirmation, Engine, MailEvent, Offer, Snapshot
-from lite.store import EventStore
+from lite.store import AccountBindingError, EventStore, account_lock_path
 
 
 FREE = Offer(data_mb=1000, price_cents=0, free_unlimited=True, offer_id="free-1gb")
@@ -73,14 +74,55 @@ def test_exhausted_dry_run_recognizes_free_gb_without_reservation(tmp_path):
         assert db.execute("SELECT COUNT(*) FROM recharges").fetchone()[0] == 0
 
 
-def test_recent_success_blocks_new_mail(tmp_path):
+def test_optional_success_guard_inspects_and_retains_mail_for_retry(tmp_path):
     first = run(tmp_path, ProviderFixture(), mail("first"))
     second_provider = ProviderFixture()
-    second = run(tmp_path, second_provider, mail("second"))
+    second_event = mail("second")
+    second = run(tmp_path, second_provider, second_event, recent_success_guard_seconds=1800)
     assert first.status == "SUCCESS"
-    assert second.status == "NO_ACTION"
+    assert (second.status, second.action) == ("BUSY", "RETRY")
     assert second.error_class == "RECENT_SUCCESS"
+    assert second_provider.inspections == 1
     assert not second_provider.bookings
+    store = EventStore(str(tmp_path / "state.sqlite"))
+    assert store.get_event(second_event.event_id)["state"] == "PROCESSING"
+    old = (datetime.now(timezone.utc) - timedelta(seconds=1801)).isoformat()
+    with sqlite3.connect(tmp_path / "state.sqlite") as db:
+        db.execute("UPDATE recharges SET updated_at=? WHERE recharge_id=?", (old, first.recharge_id))
+    retried_provider = ProviderFixture()
+    retried = run(tmp_path, retried_provider, second_event, recent_success_guard_seconds=1800)
+    assert retried.status == "SUCCESS" and len(retried_provider.bookings) == 1
+    assert store.get_event(second_event.event_id)["state"] == "COMPLETED"
+
+
+def test_default_allows_fresh_free_offer_just_after_previous_success(tmp_path):
+    first = run(tmp_path, ProviderFixture(), mail("first"))
+    provider = ProviderFixture()
+    second = run(tmp_path, provider, mail("second"))
+    assert first.status == second.status == "SUCCESS"
+    assert first.recharge_id != second.recharge_id
+    assert provider.inspections == 1 and len(provider.bookings) == 1
+
+
+def test_recharge_clock_is_utc_and_expired_success_allows_later_refill(tmp_path):
+    path = str(tmp_path / "state.sqlite")
+    database = Database(path)
+    first_id = database.begin_recharge("aldi_talk", ACCOUNT)
+    first = database.get_unresolved_recharges("aldi_talk", ACCOUNT)[0]
+    assert first.created_at.utcoffset() == timedelta(0)
+    assert first.updated_at.utcoffset() == timedelta(0)
+    database.set_recharge_status(first_id, "SUCCESS")
+    old = (datetime.now(timezone.utc) - timedelta(seconds=1801)).isoformat()
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE recharges SET updated_at=? WHERE recharge_id=?", (old, first_id))
+    result = run(tmp_path, ProviderFixture(), mail("after-guard"))
+    assert result.status == "SUCCESS" and result.recharge_id != first_id
+    with sqlite3.connect(path) as db:
+        created_at, updated_at = db.execute(
+            "SELECT created_at,updated_at FROM recharges WHERE recharge_id=?", (result.recharge_id,)
+        ).fetchone()
+    assert datetime.fromisoformat(created_at).utcoffset() == timedelta(0)
+    assert datetime.fromisoformat(updated_at).utcoffset() == timedelta(0)
 
 
 def test_request_timeout_is_unknown_across_database_reopen(tmp_path):
@@ -190,6 +232,10 @@ def test_two_events_and_recovery_are_fenced_while_worker_is_active(tmp_path):
         assert not racing_provider.reconciliations and not racing_provider.bookings
         assert EventStore(db_path).get_event(other_event.event_id) is None
         assert Database(db_path).get_unresolved_recharges("aldi_talk", ACCOUNT)[0].status == "PENDING"
+        recovery_provider = ProviderFixture(recovered=Confirmation("FAILED"))
+        recovery = Engine(db_path, recovery_provider, ACCOUNT, dry_run=False).recover_pending()
+        assert len(recovery) == 1 and recovery[0].status == "BUSY"
+        assert not recovery_provider.reconciliations and not recovery_provider.inspections and not recovery_provider.bookings
     finally:
         release.set()
         child.join(15)
@@ -198,7 +244,7 @@ def test_two_events_and_recovery_are_fenced_while_worker_is_active(tmp_path):
             child.join(5)
     assert child.exitcode == 0
     # Redelivering a BUSY event is safe and it was not lost to deduplication.
-    delivered = Engine(db_path, ProviderFixture(), ACCOUNT, dry_run=False).process(other_event)
+    delivered = Engine(db_path, ProviderFixture(snapshot=Snapshot(True, True)), ACCOUNT, dry_run=False).process(other_event)
     assert delivered.status == "NO_ACTION"
     assert EventStore(db_path).get_event(other_event.event_id)["state"] == "COMPLETED"
     assert len(Path(counter).read_text().splitlines()) == 1
@@ -241,13 +287,48 @@ def test_same_email_deduplicates_across_new_engine_and_new_event_id(tmp_path):
 
 def test_event_identity_cannot_be_reassigned_or_stale_mail_replayed(tmp_path):
     event = mail(received_at=time.time() - 4000)
-    first = run(tmp_path, ProviderFixture(), event)
+    first = run(tmp_path, ProviderFixture(), event, event_max_age_seconds=3600)
     assert first.status == "REJECTED" and first.error_class == "STALE_EVENT"
     forged = mail(event.event_id)
     provider = ProviderFixture()
     result = run(tmp_path, provider, forged)
     assert result.status == "REJECTED" and result.error_class == "EVENT_ID_COLLISION"
     assert provider.inspections == 0
+
+
+@pytest.mark.parametrize("snapshot,expected", [
+    (Snapshot(True, True, FREE), "SUCCESS"),
+    (Snapshot(True, True), "NO_ACTION"),
+    (Snapshot(True, True, Offer(1000, 199, True)), "NO_ACTION"),
+    (Snapshot(False, True, FREE), "BLOCKED"),
+])
+def test_delayed_exhaustion_mail_checks_current_provider_and_free_gate(tmp_path, snapshot, expected):
+    # A mailbox outage must not discard its only authenticated exhaustion trigger.
+    event = mail("delayed-exhaustion", received_at=time.time() - 86400)
+    provider = ProviderFixture(snapshot=snapshot)
+    result = run(tmp_path, provider, event)
+    assert result.status == expected
+    assert provider.inspections == 1
+    assert len(provider.bookings) == (1 if expected == "SUCCESS" else 0)
+
+
+def test_explicit_event_age_limit_rejects_delayed_mail_and_future_timestamp(tmp_path):
+    delayed = mail("limited-mail", received_at=time.time() - 7200)
+    provider = ProviderFixture()
+    result = run(tmp_path, provider, delayed, event_max_age_seconds=3600)
+    assert result.status == "REJECTED" and result.error_class == "STALE_EVENT"
+    assert not provider.inspections and not provider.bookings
+    future = mail("future-mail", received_at=time.time() + 600)
+    provider = ProviderFixture()
+    result = run(tmp_path, provider, future)
+    assert result.status == "REJECTED" and result.error_class == "STALE_EVENT"
+    assert not provider.inspections and not provider.bookings
+
+
+@pytest.mark.parametrize("limit", [True, 0, -1, float("inf"), float("nan"), "3600"])
+def test_optional_event_age_limit_must_be_finite_positive_number(tmp_path, limit):
+    with pytest.raises(ValueError, match="Invalid event age"):
+        Engine(tmp_path / "state.sqlite", ProviderFixture(), ACCOUNT, event_max_age_seconds=limit)
 
 
 def test_account_mismatch_is_rejected(tmp_path):
@@ -258,8 +339,55 @@ def test_account_mismatch_is_rejected(tmp_path):
     assert result.status == "REJECTED" and not provider.bookings
 
 
+def _alias_race_worker(db_path, account, barrier, results, counter_path):
+    event = MailEvent(account, "mailbox-primary", account, time.time(), "exhausted", account)
+    barrier.wait(15)
+    try:
+        provider = DurableCallProvider(counter_path)
+        result = Engine(db_path, provider, account, dry_run=False).process(event)
+        results.put((account, result.status))
+    except AccountBindingError:
+        results.put((account, "account_alias_mismatch"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="LITE uses the deployment's POSIX flock")
+def test_two_aliases_cannot_initialize_or_book_same_database(tmp_path):
+    context = mp.get_context("spawn")
+    barrier, results = context.Barrier(2), context.Queue()
+    path = str(tmp_path / "state.sqlite")
+    counter = str(tmp_path / "provider-calls")
+    EventStore(path)
+    children = [context.Process(target=_alias_race_worker, args=(path, account, barrier, results, counter))
+                for account in ("primary", "alternate")]
+    for child in children:
+        child.start()
+    for child in children:
+        child.join(15)
+        assert child.exitcode == 0
+    outcomes = [results.get(timeout=5)[1] for _ in children]
+    assert sorted(outcomes) == ["SUCCESS", "account_alias_mismatch"]
+    assert len(Path(counter).read_text().splitlines()) == 1
+    assert account_lock_path(path, "primary") == account_lock_path(path, "alternate")
+
+
+@pytest.mark.parametrize("legacy_provider,legacy_account", [("ALDI-TALK", "alternate"), ("UNKNOWN", "old-user")])
+def test_reservation_transaction_blocks_legacy_inserted_after_inspection(tmp_path, legacy_provider, legacy_account):
+    path = str(tmp_path / "state.sqlite")
+
+    class RacingLegacyProvider(ProviderFixture):
+        def inspect(self):
+            Database(path).begin_recharge(legacy_provider, legacy_account)
+            return super().inspect()
+
+    provider = RacingLegacyProvider()
+    result = run(tmp_path, provider)
+    assert result.status == "BLOCKED"
+    assert result.error_class == "legacy_unresolved_requires_account_mapping"
+    assert provider.inspections == 1 and not provider.bookings
+
+
 @pytest.mark.parametrize("legacy_provider,legacy_user", [
-    ("aldi", "01632321869"), ("ALDITalk", "old-account"),
+    ("aldi", "01601234567"), ("ALDITalk", "old-account"),
     ("UNKNOWN", "old-user"), ("aldi_talk", "another-alias"),
 ])
 def test_unmapped_legacy_recharges_block_without_guessing_ownership(tmp_path, legacy_provider, legacy_user):
@@ -312,6 +440,111 @@ def test_provider_classified_error_is_preserved_but_messages_are_not(tmp_path):
 
     provider = ProviderWithChallenge()
     result = run(tmp_path, provider)
-    assert result.status == "FAILED" and result.error_class == "user_action_required"
+    assert result.status == "BLOCKED" and result.error_class == "user_action_required"
     assert not provider.bookings
     assert b"private provider content" not in (tmp_path / "state.sqlite").read_bytes()
+
+
+class TransientReadProvider(ProviderFixture):
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+
+    def inspect(self):
+        self.inspections += 1
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [TimeoutError("private body"), ConnectionError("private body")])
+def test_first_transient_check_redelivers_once_and_then_succeeds(tmp_path, error):
+    event = mail("transient-mail")
+    first = run(tmp_path, TransientReadProvider(error), event)
+    assert (first.status, first.action) == ("BUSY", "RETRY")
+    store = EventStore(str(tmp_path / "state.sqlite"))
+    assert store.get_event(event.event_id)["state"] == "PROCESSING"
+    assert store.get_event(event.event_id)["check_attempts"] == 1
+    provider = ProviderFixture()
+    second = run(tmp_path, provider, event)
+    assert second.status == "SUCCESS" and len(provider.bookings) == 1
+    assert store.get_event(event.event_id)["check_attempts"] == 2
+    assert b"private body" not in (tmp_path / "state.sqlite").read_bytes()
+
+
+def test_second_transient_failure_finishes_without_third_provider_attempt(tmp_path):
+    event = mail("transient-mail")
+    first = run(tmp_path, TransientReadProvider(TimeoutError()), event)
+    second = run(tmp_path, TransientReadProvider(ConnectionError()), event)
+    provider = ProviderFixture()
+    third = run(tmp_path, provider, event)
+    assert first.status == "BUSY"
+    assert second.status == "FAILED" and second.error_class == "ConnectionError"
+    assert third.status == "DUPLICATE"
+    assert not provider.inspections and not provider.bookings
+    assert EventStore(str(tmp_path / "state.sqlite")).get_event(event.event_id)["check_attempts"] == 2
+
+
+def test_classified_login_timeout_retries_but_mfa_never_resubmits(tmp_path):
+    class LoginNotConfirmed(RuntimeError):
+        error_class = "login_not_confirmed"
+
+    login_event = mail("login-mail")
+    first = run(tmp_path, TransientReadProvider(LoginNotConfirmed()), login_event)
+    assert first.status == "BUSY" and first.error_class == "login_not_confirmed"
+
+    class Challenge(TimeoutError):
+        error_class = "user_action_required"
+
+    challenge_event = mail("challenge-mail")
+    first = run(tmp_path, TransientReadProvider(Challenge()), challenge_event)
+    provider = ProviderFixture()
+    replay = run(tmp_path, provider, challenge_event)
+    assert (first.status, first.action) == ("BLOCKED", "HUMAN_ACTION_REQUIRED")
+    assert replay.status == "DUPLICATE" and not provider.inspections and not provider.bookings
+
+
+def test_duplicate_unknown_can_reconcile_success_without_new_mail_or_booking(tmp_path):
+    event = mail("unknown-mail")
+    first = run(tmp_path, ProviderFixture(confirmation=TimeoutError()), event)
+    provider = ProviderFixture(recovered=Confirmation("SUCCESS", "independent-proof"))
+    replay = run(tmp_path, provider, event)
+    assert first.status == "UNKNOWN"
+    assert (replay.status, replay.action) == ("SUCCESS", "RECONCILED")
+    assert replay.recharge_id == first.recharge_id
+    assert provider.reconciliations == [first.recharge_id]
+    assert not provider.inspections and not provider.bookings
+
+
+def test_explicit_recovery_only_reconciles_existing_request(tmp_path):
+    event = mail("unknown-mail")
+    first = run(tmp_path, ProviderFixture(confirmation=TimeoutError()), event)
+    provider = ProviderFixture(recovered=Confirmation("FAILED", error_class="PROVIDER_REJECTED"))
+    engine = Engine(tmp_path / "state.sqlite", provider, ACCOUNT, dry_run=False)
+    results = engine.recover_pending()
+    assert len(results) == 1
+    assert results[0].status == "FAILED" and results[0].recharge_id == first.recharge_id
+    assert provider.reconciliations == [first.recharge_id]
+    assert not provider.inspections and not provider.bookings
+    assert engine.store.get_unresolved_recharges("aldi_talk", ACCOUNT) == []
+    assert len(engine.store.list_events()) == 1
+    with sqlite3.connect(tmp_path / "state.sqlite") as database:
+        assert database.execute("SELECT COUNT(*) FROM recharges").fetchone()[0] == 1
+
+
+def test_event_check_attempts_migration_preserves_existing_journal(tmp_path):
+    path = str(tmp_path / "old-state.sqlite")
+    with sqlite3.connect(path) as database:
+        database.execute("""
+            CREATE TABLE lite_events (
+                event_id TEXT PRIMARY KEY, mailbox TEXT, mail_id TEXT, received_at REAL,
+                kind TEXT, account TEXT, state TEXT, started_at REAL, updated_at REAL,
+                status TEXT, action TEXT, recharge_id TEXT, error_class TEXT, booking_id TEXT,
+                UNIQUE(mailbox,mail_id)
+            )
+        """)
+        database.execute("""
+            INSERT INTO lite_events(event_id,mailbox,mail_id,received_at,kind,account,state,started_at,updated_at,status)
+            VALUES ('old-event','mailbox-primary','old-mail',0,'warning80','primary','COMPLETED',0,0,'NO_ACTION')
+        """)
+    store = EventStore(path)
+    assert store.get_event("old-event")["status"] == "NO_ACTION"
+    assert store.get_event("old-event")["check_attempts"] == 0

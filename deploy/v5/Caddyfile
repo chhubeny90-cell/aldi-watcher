@@ -1,0 +1,11 @@
+{$LITE_PUBLIC_DOMAIN} {
+    handle /pubsub/gmail {
+        reverse_proxy lite:8080
+    }
+    handle /health {
+        reverse_proxy lite:8080
+    }
+    handle {
+        respond 404
+    }
+}

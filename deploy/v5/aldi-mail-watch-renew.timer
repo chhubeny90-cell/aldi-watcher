@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew Gmail watch every six days
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6d
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

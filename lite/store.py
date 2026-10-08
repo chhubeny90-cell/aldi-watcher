@@ -1,10 +1,9 @@
 """LITE event journal extending the existing shared recharge database."""
 
 import sqlite3
-import hashlib
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -16,17 +15,33 @@ class EventCollisionError(ValueError):
     pass
 
 
-def account_lock_path(database_path, account: str) -> Path:
-    """Shared process fence used by LITE and its read-only watchdog."""
+class AccountBindingError(ValueError):
+    error_class = "account_alias_mismatch"
+
+
+class ReservationBlockedError(RechargeLockedError):
+    def __init__(self, code: str):
+        self.error_class = code
+        super().__init__(code)
+
+
+def account_lock_path(database_path, account: Optional[str] = None) -> Path:
+    """Global ALDI fence: this deployment supports one physical ALDI account."""
     path = Path(database_path).resolve()
-    digest = hashlib.sha256(account.encode("utf-8")).hexdigest()[:24]
-    return path.parent / (path.name + "." + digest + ".lock")
+    return path.parent / (path.name + ".aldi.lock")
 
 
 class EventStore(Database):
     def _init_schema(self):
         super()._init_schema()
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS lite_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS lite_events (
                     event_id TEXT PRIMARY KEY,
@@ -43,9 +58,13 @@ class EventStore(Database):
                     recharge_id TEXT,
                     error_class TEXT,
                     booking_id TEXT,
+                    check_attempts INTEGER NOT NULL DEFAULT 0,
                     UNIQUE(mailbox, mail_id)
                 )
             """)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(lite_events)")}
+            if "check_attempts" not in columns:
+                conn.execute("ALTER TABLE lite_events ADD COLUMN check_attempts INTEGER NOT NULL DEFAULT 0")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS lite_progress (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +78,23 @@ class EventStore(Database):
                 CREATE INDEX IF NOT EXISTS idx_lite_progress_event
                 ON lite_progress(event_id, id)
             """)
+
+    @staticmethod
+    def _bind_account(conn, account: str):
+        row = conn.execute("SELECT value FROM lite_meta WHERE key='aldi_account_alias'").fetchone()
+        if row and row[0] != account:
+            raise AccountBindingError("account_alias_mismatch")
+        aliases = conn.execute("SELECT DISTINCT account FROM lite_events").fetchall()
+        if any(alias[0] != account for alias in aliases):
+            raise AccountBindingError("account_alias_mismatch")
+        if row is None:
+            conn.execute("INSERT INTO lite_meta(key,value) VALUES ('aldi_account_alias',?)", (account,))
+
+    def bind_account(self, account: str):
+        """Bind once in SQLite; switching an alias requires deliberate state review."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._bind_account(conn, account)
 
     def _dict_row(self, query, parameters):
         with self._connect() as conn:
@@ -122,6 +158,27 @@ class EventStore(Database):
                          (event_id, now, step))
             conn.execute("UPDATE lite_events SET updated_at = ? WHERE event_id = ?", (now, event_id))
 
+    def start_check(self, event_id: str) -> int:
+        """Persist the read attempt before any login/inspection takes place."""
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""
+                UPDATE lite_events SET check_attempts=check_attempts+1,updated_at=?
+                WHERE event_id=? AND state='PROCESSING'
+            """, (now, event_id))
+            row = conn.execute("SELECT check_attempts FROM lite_events WHERE event_id=?", (event_id,)).fetchone()
+            if row is None:
+                raise KeyError("Unknown event")
+            conn.execute("INSERT INTO lite_progress(event_id,recorded_at,step) VALUES (?,?,'PROVIDER_CHECK_STARTED')",
+                         (event_id, now))
+            return row[0]
+
+    def has_check_retry(self, event_id: str) -> bool:
+        return self._dict_row("""
+            SELECT id FROM lite_progress WHERE event_id=? AND step='TRANSIENT_CHECK_RETRY' LIMIT 1
+        """, (event_id,)) is not None
+
     def finish(self, event_id: str, result: ProcessResult, booking_id: Optional[str] = None):
         now = time.time()
         with self._connect() as conn:
@@ -136,6 +193,18 @@ class EventStore(Database):
                          (event_id, now))
         return result
 
+    def defer(self, event_id: str, error_class: str, step="RECENT_SUCCESS_GUARD"):
+        """Keep a cooldown event claim resumable; its mail must not be acknowledged."""
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE lite_events SET updated_at=?,status='BUSY',action='RETRY',error_class=?
+                WHERE event_id=? AND state='PROCESSING'
+            """, (now, error_class, event_id))
+            conn.execute("INSERT INTO lite_progress(event_id,recorded_at,step) VALUES (?,?,?)",
+                         (event_id, now, step))
+        return ProcessResult("BUSY", "RETRY", error_class=error_class)
+
     def reserve(self, event_id: str, provider: str, account: str, guard_seconds: float) -> str:
         """Atomically reserve in the shared recharge table and link the event.
 
@@ -143,23 +212,27 @@ class EventStore(Database):
         this extension keeps that ID and its triggering event in one transaction.
         """
         recharge_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            active = conn.execute("""
-                SELECT recharge_id FROM recharges WHERE provider=? AND username=?
-                AND status IN ('PENDING','UNKNOWN') LIMIT 1
-            """, (provider, account)).fetchone()
-            if active:
-                raise RechargeLockedError("UNRESOLVED_RECHARGE")
+            self._bind_account(conn, account)
+            active_rows = conn.execute("""
+                SELECT provider,username FROM recharges WHERE status IN ('PENDING','UNKNOWN')
+            """).fetchall()
+            for existing_provider, existing_account in active_rows:
+                normalized = "".join(char for char in existing_provider.lower() if char.isalnum())
+                if "aldi" in normalized or normalized == "unknown":
+                    if (existing_provider, existing_account) != (provider, account):
+                        raise ReservationBlockedError("legacy_unresolved_requires_account_mapping")
+                    raise ReservationBlockedError("UNRESOLVED_RECHARGE")
             if guard_seconds > 0:
-                cutoff = (datetime.now() - timedelta(seconds=guard_seconds)).isoformat()
+                cutoff = (datetime.now(timezone.utc) - timedelta(seconds=guard_seconds)).isoformat()
                 recent = conn.execute("""
                     SELECT recharge_id FROM recharges WHERE provider=? AND username=?
                     AND status='SUCCESS' AND updated_at>=? LIMIT 1
                 """, (provider, account, cutoff)).fetchone()
                 if recent:
-                    raise RechargeLockedError("RECENT_SUCCESS")
+                    raise ReservationBlockedError("RECENT_SUCCESS")
             conn.execute("""
                 INSERT INTO recharges
                 (recharge_id,provider,username,status,error_message,created_at,updated_at)
@@ -170,7 +243,7 @@ class EventStore(Database):
                 WHERE event_id=? AND state='PROCESSING' AND recharge_id IS NULL
             """, (recharge_id, time.time(), event_id))
             if cursor.rowcount != 1:
-                raise RechargeLockedError("EVENT_ALREADY_RESERVED")
+                raise ReservationBlockedError("EVENT_ALREADY_RESERVED")
             conn.execute("INSERT INTO lite_progress(event_id,recorded_at,step) VALUES (?,?,'BOOKING_STARTED')",
                          (event_id, time.time()))
         return recharge_id
@@ -204,7 +277,7 @@ class EventStore(Database):
     def has_recent_success(self, provider: str, account: str, guard_seconds: float) -> bool:
         if guard_seconds <= 0:
             return False
-        cutoff = (datetime.now() - timedelta(seconds=guard_seconds)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=guard_seconds)).isoformat()
         return self._dict_row("""
             SELECT recharge_id FROM recharges WHERE provider=? AND username=?
             AND status='SUCCESS' AND updated_at>=? LIMIT 1
