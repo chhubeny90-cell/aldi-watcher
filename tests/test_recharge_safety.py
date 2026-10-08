@@ -212,7 +212,7 @@ def test_sqlite_lock_timeout_prevents_external_call(tmp_path):
         blocker.execute("BEGIN IMMEDIATE")
         result = asyncio.run(FakeWatcher(db, str(counter_file)).run())
         assert result.success is False
-        assert "locked" in result.error_message
+        assert result.error_message == "OperationalError"
         assert not counter_file.exists()
         blocker.rollback()
     assert db.get_unresolved_recharges("fake", "user") == []

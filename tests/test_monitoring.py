@@ -32,6 +32,7 @@ def driver():
     obj.get_cookies.return_value = [{'name': 'session', 'value': 'PRIVATE_COOKIE'}]
     obj.get_log.return_value = []
     obj.find_elements.return_value = []
+    obj.execute_script.return_value = []
     return obj
 
 

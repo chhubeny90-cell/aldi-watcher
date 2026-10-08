@@ -56,6 +56,11 @@ jobs:
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           LIDL_USER: ${{ secrets.LIDL_USER }}
           LIDL_PASS: ${{ secrets.LIDL_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          LIDL_USER_ENC: ${{ secrets.LIDL_USER_ENC }}
+          LIDL_PASS_ENC: ${{ secrets.LIDL_PASS_ENC }}
           LIDL_ACTIVE_TARIFF_SELECTOR: ${{ vars.LIDL_ACTIVE_TARIFF_SELECTOR }}
           LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
           LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}

@@ -1,5 +1,7 @@
 import os
 import time
+from core.credentials import get_credential
+from browser_dom import find_visible_elements, element_label
 from core.lidl_refill import inspect_selenium
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
@@ -30,6 +32,14 @@ LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
 LIDL_OVERVIEW_URL = LIDL_LOGIN_URL
 
 WAIT_TIMEOUT = 30
+
+
+def configure_credentials(prefix):
+    user = get_credential(prefix + '_USER') or ''
+    password = get_credential(prefix + '_PASS') or ''
+    globals()[prefix + '_USER'] = ''.join(user.split()) if prefix == 'ALDI' else user
+    globals()[prefix + '_PASS'] = password
+    return bool(user and password)
 
 
 def build_driver():
@@ -93,36 +103,34 @@ def aldi_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
+    def unique_enabled(selector):
+        require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+        elements = find_visible_elements(driver, selector)
+        return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
     user_field = wait.until(
-        EC.visibility_of_element_located((
-            By.XPATH,
-            "//input[@type='text' or @type='tel' or contains(translate(@aria-label,'RUFNUMER','rufnumer'),'rufnummer') or contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'user')]"
-        ))
+        lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
     )
     dismiss_cookie_banner(driver)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     user_field.clear()
     user_field.send_keys(ALDI_USER)
     phase('password_field')
     pass_field = wait.until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
+        lambda _: unique_enabled("input[type='password']")
     )
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     pass_field.clear()
     pass_field.send_keys(ALDI_PASS)
-    submit_candidates = driver.find_elements(
-        By.XPATH,
-        "//button[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
-        "//a[contains(., 'Anmelden') and not(contains(., 'ohne Passwort'))] | "
-        "//button[@type='submit']"
-    )
+    def submit_control(_):
+        require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+        buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
+                   if element_label(driver, e).strip().casefold() == 'anmelden'
+                   and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
+        return buttons[0] if len(buttons) == 1 else False
+    button = wait.until(submit_control)
     phase('login_submit')
-    clicked = False
-    for btn in submit_candidates:
-        if btn.is_displayed() and btn.is_enabled():
-            safe_click(driver, btn)
-            clicked = True
-            break
-    if not clicked:
-        pass_field.send_keys(Keys.ENTER)
+    require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+    button.click()
     phase('session_validation')
     wait.until(session_visible)
     return True
@@ -233,7 +241,7 @@ def main(argv=None):
     return run_cli(build_driver, {
         "aldi_talk": ("ALDI", aldi_login, aldi_read_status),
         "lidl_connect": ("LIDL", lidl_login, lidl_read_status),
-    }, argv)
+    }, argv, credential_loader=configure_credentials)
 
 
 if __name__ == '__main__':

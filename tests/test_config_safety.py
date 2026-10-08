@@ -9,7 +9,8 @@ def config_env(monkeypatch):
     for key in ("DRY_RUN", "AUTO_BOOK_ENABLED", "POLL_INTERVAL_SECONDS",
                 "THRESHOLD_ALDI_MB", "THRESHOLD_LIDL_MB", "LIDL_USE_API", "LIDL_REFILL_MODE", "ALDI_PASS_ENC", "LIDL_PASS_ENC"):
         monkeypatch.delenv(key, raising=False)
-    with patch("core.config.SecurityManager"), patch("core.config.load_dotenv"):
+    with patch("core.config.SecurityManager"), patch("core.config.load_dotenv"), \
+            patch("core.credentials.dotenv_values", return_value={}):
         yield monkeypatch
 
 
