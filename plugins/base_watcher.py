@@ -115,7 +115,7 @@ class BaseWatcher(ABC):
 
             if should_recharge:
                 if self.dry_run:
-                    print(f"DRY RUN: Would trigger recharge for {self.username}")
+                    print(f"DRY RUN: Would trigger recharge for {self.provider_name}")
                 else:
                     try:
                         recharge_id, recharge_status, recharge_triggered = (
@@ -125,7 +125,7 @@ class BaseWatcher(ABC):
                         recharge_status = "BLOCKED"
                         return WatcherResult(
                             self.provider_name, self.username, True,
-                            used_mb, total_mb, True, False, str(exc),
+                            used_mb, total_mb, True, False, 'recharge_locked',
                             None, recharge_status
                         )
 
@@ -137,5 +137,5 @@ class BaseWatcher(ABC):
         except Exception as exc:
             return WatcherResult(
                 self.provider_name, self.username, False,
-                0, 0, False, False, str(exc)
+                0, 0, False, False, type(exc).__name__
             )

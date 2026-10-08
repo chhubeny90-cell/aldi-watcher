@@ -1,6 +1,7 @@
 """SQLite persistence for usage logs and idempotent recharge operations."""
 
 import sqlite3
+import os
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -62,6 +63,12 @@ class Database:
     def __init__(self, db_path: str = "aldi_watcher.db", timeout: float = 10.0):
         self.db_path = Path(db_path)
         self.timeout = timeout
+        if self.db_path.is_symlink():
+            raise ValueError('Database symlink not allowed')
+        fd = os.open(self.db_path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.close(fd)
+        if os.name == 'posix':
+            self.db_path.chmod(0o600)
         self._init_schema()
 
     def _connect(self):

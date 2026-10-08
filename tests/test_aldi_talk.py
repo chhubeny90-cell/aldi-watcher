@@ -5,6 +5,7 @@ Unit-Tests für AldiTalkWatcher.
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from plugins.aldi_talk import AldiTalkWatcher
+from plugins.base_watcher import RechargeUnknownError
 from core.database import Database
 import asyncio
 
@@ -15,17 +16,12 @@ def test_uncertain_aldi_post_response_blocks_rebooking(tmp_path):
     watcher.check_usage = AsyncMock(return_value={
         'used_mb': 999, 'total_mb': 1000,
         'refill_eligible': True, 'refill_type': 'FREE_UNLIMITED'})
-    watcher.login = AsyncMock(return_value='fake-cookie')
-    response = MagicMock(status=504)
-    response_cm = MagicMock()
-    response_cm.__aenter__ = AsyncMock(return_value=response)
-    response_cm.__aexit__ = AsyncMock(return_value=None)
-    session = MagicMock()
-    session.post.return_value = response_cm
-    watcher._get_session = AsyncMock(return_value=session)
+    # Simulate an uncertain provider response independently of the disabled
+    # legacy endpoint. Production booking remains covered by the no-network guard.
+    watcher.trigger_recharge = AsyncMock(side_effect=RechargeUnknownError('unconfirmed'))
     assert asyncio.run(watcher.run()).recharge_status == 'UNKNOWN'
     assert asyncio.run(watcher.run()).recharge_status == 'BLOCKED'
-    session.post.assert_called_once()
+    watcher.trigger_recharge.assert_awaited_once()
     assert db.get_unresolved_recharges()[0].status == 'UNKNOWN'
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 from .security import SecurityManager
+from .credentials import get_credential, CREDENTIAL_NAMES
 from .lidl_refill import configured_selectors
 
 
@@ -17,8 +18,19 @@ class Config:
     Zentrale Konfiguration für aldi-watcher.
     """
 
-    def __init__(self, env_file: str = ".env"):
+    def __init__(self, env_file: Optional[str] = None):
+        env_file = env_file or os.getenv('CREDENTIAL_ENV_FILE') or '.env'
+        self._runtime_credentials = {key: os.environ[key] for name in CREDENTIAL_NAMES
+                                     for key in (name, name + '_ENC', name + '_FILE')
+                                     if key in os.environ}
+        self._env_file = env_file
         load_dotenv(env_file)
+        for name in CREDENTIAL_NAMES:
+            for key in (name, name + '_ENC', name + '_FILE'):
+                if key in self._runtime_credentials:
+                    os.environ[key] = self._runtime_credentials[key]
+                else:
+                    os.environ.pop(key, None)
         self.security = SecurityManager()
         
         # ALDI Talk Konfiguration
@@ -61,15 +73,8 @@ class Config:
         """
         Ruft Credential ab: zuerst verschlsselt aus .env, dann Fallback unverschlsselt.
         """
-        encrypted_value = os.getenv(f"{key}_ENC")
-        if encrypted_value:
-            try:
-                return self.security.decrypt(encrypted_value)
-            except Exception:
-                raise ValueError(f"Cannot decrypt {key}_ENC") from None
-        
-        # Fallback auf unverschlsselte .env
-        return os.getenv(key)
+        return get_credential(key, self._env_file, self.security,
+                              environ=self._runtime_credentials)
 
     def validate(self) -> bool:
         """

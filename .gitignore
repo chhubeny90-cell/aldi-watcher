@@ -17,6 +17,11 @@ ENV/
 # Environment
 .env
 .secret.key
+.env.*
+!.env.example
+private/
+*.key
+.protected-*
 
 # Database
 *.db

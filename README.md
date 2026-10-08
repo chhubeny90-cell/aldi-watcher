@@ -100,11 +100,15 @@ playwright install chromium
    DB_PATH=aldi_watcher.db
    ```
 
-3. (Optional) Credentials verschlsseln:
+3. Credentials verschlüsseln, Schlüssel separat speichern:
    ```bash
-   python -c "from core.security import SecurityManager; s=SecurityManager(); print(s.encrypt('your-password'))"
+   python -m core.protect_config --key-file /private/path/credentials.key
    ```
-   Output als `ALDI_PASS_ENC`, `LIDL_PASS_ENC` in `.env` speichern.
+   `.env` enthält danach `ALDI_USER_ENC`, `ALDI_PASS_ENC` usw. Der Befehl
+   gibt keine Zugangsdaten oder Schlüssel aus. `CREDENTIAL_KEY_FILE` verweist
+   beim Start auf die Schlüsseldatei. Alternativ hält der Laufzeit-Secret-Store
+   den Schlüssel in `CREDENTIAL_ENCRYPTION_KEY`. Schlüssel niemals committen.
+   Details und offene Live-Gates: [Geschützte Konfiguration](docs/protected-configuration.md).
 
 ## Usage
 

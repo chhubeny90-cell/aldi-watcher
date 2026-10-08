@@ -83,7 +83,7 @@ class AlDiWatcher:
         
         # Logging
         status = "OK" if result.success else "ERROR"
-        print(f"[{status}] {result.provider.upper()} | {result.username} | "
+        print(f"[{status}] {result.provider.upper()} | "
               f"{result.data_used_mb:.0f}/{result.data_total_mb:.0f} MB | "
               f"Recharge: {result.recharge_triggered}")
         
@@ -103,7 +103,7 @@ class AlDiWatcher:
                 
             except Exception as e:
                 # Fehler-Isolierung: Ein Absturz blockiert nicht andere Watcher
-                error_msg = f"Watcher crashed: {type(watcher).__name__}: {e}"
+                error_msg = f"Watcher crashed: {type(watcher).__name__}: {type(e).__name__}"
                 print(f"[ERROR] {error_msg}")
                 
                 # ERROR-Eintrag in DB
@@ -137,7 +137,7 @@ class AlDiWatcher:
                 if hasattr(watcher, 'close'):
                     await watcher.close()
             except Exception as e:
-                print(f"Error closing {watcher.__class__.__name__}: {e}")
+                print(f"Error closing {watcher.__class__.__name__}: {type(e).__name__}")
 
 
 async def main():

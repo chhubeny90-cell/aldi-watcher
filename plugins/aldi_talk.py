@@ -89,19 +89,12 @@ class AldiTalkWatcher(BaseWatcher):
         )
 
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
+        """Fail closed until an authenticated, free 1-GB provider flow is verified.
+
+        Legacy /konto/datenvolumen/nachbuchen is not an approved booking API.
+        An HTTP 200 response alone cannot prove a free refill or a credit.
         """
-        Lst ALDI Talk Nachbuchung aus.
-        """
-        session = await self._get_session()
-        
-        # Recharge-Endpoint (aus watcher.py)
-        async with session.post(
-            self.RECHARGE_URL,
-            headers={"Cookie": f"PHPSESSID={await self.login()}"}
-        ) as response:
-            if response.status != 200:
-                raise RechargeUnknownError("ALDI booking response is not confirmed")
-            return True
+        raise RuntimeError("ALDI live booking disabled: no verified free 1-GB flow")
 
     async def close(self):
         """Schliet die HTTP-Session."""

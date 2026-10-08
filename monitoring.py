@@ -57,10 +57,14 @@ def remaining_gb(text):
 def session_visible(driver):
     """A URL match or a generic balance label alone is not authentication."""
     from selenium.webdriver.common.by import By
+    from browser_dom import find_visible_elements, element_label
     passwords = driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
     logout = driver.find_elements(By.XPATH,
         "//a[contains(@href,'logout') or contains(@href,'logoff')] | "
         "//button[contains(.,'Abmelden') or contains(.,'Logout')]")
+    passwords += find_visible_elements(driver, "input[type='password']")
+    logout += [e for e in find_visible_elements(driver, "a,button,[role='button']")
+               if element_label(driver, e).strip().casefold() in {'abmelden', 'logout'}]
     return (not any(e.is_displayed() for e in passwords)
             and any(e.is_displayed() for e in logout)
             and bool(driver.get_cookies()))
@@ -103,7 +107,8 @@ def diagnostics(driver):
         result['cookie_count'] = len(driver.get_cookies())
         result['login_form_visible'] = any(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, "input[type='password']"))
         result['csrf_found'] = bool(driver.find_elements(By.CSS_SELECTOR, "input[name*='csrf'], input[name*='CSRF'], meta[name*='csrf']"))
-        result['visible_input_count'] = sum(e.is_displayed() for e in driver.find_elements(By.CSS_SELECTOR, 'input'))
+        from browser_dom import find_visible_elements
+        result['visible_input_count'] = len(find_visible_elements(driver, 'input'))
         result['frame_count'] = len(driver.find_elements(By.CSS_SELECTOR, 'iframe'))
         result['captcha_detected'] = bool(driver.find_elements(By.CSS_SELECTOR,
             "iframe[src*='captcha'], iframe[src*='challenge'], .g-recaptcha, .h-captcha, [id*='captcha']"))
@@ -221,7 +226,7 @@ def write_report(path, report):
     os.replace(temporary, target)
 
 
-def run_cli(factory, providers, argv=None):
+def run_cli(factory, providers, argv=None, credential_loader=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-once', action='store_true', help='One shot (also the default)')
     parser.add_argument('--provider', choices=['all', *providers], default='all')
@@ -238,7 +243,14 @@ def run_cli(factory, providers, argv=None):
     for name, (prefix, login, read) in providers.items():
         if args.provider not in ('all', name):
             continue
-        if requested != 'false' or not all(os.getenv(prefix+'_'+field) for field in ('USER', 'PASS')):
+        credentials_ready = False
+        if requested == 'false':
+            try:
+                credentials_ready = (credential_loader(prefix) if credential_loader else
+                                     all(os.getenv(prefix+'_'+field) for field in ('USER', 'PASS')))
+            except Exception:
+                pass  # Never expose decryption/file errors or credential values.
+        if requested != 'false' or not credentials_ready:
             result = dict(run_id=run_id, provider=name, phase='configuration', status='config_error',
                           login_ok=False, elapsed_seconds=0,
                           message='Zugangsdaten fehlen oder Monitoring-Modus nicht explizit sicher')

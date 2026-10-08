@@ -97,7 +97,7 @@ class TestLidlConnectWatcher:
             result = await watcher.run()
 
             assert result.success is False
-            assert result.error_message == "Network error"
+            assert result.error_message == "Exception"
 
     @pytest.mark.asyncio
     async def test_free_unlimited_refill_requires_verified_eligibility(self, watcher):
