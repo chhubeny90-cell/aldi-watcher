@@ -87,7 +87,7 @@ forward only `/pubsub/gmail` and optionally `/health` to local port 8080.
 
 ```sh
 docker compose run --rm --no-deps lite python -m lite watch-renew
-docker compose --profile pubsub up -d
+docker compose --env-file .env.v5 --profile pubsub up -d
 ```
 
 Gmail watches expire within seven days. Install the provided renewal service and
@@ -95,6 +95,8 @@ timer with the actual repository path; it renews every six days without accessin
 ALDI. Watch renewal preserves the processing cursor. The optional Gmail-only
 poll service is a fallback for demonstrated push-delivery problems and polls no
 faster than once per minute. No idle Gmail poll or renewal logs into ALDI.
+The TLS container receives only `LITE_PUBLIC_DOMAIN`; ALDI and Gmail credentials
+are passed solely to the LITE container.
 
 Each processed event writes one concise UTC status line, for example
 `07:32 MAIL → CHECK → REFILL → SUCCESS` or

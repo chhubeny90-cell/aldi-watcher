@@ -15,6 +15,10 @@ Zeitpläne bleiben aktiv; der neue Zweig verändert den laufenden Hauptzweig nic
 * Docker-Image gebaut; echter Chromium-/Chromedriver-Start als Benutzer 10001,
   Shadow-DOM-Feld gefunden. SQLite-Ereignis nach Start eines zweiten Containers
   mit demselben Volume wiedererkannt. Keine ALDI-Anfrage in diesen Pakettests.
+* Echter HTTP-Empfänger im Container: Healthcheck, Ablehnung unsignierter Push-
+  Nachrichten und sauberer SIGTERM-Abschluss bestätigt. Synthetischer privater
+  Testcursor, keine Gmail-API-Anfrage und kein produktiver Mailtrigger.
+  WATCHDOG meldet die zwei real gespeicherten Konfigurationsfehler korrekt.
 * Öffentlicher offizieller Login: Weiterleitung zum CIAM-Login und sichtbare
   Shadow-DOM-Eingabefelder auf dem lokalen Host bestätigt. Keine Anmeldung
   mit dem Benutzerkonto auf diesem Host, da Laufzeit-Zugangsdaten fehlen.

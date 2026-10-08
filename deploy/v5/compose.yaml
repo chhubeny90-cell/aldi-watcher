@@ -26,7 +26,8 @@ services:
   tls:
     image: caddy:2
     profiles: [pubsub]
-    env_file: .env.v5
+    environment:
+      LITE_PUBLIC_DOMAIN: ${LITE_PUBLIC_DOMAIN:-}
     ports: ["80:80", "443:443"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
