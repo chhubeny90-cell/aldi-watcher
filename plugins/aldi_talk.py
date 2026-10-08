@@ -1,18 +1,18 @@
-"""
+r"""
 ALDI Talk Watcher Plugin.
-HTTP/API-basierte Implementierung (aus watcher.py extrahiert).
+Historische HTTP-Implementierung; ihre Login-/Lesepfade sind nicht aktuell verifiziert.
 
 DOM-Selektoren & Requests (aus watcher.py):
 - Login: POST /konto/login
 - Overview: GET /konto/uebersicht
 - Datenvolumen-Parsing: Regex '(\d+\.?\d*)\s*MB\s*von\s*(\d+\.?\d*)\s*MB'
-- Recharge: POST /konto/datenvolumen/nachbuchen
+Nachbuchung ist hier gesperrt. Ausschließlich die ereignisgesteuerte LITE darf buchen.
 """
 
 import re
 import aiohttp
 from typing import Dict, Optional
-from .base_watcher import BaseWatcher
+from .base_watcher import BaseWatcher, RechargeUnknownError
 
 
 class AldiTalkWatcher(BaseWatcher):
@@ -24,10 +24,9 @@ class AldiTalkWatcher(BaseWatcher):
     BASE_URL = "https://www.alditalk.de"
     LOGIN_URL = f"{BASE_URL}/konto/login"
     OVERVIEW_URL = f"{BASE_URL}/konto/uebersicht"
-    RECHARGE_URL = f"{BASE_URL}/konto/datenvolumen/nachbuchen"
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True):
-        super().__init__(username, password, threshold_mb, dry_run)
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, database=None):
+        super().__init__(username, password, threshold_mb, dry_run, database)
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -81,18 +80,16 @@ class AldiTalkWatcher(BaseWatcher):
             
             return {"used_mb": used_mb, "total_mb": total_mb}
 
-    async def trigger_recharge(self) -> bool:
-        """
-        Lst ALDI Talk Nachbuchung aus.
-        """
-        session = await self._get_session()
-        
-        # Recharge-Endpoint (aus watcher.py)
-        async with session.post(
-            self.RECHARGE_URL,
-            headers={"Cookie": f"PHPSESSID={await self.login()}"}
-        ) as response:
-            return response.status == 200
+    def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
+        """Fail closed unless the provider check verified a free refill."""
+        return bool(
+            usage.get("refill_eligible") is True
+            and usage.get("refill_type") == "FREE_UNLIMITED"
+        )
+
+    async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
+        """Legacy ALDI booking is disabled; only the event-driven LITE may book."""
+        raise RechargeUnknownError("Legacy ALDI booking disabled; use verified LITE")
 
     async def close(self):
         """Schliet die HTTP-Session."""

@@ -1,6 +1,56 @@
 # aldi-watcher
 
-Automatische Überwachung und Nachbuchung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**.
+## V5: ereignisgesteuerte ALDI-Watcher LITE
+
+`python -m lite` verarbeitet echte ALDI-Verbrauchsmails über Gmail History,
+wahlweise durch authentifiziertes Pub/Sub Push oder sparsames Mail-Polling.
+Im Leerlauf erfolgen keine ALDI-Anfragen. Nur LITE kann ALDI nachbuchen;
+der bisherige ALDI-Plugin-Buchungspfad ist gesperrt. SQLite erhält Mail-IDs,
+Fortschritt und offene Buchungen über Neustarts. WATCHDOG beobachtet,
+PRO wertet die Ereignisse ausschließlich lesend aus.
+
+Die Implementierung ist **noch nicht live READY**. Erfolgreicher Kontologin,
+beobachtete Konto-/Tarif-/Gratisangebots-Selektoren, Provider-Reconciliation,
+Runtime-Mailzugang und dauerhafter Host müssen verifiziert werden. Es gibt keine
+erfundenen geschützten Selektoren oder Buchungsendpunkte. Startanleitung:
+[V5 Runbook](docs/v5-runbook.md). Untersuchte Referenzen:
+[V5 GitHub-Recherche](docs/v5-reference-research.md).
+Verifizierte Ergebnisse und verbleibende Blocker: [V5 Status](docs/v5-status.md).
+
+Read-only-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem separaten, noch nicht live freigegebenen Buchungskern.
+
+## Aktiver Betrieb und Full Run
+
+GitHub Actions startet `watcher.py --run-once` mit Selenium/Chrome und
+`AUTO_BOOK_ENABLED=false`. Der Workflow plant einen Lauf alle zehn Minuten;
+GitHub kann Starts verzögern. Ein grüner Push-/PR-Testlauf ist kein Live-Nachweis.
+`watcher.py` enthält keine Buchungsfunktion und liest Zugangsdaten nur aus
+Umgebungsvariablen beziehungsweise GitHub Secrets; es lädt keine `.env`.
+
+```bash
+# Tests: ohne echte Providerzugriffe
+python -m pytest -q
+# Monitoring: Zugangsdaten vorher über sichere Umgebungsvariablen bereitstellen
+AUTO_BOOK_ENABLED=false python watcher.py --run-once
+# Nur ALDI prüfen
+AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
+```
+
+Die Secrets heißen `ALDI_USER`, `ALDI_PASS`, `LIDL_USER` und `LIDL_PASS`.
+Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
+Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
+Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
+3 Konfigurationsfehler. LIDL meldet zusätzlich `refill_eligible`, `refill_type` und `refill_reason`,
+wenn die verifizierten Konto-Selektoren konfiguriert sind. Tarif-/Refill-
+Berechtigung und echte Status-Reconciliation sind noch nicht live nachgewiesen. Ein Session-/Volumen-Erfolg ist keine
+Buchungsfreigabe.
+
+`main.py` ist der separate Plugin-Dauerbetrieb mit `.env` und SQLite.
+Seine DB muss über Neustarts auf demselben persistenten Datenträger liegen.
+Der sichere Standard ist `DRY_RUN=true`, `AUTO_BOOK_ENABLED=false`.
+Ungültige Flags werden abgelehnt. Live-Pluginbetrieb verlangt beide expliziten
+Flags `DRY_RUN=false` und `AUTO_BOOK_ENABLED=true`, darf aber erst nach belegter
+Tarifentscheidung und Provider-Reconciliation aktiviert werden.
 
 ## Quickstart (5 Minuten)
 
@@ -76,8 +126,8 @@ playwright install chromium
 ## Usage
 
 ```bash
-# Einmaliger Durchlauf
-python main.py
+# Einmaliger Read-only-Durchlauf
+AUTO_BOOK_ENABLED=false python watcher.py --run-once
 
 # Dauerbetrieb (mit Polling)
 python main.py
@@ -86,7 +136,7 @@ python main.py
 ### DRY_RUN-Modus
 
 - **DRY_RUN=true** (default): Nur Simulation, keine echten Buchungen
-- **DRY_RUN=false**: Echte Nachbuchungen werden ausgelst
+- **DRY_RUN=false**: Plugin-Livebetrieb erfordert zusätzlich `AUTO_BOOK_ENABLED=true`; die Live-Abnahme steht noch aus.
 
 ## Architektur
 
@@ -141,62 +191,51 @@ class NewProviderWatcher(BaseWatcher):
         pass
 ```
 
-## ⚠️ Lidl Connect: API vs. Playwright
+## LIDL: kostenlose 1-GB-Unlimited-Nachbuchung
 
-`plugins/lidl_connect.py` verwendet einen **Hybrid-Ansatz**:
+Der Pluginbetrieb nutzt denselben `BaseWatcher`-Ablauf wie ALDI: prüfen,
+entscheiden, `PENDING` persistent schreiben, einmal buchen, Ergebnis speichern.
+`LIDL_REFILL_MODE=available` reagiert auf den freigeschalteten kostenlosen
+Refill-Button, unabhängig vom Verbrauch. Optional verlangt `needed` zusätzlich
+Restvolumen <= `THRESHOLD_LIDL_MB`; diese Schwelle bezeichnet **verbleibende MB**.
 
-### **API-Ansatz (Standard)**
+Eine Buchung verlangt einen eindeutig aktiven `Unlimited on Demand S/M/L`,
+ein einzelnes sichtbares Angebot für genau 1 GB Unlimited-Refill mit ausdrücklich
+kostenlosem Preis und einen sichtbaren, aktivierten Button innerhalb dieses
+Angebots. Preis, Sitzung, Tarif oder DOM unklar: keine Buchung. Eine Bestätigung
+muss neu erscheinen und ausdrücklich eine erfolgreiche 1-GB-Buchung nennen.
+Timeout oder unklare Bestätigung: `UNKNOWN`, keine Wiederholung oder Kanalwechsel.
+Eine erfolgreiche Buchung sperrt weitere LIDL-Buchungen für 30 Minuten.
+Ungeklärte `PENDING`/`UNKNOWN` bleiben über Neustarts gesperrt, bis ihr tatsächliches
+Ergebnis überprüft und in der persistenten DB korrekt abgeglichen wurde.
 
-- **Endpoints**:
-  - Login: `POST https://api.lidl-connect.de/api/authenticate`
-  - Usage: `GET https://api.lidl-connect.de/api/consumption`
-  - Tariffs: `GET https://api.lidl-connect.de/api/tariff-options`
-  - Recharge: `POST https://api.lidl-connect.de/api/tariff-option/book`
+Konfiguration: `LIDL_USE_API=false`, `LIDL_REFILL_MODE=available` sowie:
 
-- **Vorteile**:
-  - ✅ Schnell (kein Browser-Overhead)
-  - ✅ Stabil (API ändert sich seltener als UI)
-  - ✅ Weniger Dependencies
+| Variable | Erforderliche Quelle im angemeldeten Konto |
+| --- | --- |
+| `LIDL_ACTIVE_TARIFF_SELECTOR` | Nur der Name des aktiven Tarifs, keine Angebotsliste |
+| `LIDL_REFILL_OFFER_SELECTOR` | Genau ein Refill-Angebot mit 1 GB und explizitem Preis |
+| `LIDL_REFILL_BUTTON_SELECTOR` | Button relativ **innerhalb** dieses Angebots |
+| `LIDL_REFILL_SUCCESS_SELECTOR` | Neue, eindeutige Bestätigung dieser Buchung |
 
-- **Nachteile**:
-  - ⚠️ API kann sich ändern (reverse-engineered)
-  - ⚠️ Eventuell Captchas bei zu vielen Requests
+Es gibt keine erfundenen Standardselektoren für diese geschützten Konto-Elemente.
+Sie müssen aus einer erfolgreichen Anmeldung und einem beobachteten Kontoflow
+stammen. Die bisherigen API-Endpunkte und die Angaben zu Verbrauchskacheln sind
+Altbestand und nicht live verifiziert. API-Verbrauchsabfragen können optional
+weiter getestet werden; API-Buchungen sind gesperrt, weil das frühere Auswählen
+des ersten DATA-Tarifs eine kostenpflichtige Option buchen konnte.
 
-### **Playwright-Fallback**
+Für den geplanten GitHub-Monitoringlauf werden die ersten drei Selektoren als
+Repository Variables eingebunden. `watcher.py` prüft damit zusätzlich die
+Verfügbarkeit und klickt weiterhin nie. Der separate Pluginbetrieb `main.py`
+führt bei `DRY_RUN=false` und `AUTO_BOOK_ENABLED=true` genau eine verifizierte
+Buchung pro Durchlauf aus. **Die beiden Flags alleine belegen keine Live-Reife:**
+Anmeldung, Selektoren und Erfolgsbestätigung sind noch am tatsächlichen Konto
+zu validieren. Zuerst denselben Ablauf in `DRY_RUN=true` prüfen.
 
-Falls die API nicht verfügbar ist, wechselt das Script automatisch auf Playwright.
-
-**CSS-Selektoren (müssen ggf. angepasst werden)**:
-- `input[type='tel']`: Rufnummer-Input
-- `input[type='password']`: Passwort-Input
-- `button[type='submit']`: Login-Button
-- `div.consumption-tile`: Datenkachel
-- `span.consumption-value`: Verbrauchswert
-- `button[data-testid='book-tariff']`: Nachbuchung
-- `div.alert-success`: Erfolgsmeldung
-
-### **Selektoren ermitteln (falls API nicht geht)**
-
-```bash
-# Playwright Codegen starten
-playwright codegen https://kundenkonto.lidl-connect.de/mein-lidl-connect.html
-```
-
-- Im Browser anmelden
-- Durch die UI navigieren
-- Generierte Selektoren in `plugins/lidl_connect.py` eintragen
-
-### **API-Modus umschalten**
-
-In `plugins/lidl_connect.py`:
-
-```python
-# Standard: API-first
-LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=True)
-
-# Nur Playwright (falls API gar nicht geht)
-LidlConnectWatcher(username, password, threshold_mb, dry_run, use_api=False)
-```
+Buchender Dauerbetrieb benötigt eine dauerhafte SQLite-Datei auf demselben
+Datenträger und darf nicht mit einer leeren DB je GitHub-hosted Runner starten.
+Der gehostete Zehn-Minuten-Workflow bleibt deshalb beim read-only Monitoring.
 
 ## Troubleshooting
 
@@ -220,12 +259,14 @@ git pull origin main
 
 - Credentials in `.env` prüfen
 - API kann sich geändert haben → Playwright-Fallback wird automatisch genutzt
-- Console-Log: `"Lidl API failed, falling back to Playwright"`
+- Ein API-Fehler kann bei Verbrauchsabfragen einen Browser-Fallback auslösen.
+  Nach einer Buchung mit unklarem Ergebnis gibt es niemals einen Fallback.
 
 ### **Playwright: `Element not found`**
 
 - Selektoren sind veraltet → `playwright codegen` ausführen
-- Neue Selektoren in `plugins/lidl_connect.py` eintragen
+- Die geschützten Refill-Selektoren über die oben genannten Variablen konfigurieren;
+  bei unbekanntem Konto-DOM bleibt die Buchung gesperrt.
 
 ### **`git pull` gibt Merge-Konflikte**
 

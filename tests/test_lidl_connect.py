@@ -18,7 +18,8 @@ class TestLidlConnectWatcher:
             username="test@example.com",
             password="testpass",
             threshold_mb=500,
-            dry_run=True
+            dry_run=True,
+            use_api=False
         )
 
     def test_init(self, watcher):
@@ -31,53 +32,49 @@ class TestLidlConnectWatcher:
     @pytest.mark.asyncio
     async def test_check_usage_success(self, watcher):
         """Testet erfolgreiche Usage-Prfung."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
-                
-                result = await watcher.check_usage()
-                
-                assert result["used_mb"] == 1234
-                assert result["total_mb"] == 5000
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
+        watcher.page = mock_page
+
+        result = await watcher.check_usage()
+
+        assert result["used_mb"] == 1234
+        assert result["total_mb"] == 5000
 
     @pytest.mark.asyncio
     async def test_check_usage_parse_error(self, watcher):
         """Testet Parsing-Fehler."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.text_content = AsyncMock(return_value="Invalid format")
-                
-                with pytest.raises(Exception, match="Could not parse"):
-                    await watcher.check_usage()
+        mock_page = MagicMock()
+        mock_page.goto = AsyncMock()
+        mock_page.text_content = AsyncMock(return_value="Invalid format")
+        watcher.page = mock_page
+
+        with pytest.raises(Exception, match="Could not parse"):
+            await watcher.check_usage()
 
     @pytest.mark.asyncio
-    async def test_trigger_recharge_success(self, watcher):
-        """Testet erfolgreiche Nachbuchung."""
-        with patch.object(watcher, '_init_browser', new=AsyncMock()):
-            with patch.object(watcher, 'page') as mock_page:
-                mock_page.click = AsyncMock()
-                mock_page.wait_for_load_state = AsyncMock()
-                mock_page.wait_for_selector = AsyncMock()
-                
-                result = await watcher.trigger_recharge()
-                
-                assert result is True
-                mock_page.click.assert_called_once_with("button.reload-data", timeout=10000)
+    async def test_direct_dry_run_never_clicks(self, watcher):
+        mock_page = MagicMock()
+        mock_page.click = AsyncMock()
+        watcher.page = mock_page
+        assert await watcher.trigger_recharge() is False
+        mock_page.click.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self, watcher):
         """Testet exponentiellen Backoff."""
         call_count = 0
-        
+
         async def failing_func():
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise Exception("Timeout")
             return "success"
-        
+
         result = await watcher._exponential_backoff(failing_func, max_retries=5, base_delay=0.01)
-        
+
         assert result == "success"
         assert call_count == 3
 
@@ -87,9 +84,9 @@ class TestLidlConnectWatcher:
         with patch.object(watcher, 'check_usage', new=AsyncMock(return_value={"used_mb": 600, "total_mb": 1000})):
             with patch.object(watcher, 'trigger_recharge', new=AsyncMock()) as mock_recharge:
                 result = await watcher.run()
-                
+
                 assert result.success is True
-                assert result.should_recharge is True
+                assert result.should_recharge is False
                 assert result.recharge_triggered is False  # DRY_RUN!
                 mock_recharge.assert_not_called()
 
@@ -98,6 +95,29 @@ class TestLidlConnectWatcher:
         """Testet Fehlerbehandlung."""
         with patch.object(watcher, 'check_usage', new=AsyncMock(side_effect=Exception("Network error"))):
             result = await watcher.run()
-            
+
             assert result.success is False
             assert result.error_message == "Network error"
+
+    @pytest.mark.asyncio
+    async def test_free_unlimited_refill_requires_verified_eligibility(self, watcher):
+        usage = {
+            "used_mb": 9999,
+            "total_mb": 10000,
+            "refill_eligible": True,
+            "refill_type": "FREE_UNLIMITED",
+        }
+        with patch.object(watcher, 'check_usage', new=AsyncMock(return_value=usage)):
+            result = await watcher.run()
+        assert result.should_recharge is True
+        assert result.recharge_triggered is False
+
+    @pytest.mark.asyncio
+    async def test_paid_or_unverified_refill_is_blocked(self, watcher):
+        for usage in (
+            {"used_mb": 9999, "total_mb": 10000},
+            {"used_mb": 9999, "total_mb": 10000, "refill_eligible": True, "refill_type": "PAID"},
+        ):
+            with patch.object(watcher, 'check_usage', new=AsyncMock(return_value=usage)):
+                result = await watcher.run()
+            assert result.should_recharge is False

@@ -1,38 +1,71 @@
-name: Multi-Provider Watcher
+name: CI and Safe Watcher
 
 on:
+  push:
+    branches: [main, develop, 'hardening/**', 'feature/**']
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: '*/10 * * * *'
 
+permissions:
+  contents: read
+
 concurrency:
-  group: aldi-watcher
+  group: aldi-watcher-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  watch:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run full test suite
+        run: python -m pytest -q
 
+  watch:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
       - name: Python setup
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install Chrome
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
-
+        with:
+          chrome-version: stable
+          install-chromedriver: true
       - name: Install dependencies
-        run: pip install selenium
-
-      - name: Run watcher
+        run: pip install -r requirements.txt
+      - name: Run watcher in safety mode
         env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           LIDL_USER: ${{ secrets.LIDL_USER }}
           LIDL_PASS: ${{ secrets.LIDL_PASS }}
-          AUTO_BOOK_ENABLED: 'true'
-        run: python watcher.py
-        continue-on-error: true
+          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ vars.LIDL_ACTIVE_TARIFF_SELECTOR }}
+          LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
+          LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}
+          AUTO_BOOK_ENABLED: 'false'
+        run: python watcher.py --run-once
+      - name: Preserve sanitized heartbeat and diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-${{ github.run_id }}-${{ github.run_attempt }}
+          path: monitoring-report.json
+          retention-days: 7
+          if-no-files-found: warn

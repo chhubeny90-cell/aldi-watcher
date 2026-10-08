@@ -16,6 +16,8 @@ ENV/
 
 # Environment
 .env
+.env.*
+!.env.example
 .secret.key
 
 # Database
@@ -28,3 +30,9 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+.venv/
+monitoring-report.json
+v5-login-report.json
+*.lock
+.runtime/
