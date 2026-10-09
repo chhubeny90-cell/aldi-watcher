@@ -48,7 +48,7 @@ jobs:
           ALDI_REFILL_RECONCILE_SELECTOR: ${{ vars.ALDI_REFILL_RECONCILE_SELECTOR }}
           ALDI_AUTH_DIAGNOSTIC: 'true'
           AUTO_BOOK_ENABLED: 'false'
-        run: python tools/aldi_auth_probe.py
+        run: python tools/aldi_pointer_auth_probe.py
       - name: Preserve sanitized ALDI diagnosis
         if: always()
         uses: actions/upload-artifact@v4
