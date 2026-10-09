@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
-    NoSuchElementException,
+    NoSuchElementException, WebDriverException,
     ElementClickInterceptedException, ElementNotInteractableException
 )
 
@@ -134,7 +134,22 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    safe_click(driver, button)
+    try:
+        button.click()
+    except WebDriverException:
+        try:
+            if session_visible(driver):
+                return True
+        except Exception:
+            pass
+        require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+        passwords = find_visible_elements(driver, "input[type='password']")
+        fresh_button = submit_control(None)
+        if len(passwords) != 1 or not fresh_button:
+            raise
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", fresh_button)
+        time.sleep(0.3)
+        driver.execute_script("arguments[0].click();", fresh_button)
     phase('session_validation')
     wait.until(session_visible)
     return True
