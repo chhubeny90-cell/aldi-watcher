@@ -52,8 +52,11 @@ def _structural_state(driver):
         "mfa_input_visible": False,
         "alert_region_visible": False,
         "invalid_input_count": None,
+        "visible_control_count": None,
         "login_submit_visible": False,
         "login_submit_enabled": False,
+        "continue_control_visible": False,
+        "consent_control_visible": False,
         "logout_visible": False,
         "frame_count": None,
         "document_ready": None,
@@ -90,17 +93,25 @@ def _structural_state(driver):
         controls = _visible(find_visible_elements(
             driver, "button,a,[role='button'],input[type='submit']"
         ))
-        submits = [element for element in controls
-                   if element_label(driver, element).strip().casefold() == "anmelden"]
+        state["visible_control_count"] = len(controls)
+        labels = [element_label(driver, element).strip().casefold() for element in controls]
+        submits = [element for element, label in zip(controls, labels) if label == "anmelden"]
         state["login_submit_visible"] = len(submits) == 1
         if len(submits) == 1:
             state["login_submit_enabled"] = bool(
                 submits[0].is_enabled()
                 and submits[0].get_attribute("aria-disabled") != "true"
             )
+        state["continue_control_visible"] = any(
+            label in {"weiter", "fortfahren", "weiter zu aldi talk", "zum kundenkonto"}
+            for label in labels
+        )
+        state["consent_control_visible"] = any(
+            label in {"zulassen", "bestätigen", "zustimmen", "einverstanden"}
+            for label in labels
+        )
         state["logout_visible"] = any(
-            element_label(driver, element).strip().casefold() in {"abmelden", "logout"}
-            for element in controls
+            label in {"abmelden", "logout"} for label in labels
         )
     except Exception:
         pass
