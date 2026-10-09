@@ -3,7 +3,7 @@
 The probe performs the same account login as watcher.py but never books or
 clicks a refill control. On authentication failure it emits only structural,
 allowlisted booleans/counts so SSO/MFA/error states can be distinguished
-without exposing account data, page text, URLs, cookies, or tokens.
+without exposing account data, page text, URLs, cookies, tokens, or raw errors.
 """
 import json
 from pathlib import Path
@@ -17,6 +17,16 @@ from monitoring import safe_refill_evidence, utcnow, write_report
 
 
 REPORT = Path("monitoring-report.json")
+_ALLOWED_WEBDRIVER_ERRORS = {
+    'ElementClickInterceptedException',
+    'ElementNotInteractableException',
+    'StaleElementReferenceException',
+    'JavascriptException',
+    'InvalidElementStateException',
+    'NoSuchElementException',
+    'TimeoutException',
+    'WebDriverException',
+}
 
 
 def _visible(elements):
@@ -226,6 +236,11 @@ def _structural_state(driver):
     return state
 
 
+def _webdriver_error_class(exc):
+    name = type(exc).__name__
+    return name if name in _ALLOWED_WEBDRIVER_ERRORS else 'WebDriverException'
+
+
 def main():
     started = utcnow()
     report = {
@@ -248,8 +263,12 @@ def main():
             report.update(status="auth_timeout", reason="session_validation_timeout")
             report.update(_structural_state(driver))
             return 1
-        except WebDriverException:
-            report.update(status="browser_error", reason="webdriver_error")
+        except WebDriverException as exc:
+            report.update(
+                status="browser_error",
+                reason="webdriver_error",
+                webdriver_error_class=_webdriver_error_class(exc),
+            )
             report.update(_structural_state(driver))
             return 1
 
