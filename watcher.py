@@ -160,7 +160,12 @@ def aldi_login(driver) -> bool:
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
 
-    button = wait.until(submit_control)
+    # Require one explicit enabled Anmelden control before submitting, but do not
+    # interact with that shadow-DOM control. The real runner showed a JavaScript
+    # failure on button.click() before any network request. ENTER on the already
+    # validated password field performs the same single form submission without a
+    # second interaction path.
+    wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
 
@@ -173,12 +178,9 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
-    # Submit exactly once. A WebDriver/timeout error makes the outcome uncertain;
-    # never submit credentials a second time in the same run.
-    try:
-        button.click()
-    except WebDriverException:
-        raise
+    # Submit exactly once. Any WebDriver/timeout error makes the outcome uncertain;
+    # never send ENTER or click a control a second time in the same run.
+    pass_field.send_keys(Keys.ENTER)
 
     # The SSO host does not reliably expose a logout marker immediately after
     # submitting credentials. Probe the official protected overview once instead
