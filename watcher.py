@@ -2,7 +2,10 @@ import os
 import time
 from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label
-from core.aldi_refill import inspect_selenium as inspect_aldi_refill
+from core.aldi_refill import (
+    inspect_selenium as inspect_aldi_refill,
+    inspect_reconciliation_selenium as inspect_aldi_reconciliation,
+)
 from core.lidl_refill import inspect_selenium as inspect_lidl_refill
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
@@ -161,6 +164,8 @@ def aldi_read_status(driver) -> dict:
         pass
     phase('refill_availability')
     status.update(inspect_aldi_refill(driver, ALDI_USER))
+    phase('reconciliation_probe')
+    status['reconciliation_status'] = inspect_aldi_reconciliation(driver, ALDI_USER)
     return status
 
 
