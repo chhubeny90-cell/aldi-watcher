@@ -197,20 +197,31 @@ def aldi_login(driver) -> bool:
         elements = find_visible_elements(driver, selector)
         return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
 
-    user_field = wait.until(
-        lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
-    )
+    user_selector = "input[autocomplete='username'],input[type='tel'],input[type='text']"
+    password_selector = "input[type='password']"
+    user_field = wait.until(lambda _: unique_enabled(user_selector))
     dismiss_cookie_banner(driver)
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    user_field.clear()
+    # Use keyboard input and a real blur event rather than WebElement.clear().
+    # The authenticated probe showed that ALDI's component can keep its internal
+    # model empty even while the native input value looks valid. TAB gives the
+    # component the same change/blur transition as an interactive login.
+    user_field.send_keys(Keys.CONTROL, 'a')
+    user_field.send_keys(Keys.BACKSPACE)
     user_field.send_keys(ALDI_USER)
+    user_field.send_keys(Keys.TAB)
+
     phase('password_field')
-    pass_field = wait.until(
-        lambda _: unique_enabled("input[type='password']")
-    )
+    pass_field = wait.until(lambda _: unique_enabled(password_selector))
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    pass_field.clear()
+    pass_field.send_keys(Keys.CONTROL, 'a')
+    pass_field.send_keys(Keys.BACKSPACE)
     pass_field.send_keys(ALDI_PASS)
+    pass_field.send_keys(Keys.TAB)
+
+    # Re-resolve controls after blur in case the component re-rendered them.
+    user_field = wait.until(lambda _: unique_enabled(user_selector))
+    pass_field = wait.until(lambda _: unique_enabled(password_selector))
 
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
@@ -236,10 +247,8 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
-    # The authenticated probe established that these fields are not associated
-    # with a native form and the validated Anmelden control is type=button, so
-    # ENTER cannot submit it. Trigger that already-validated control exactly once
-    # through the DOM. There is deliberately no ENTER/click fallback or retry.
+    # Trigger the one validated Anmelden control exactly once. There is no
+    # ENTER/click fallback or retry after an uncertain outcome.
     driver.execute_script("arguments[0].click();", button)
     if diagnostic_mode:
         ALDI_AUTH_DIAGNOSTIC_STATE['submit_attempted_once'] = True
