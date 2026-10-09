@@ -185,15 +185,28 @@ def execute_free_one_gb_selenium(
             "reconcile_fingerprint": pre_fingerprint,
         }
 
+    # Capture any already-visible success marker so stale UI cannot satisfy the
+    # post-click confirmation gate.
+    pre_success_status, pre_success_fingerprint = success_snapshot(driver, selectors)
+    if pre_success_status == "UNKNOWN":
+        return {
+            "booking_status": "BLOCKED",
+            "booking_executed": False,
+            "booking_reason": "success_marker_unverified",
+            "reconcile_fingerprint": pre_fingerprint,
+        }
+
     # One click only. No JS fallback, no second submit, no automatic retry.
     button.click()
 
     try:
         def confirmation_changed(_):
             status, fingerprint = success_snapshot(driver, selectors)
-            if status != "SUCCESS":
+            if status != "SUCCESS" or not fingerprint:
                 return False
-            return fingerprint if fingerprint else False
+            if pre_success_fingerprint and fingerprint == pre_success_fingerprint:
+                return False
+            return fingerprint
 
         WebDriverWait(driver, timeout_seconds).until(confirmation_changed)
 
