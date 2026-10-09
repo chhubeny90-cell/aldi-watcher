@@ -1,6 +1,7 @@
 from unittest.mock import Mock, call
 import pytest
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.keys import Keys
 import watcher
 
 
@@ -29,11 +30,21 @@ def login_page(monkeypatch):
     return driver, user, password, submit, navigate_mock
 
 
-def test_shadow_controls_are_filled_and_submitted_once(login_page):
+def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
     driver, user, password, submit, navigate_mock = login_page
     assert watcher.aldi_login(driver)
-    user.send_keys.assert_called_once_with('PRIVATE_USER')
-    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD')]
+    assert user.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'),
+        call(Keys.BACKSPACE),
+        call('PRIVATE_USER'),
+        call(Keys.TAB),
+    ]
+    assert password.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'),
+        call(Keys.BACKSPACE),
+        call('PRIVATE_PASSWORD'),
+        call(Keys.TAB),
+    ]
     submit.click.assert_not_called()
     navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
     driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
@@ -66,6 +77,11 @@ def test_uncertain_dom_submit_is_not_repeated(login_page):
     driver.execute_script.side_effect = TimeoutException('PRIVATE upstream content')
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD')]
+    assert user.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_USER'), call(Keys.TAB)
+    ]
+    assert password.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_PASSWORD'), call(Keys.TAB)
+    ]
     submit.click.assert_not_called()
     driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
