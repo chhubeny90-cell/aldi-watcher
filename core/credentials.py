@@ -7,6 +7,17 @@ from .security import SecurityManager
 CREDENTIAL_NAMES = ("ALDI_USER", "ALDI_PASS", "LIDL_USER", "LIDL_PASS")
 
 
+def supported_credential_names():
+    names = list(CREDENTIAL_NAMES)
+    for prefix in ("ALDI", "LIDL"):
+        for idx in range(1, 10):
+            names.extend((f"{prefix}_{idx}_USER", f"{prefix}_{idx}_PASS"))
+    return tuple(dict.fromkeys(names))
+
+
+SUPPORTED_CREDENTIAL_NAMES = supported_credential_names()
+
+
 def validated(name, value):
     placeholders = {'your-aldi-password', 'your-lidl-password', 'your-password',
                     'your_aldi_password', 'your_lidl_password', 'changeme', 'change_me',
@@ -18,11 +29,10 @@ def validated(name, value):
 
 
 def get_credential(name, env_file=None, security=None, environ=None):
-    if name not in CREDENTIAL_NAMES:
-        raise ValueError("Unsupported credential name")
+    if name not in SUPPORTED_CREDENTIAL_NAMES:
+        raise ValueError(f"Unsupported credential name: {name}")
     environ = os.environ if environ is None else environ
     values = dotenv_values(env_file or environ.get("CREDENTIAL_ENV_FILE") or ".env")
-    # Empty GitHub secret variables do not shadow the encrypted fallback.
     source = environ if any(environ.get(name + suffix) for suffix in ("_ENC", "_FILE", "")) else values
     encrypted = source.get(name + "_ENC")
     file_path = source.get(name + "_FILE")
