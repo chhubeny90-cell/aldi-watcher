@@ -173,22 +173,12 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
+    # Submit exactly once. A WebDriver/timeout error makes the outcome uncertain;
+    # never submit credentials a second time in the same run.
     try:
         button.click()
     except WebDriverException:
-        try:
-            if session_visible(driver):
-                return True
-        except Exception:
-            pass
-        require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-        passwords = find_visible_elements(driver, "input[type='password']")
-        fresh_button = submit_control(None)
-        if len(passwords) != 1 or not fresh_button:
-            raise
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", fresh_button)
-        time.sleep(0.3)
-        driver.execute_script("arguments[0].click();", fresh_button)
+        raise
 
     # The SSO host does not reliably expose a logout marker immediately after
     # submitting credentials. Probe the official protected overview once instead
