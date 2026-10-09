@@ -134,7 +134,7 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    button.click()
+    safe_click(driver, button)
     phase('session_validation')
     wait.until(session_visible)
     return True
