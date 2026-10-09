@@ -1,5 +1,6 @@
 name: ALDI read-only diagnostic
 
+# Manual retrigger marker: 2026-10-09 post-main login verification.
 on:
   push:
     branches:
