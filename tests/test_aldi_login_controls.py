@@ -9,12 +9,13 @@ import watcher
 def login_page(monkeypatch):
     driver = Mock(current_url=watcher.ALDI_LOGIN_URL)
     user, password, submit = (Mock() for _ in range(3))
+    navigate_mock = Mock()
     for control in (user, password, submit):
         control.is_enabled.return_value = True
         control.get_attribute.return_value = None
     monkeypatch.setattr(watcher, 'ALDI_USER', 'PRIVATE_USER')
     monkeypatch.setattr(watcher, 'ALDI_PASS', 'PRIVATE_PASSWORD')
-    monkeypatch.setattr(watcher, 'navigate', lambda *_: None)
+    monkeypatch.setattr(watcher, 'navigate', navigate_mock)
     monkeypatch.setattr(watcher, 'dismiss_cookie_banner', lambda *_: None)
     monkeypatch.setattr(watcher, 'element_label', lambda *_: 'Anmelden')
     monkeypatch.setattr(watcher, 'aldi_protected_session_visible', lambda *_: True)
@@ -26,20 +27,21 @@ def login_page(monkeypatch):
             return [password]
         return [submit]
     monkeypatch.setattr(watcher, 'find_visible_elements', elements)
-    return driver, user, password, submit
+    return driver, user, password, submit, navigate_mock
 
 
 def test_shadow_controls_are_filled_and_submitted_once(login_page):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, navigate_mock = login_page
     assert watcher.aldi_login(driver)
     user.send_keys.assert_called_once_with('PRIVATE_USER')
     assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD'), call(Keys.ENTER)]
     submit.click.assert_not_called()
+    navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
     driver.execute_script.assert_not_called()
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, _ = login_page
     driver.current_url = 'https://attacker.invalid/'
     with pytest.raises(PermissionError):
         watcher.aldi_login(driver)
@@ -49,7 +51,7 @@ def test_untrusted_origin_never_receives_credentials(login_page):
 
 
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, _ = login_page
     monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [user, Mock()])
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
@@ -59,7 +61,7 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
 
 
 def test_uncertain_enter_submit_is_not_repeated(login_page):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, _ = login_page
     password.send_keys.side_effect = [None, TimeoutException('PRIVATE upstream content')]
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
