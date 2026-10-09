@@ -7,6 +7,7 @@ from core.aldi_refill import (
     inspect_reconciliation_selenium,
     inspect_selenium,
     normalize_msisdn,
+    protected_session_visible,
     success_text_is_specific,
 )
 
@@ -61,6 +62,24 @@ def test_success_text_requires_specific_one_gb_outcome(text, expected):
     assert success_text_is_specific(text) is expected
 
 
+def test_protected_session_does_not_require_logout_control():
+    driver = MagicMock()
+    driver.current_url = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+    driver.get_cookies.return_value = [{'name': 'session'}]
+    with patch('browser_dom.find_visible_elements', return_value=[]), \
+         patch('browser_dom.rendered_text', return_value='Mein Datenvolumen und Guthaben'):
+        assert protected_session_visible(driver) is True
+
+
+def test_protected_session_rejects_visible_password_field():
+    driver = MagicMock()
+    driver.current_url = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+    driver.get_cookies.return_value = [{'name': 'session'}]
+    with patch('browser_dom.find_visible_elements', return_value=[MagicMock()]), \
+         patch('browser_dom.rendered_text', return_value='Guthaben'):
+        assert protected_session_visible(driver) is False
+
+
 def test_unconfigured_selectors_do_not_touch_driver():
     driver = MagicMock()
     result = inspect_selenium(driver, ACCOUNT, {})
@@ -89,7 +108,7 @@ def test_authenticated_inspection_is_read_only_and_account_scoped():
         return []
 
     text = {account: ACCOUNT, tariff: 'Jahres-Paket', offer: OFFER}
-    with patch('monitoring.session_visible', return_value=True), \
+    with patch('core.aldi_refill.protected_session_visible', return_value=True), \
          patch('browser_dom.find_visible_elements', side_effect=find), \
          patch('browser_dom.rendered_text', side_effect=lambda _driver, element: text[element]), \
          patch('browser_dom.element_label', return_value='1 GB nachbuchen'):
@@ -114,7 +133,7 @@ def test_reconciliation_is_read_only_account_scoped_and_specific():
         return {'.account': [account], '.history-latest-refill': [marker]}.get(selector, [])
 
     text = {account: ACCOUNT, marker: '1 GB erfolgreich nachgebucht'}
-    with patch('monitoring.session_visible', return_value=True), \
+    with patch('core.aldi_refill.protected_session_visible', return_value=True), \
          patch('browser_dom.find_visible_elements', side_effect=find), \
          patch('browser_dom.rendered_text', side_effect=lambda _driver, element: text[element]):
         result = inspect_reconciliation_selenium(driver, ACCOUNT, SELECTORS)
@@ -131,7 +150,7 @@ def test_reconciliation_ambiguity_stays_unknown():
     def find(_driver, selector, scope=None):
         return {'.account': [account], '.history-latest-refill': [first, second]}.get(selector, [])
 
-    with patch('monitoring.session_visible', return_value=True), \
+    with patch('core.aldi_refill.protected_session_visible', return_value=True), \
          patch('browser_dom.find_visible_elements', side_effect=find), \
          patch('browser_dom.rendered_text', return_value=ACCOUNT):
         assert inspect_reconciliation_selenium(driver, ACCOUNT, SELECTORS) == 'UNKNOWN'
@@ -141,7 +160,7 @@ def test_wrong_origin_fails_closed_without_click():
     driver = MagicMock()
     driver.current_url = 'https://attacker.invalid/'
     button = MagicMock()
-    with patch('monitoring.session_visible', return_value=True):
+    with patch('core.aldi_refill.protected_session_visible', return_value=True):
         result = inspect_selenium(driver, ACCOUNT, SELECTORS)
     assert not result['refill_eligible']
     assert result['refill_reason'] == 'offer_unverified'
