@@ -37,6 +37,7 @@ LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
 LIDL_OVERVIEW_URL = LIDL_LOGIN_URL
 
 WAIT_TIMEOUT = 30
+ALDI_AUTH_DIAGNOSTIC_STATE = {}
 
 
 def configure_credentials(prefix):
@@ -95,6 +96,61 @@ def safe_click(driver, element):
         driver.execute_script("arguments[0].click();", element)
 
 
+def _aldi_diagnostic_field_state(driver, element, prefix):
+    """Record booleans only; never record a login field value or message."""
+    result = {
+        f'pre_submit_{prefix}_has_value': None,
+        f'pre_submit_{prefix}_aria_invalid': None,
+        f'pre_submit_{prefix}_native_valid': None,
+        f'pre_submit_{prefix}_value_missing': None,
+        f'pre_submit_{prefix}_pattern_mismatch': None,
+        f'pre_submit_{prefix}_type_mismatch': None,
+        f'pre_submit_{prefix}_too_short': None,
+        f'pre_submit_{prefix}_too_long': None,
+        f'pre_submit_{prefix}_custom_error': None,
+    }
+    try:
+        result[f'pre_submit_{prefix}_has_value'] = bool(
+            driver.execute_script('return Boolean(arguments[0].value);', element)
+        )
+    except Exception:
+        pass
+    try:
+        result[f'pre_submit_{prefix}_aria_invalid'] = (
+            (element.get_attribute('aria-invalid') or '').lower() == 'true'
+        )
+    except Exception:
+        pass
+    try:
+        validity = driver.execute_script(
+            """
+            const v = arguments[0].validity;
+            if (!v) return null;
+            return {
+              valid: Boolean(v.valid),
+              valueMissing: Boolean(v.valueMissing),
+              patternMismatch: Boolean(v.patternMismatch),
+              typeMismatch: Boolean(v.typeMismatch),
+              tooShort: Boolean(v.tooShort),
+              tooLong: Boolean(v.tooLong),
+              customError: Boolean(v.customError)
+            };
+            """,
+            element,
+        )
+        if isinstance(validity, dict):
+            result[f'pre_submit_{prefix}_native_valid'] = bool(validity.get('valid'))
+            result[f'pre_submit_{prefix}_value_missing'] = bool(validity.get('valueMissing'))
+            result[f'pre_submit_{prefix}_pattern_mismatch'] = bool(validity.get('patternMismatch'))
+            result[f'pre_submit_{prefix}_type_mismatch'] = bool(validity.get('typeMismatch'))
+            result[f'pre_submit_{prefix}_too_short'] = bool(validity.get('tooShort'))
+            result[f'pre_submit_{prefix}_too_long'] = bool(validity.get('tooLong'))
+            result[f'pre_submit_{prefix}_custom_error'] = bool(validity.get('customError'))
+    except Exception:
+        pass
+    return result
+
+
 def aldi_protected_session_visible(driver):
     """Confirm an ALDI session only on the protected customer portal.
 
@@ -125,6 +181,8 @@ def aldi_protected_session_visible(driver):
 # ============================================================
 
 def aldi_login(driver) -> bool:
+    global ALDI_AUTH_DIAGNOSTIC_STATE
+    ALDI_AUTH_DIAGNOSTIC_STATE = {}
     if not ALDI_USER or not ALDI_PASS:
         return False
     phase('login_page')
@@ -161,16 +219,18 @@ def aldi_login(driver) -> bool:
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
 
-    # Require one explicit enabled Anmelden control before submitting, but do not
-    # interact with that shadow-DOM control. ENTER on the already validated
-    # password field performs the single submit without a second interaction path.
     wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
 
-    # Diagnostic mode may drain the pre-submit performance log so the sanitized
-    # probe can classify only network activity caused after credential submission.
-    if os.getenv('ALDI_AUTH_DIAGNOSTIC', 'false').strip().lower() == 'true':
+    diagnostic_mode = os.getenv('ALDI_AUTH_DIAGNOSTIC', 'false').strip().lower() == 'true'
+    if diagnostic_mode:
+        ALDI_AUTH_DIAGNOSTIC_STATE.update(
+            _aldi_diagnostic_field_state(driver, user_field, 'username')
+        )
+        ALDI_AUTH_DIAGNOSTIC_STATE.update(
+            _aldi_diagnostic_field_state(driver, pass_field, 'password')
+        )
         try:
             driver.get_log('performance')
         except Exception:
@@ -178,10 +238,10 @@ def aldi_login(driver) -> bool:
 
     # Submit exactly once. Never click or send ENTER again in the same run.
     pass_field.send_keys(Keys.ENTER)
+    if diagnostic_mode:
+        ALDI_AUTH_DIAGNOSTIC_STATE['submit_attempted_once'] = True
 
     # Do not interrupt the provider's SSO callback chain with our own navigation.
-    # Wait until the browser itself reaches the official customer portal, then
-    # require protected account evidence there.
     phase('sso_redirect')
     portal_host = urlsplit(ALDI_OVERVIEW_URL).hostname
     wait.until(lambda _: urlsplit(driver.current_url).hostname == portal_host)
