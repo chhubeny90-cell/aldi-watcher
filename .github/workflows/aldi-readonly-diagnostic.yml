@@ -46,6 +46,7 @@ jobs:
           ALDI_REFILL_BUTTON_SELECTOR: ${{ vars.ALDI_REFILL_BUTTON_SELECTOR }}
           ALDI_REFILL_SUCCESS_SELECTOR: ${{ vars.ALDI_REFILL_SUCCESS_SELECTOR }}
           ALDI_REFILL_RECONCILE_SELECTOR: ${{ vars.ALDI_REFILL_RECONCILE_SELECTOR }}
+          ALDI_AUTH_DIAGNOSTIC: 'true'
           AUTO_BOOK_ENABLED: 'false'
         run: python tools/aldi_auth_probe.py
       - name: Preserve sanitized ALDI diagnosis
