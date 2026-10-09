@@ -163,6 +163,16 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
+
+    # Diagnostic mode may drain the pre-submit performance log so the sanitized
+    # probe can classify only network activity caused after credential submission.
+    # Nothing from the drained log is persisted or printed.
+    if os.getenv('ALDI_AUTH_DIAGNOSTIC', 'false').strip().lower() == 'true':
+        try:
+            driver.get_log('performance')
+        except Exception:
+            pass
+
     try:
         button.click()
     except WebDriverException:
