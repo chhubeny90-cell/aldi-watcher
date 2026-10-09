@@ -30,15 +30,38 @@ def _visible(elements):
     return result
 
 
-def _host_class(driver):
+def _url_parts(driver):
     try:
-        host = urlsplit(driver.current_url).hostname
+        return urlsplit(driver.current_url)
     except Exception:
+        return None
+
+
+def _host_class(driver):
+    parsed = _url_parts(driver)
+    if parsed is None:
         return "unknown"
-    if host == "login.alditalk-kundenbetreuung.de":
+    if parsed.hostname == "login.alditalk-kundenbetreuung.de":
         return "aldi_sso"
-    if host == "www.alditalk-kundenportal.de":
+    if parsed.hostname == "www.alditalk-kundenportal.de":
         return "aldi_portal"
+    return "other"
+
+
+def _path_class(driver):
+    """Classify the current route without persisting the route or its query."""
+    parsed = _url_parts(driver)
+    if parsed is None:
+        return "unknown"
+    path = (parsed.path or "/").casefold()
+    if path.startswith("/signin/xui"):
+        return "signin_ui"
+    if "authorize" in path or "oauth" in path:
+        return "authorization_flow"
+    if "callback" in path or "redirect" in path:
+        return "callback_like"
+    if path in {"", "/"}:
+        return "root"
     return "other"
 
 
@@ -85,6 +108,7 @@ def _structural_state(driver):
     """Return only non-secret structural indicators from the current page."""
     state = {
         "host_class": _host_class(driver),
+        "path_class": _path_class(driver),
         "cookie_count": None,
         "visible_input_count": None,
         "visible_password_count": None,
