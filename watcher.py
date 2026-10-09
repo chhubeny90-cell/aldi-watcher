@@ -1,5 +1,6 @@
 import os
 import time
+from urllib.parse import urlsplit
 from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label
 from core.aldi_refill import (
@@ -161,33 +162,30 @@ def aldi_login(driver) -> bool:
         return buttons[0] if len(buttons) == 1 else False
 
     # Require one explicit enabled Anmelden control before submitting, but do not
-    # interact with that shadow-DOM control. The real runner showed a JavaScript
-    # failure on button.click() before any network request. ENTER on the already
-    # validated password field performs the same single form submission without a
-    # second interaction path.
+    # interact with that shadow-DOM control. ENTER on the already validated
+    # password field performs the single submit without a second interaction path.
     wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
 
     # Diagnostic mode may drain the pre-submit performance log so the sanitized
     # probe can classify only network activity caused after credential submission.
-    # Nothing from the drained log is persisted or printed.
     if os.getenv('ALDI_AUTH_DIAGNOSTIC', 'false').strip().lower() == 'true':
         try:
             driver.get_log('performance')
         except Exception:
             pass
 
-    # Submit exactly once. Any WebDriver/timeout error makes the outcome uncertain;
-    # never send ENTER or click a control a second time in the same run.
+    # Submit exactly once. Never click or send ENTER again in the same run.
     pass_field.send_keys(Keys.ENTER)
 
-    # The SSO host does not reliably expose a logout marker immediately after
-    # submitting credentials. Probe the official protected overview once instead
-    # of retrying the login submission.
+    # Do not interrupt the provider's SSO callback chain with our own navigation.
+    # Wait until the browser itself reaches the official customer portal, then
+    # require protected account evidence there.
+    phase('sso_redirect')
+    portal_host = urlsplit(ALDI_OVERVIEW_URL).hostname
+    wait.until(lambda _: urlsplit(driver.current_url).hostname == portal_host)
     phase('protected_session_probe')
-    time.sleep(1)
-    navigate(driver, ALDI_OVERVIEW_URL)
     require_origin(driver, ALDI_OVERVIEW_URL)
     wait.until(aldi_protected_session_visible)
     return True
@@ -232,7 +230,6 @@ def lidl_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     time.sleep(2)
-    # Rufnummer-Feld (aria-label="Mobilfunknummer" oder type=tel)
     phase('username_field')
     user_field = wait.until(
         EC.visibility_of_element_located((
@@ -248,7 +245,6 @@ def lidl_login(driver) -> bool:
     )
     pass_field.clear()
     pass_field.send_keys(LIDL_PASS)
-    # Login-Button
     submit_candidates = driver.find_elements(
         By.XPATH,
         "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'einloggen') or "
@@ -265,7 +261,6 @@ def lidl_login(driver) -> bool:
             break
     if not clicked:
         pass_field.send_keys(Keys.ENTER)
-    # Sichtbare Session-Merkmale statt bereits passender Login-URL prüfen
     phase('session_validation')
     wait.until(session_visible)
     return True
