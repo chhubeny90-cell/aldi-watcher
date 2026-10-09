@@ -230,7 +230,11 @@ def aldi_login(driver) -> bool:
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
 
-    button = wait.until(submit_control)
+    # Keep the exact Anmelden-control validation as a safety gate, but use the
+    # password field for the one keyboard submit. The authenticated diagnostic
+    # proved this path emits the ALDI auth requests while button ENTER did not.
+    wait.until(submit_control)
+    pass_field = wait.until(lambda _: unique_enabled(password_selector))
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
 
@@ -247,9 +251,8 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
-    # Submit exactly once with a WebDriver keyboard event on the validated button.
-    # This avoids an untrusted JavaScript click while keeping retries/fallbacks forbidden.
-    button.send_keys(Keys.ENTER)
+    # Exactly one submit attempt; no fallback click and no retry on uncertainty.
+    pass_field.send_keys(Keys.ENTER)
     if diagnostic_mode:
         ALDI_AUTH_DIAGNOSTIC_STATE['submit_attempted_once'] = True
 
