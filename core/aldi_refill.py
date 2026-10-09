@@ -21,6 +21,7 @@ SELECTOR_ENV = {
 _ONE_GB = {'1', '1.0', '1,0', '1.00', '1,00'}
 _SUCCESS_WORDS = re.compile(r'\b(?:erfolgreich|nachgebucht|gebucht|aktiviert|gutgeschrieben)\b', re.I)
 _NEGATIVE_WORDS = re.compile(r'\b(?:nicht|fehlgeschlagen|fehler|abgebrochen|storniert)\b', re.I)
+_PROTECTED_MARKERS = ('guthaben', 'datenvolumen', 'verbrauch')
 
 
 def configured_selectors():
@@ -44,6 +45,28 @@ def normalize_msisdn(value):
     elif digits.startswith('49') and len(digits) >= 11:
         digits = '0' + digits[2:]
     return digits if 10 <= len(digits) <= 15 else ''
+
+
+def protected_session_visible(driver):
+    """Confirm protected ALDI content without relying on a logout control.
+
+    ALDI SSO does not consistently expose a logout control. Require the official
+    customer portal, cookies, no visible password field, and protected account
+    wording in rendered composed text. The text is evaluated in memory only.
+    """
+    from browser_dom import find_visible_elements, rendered_text
+    from monitoring import require_origin
+
+    try:
+        require_origin(driver, 'https://www.alditalk-kundenportal.de/')
+        if not driver.get_cookies():
+            return False
+        if find_visible_elements(driver, "input[type='password']"):
+            return False
+        text = rendered_text(driver).casefold()
+        return any(marker in text for marker in _PROTECTED_MARKERS)
+    except Exception:
+        return False
 
 
 def assess_refill(account, expected_account, tariff, offer, button, enabled):
@@ -119,7 +142,7 @@ def _account_matches(driver, expected_account, selector):
 def inspect_selenium(driver, expected_account, selectors=None):
     """Inspect authenticated ALDI markup without clicking or returning raw text."""
     from browser_dom import rendered_text, element_label
-    from monitoring import session_visible, require_origin
+    from monitoring import require_origin
 
     selectors = configured_selectors() if selectors is None else selectors
     required = ('account', 'active_tariff', 'refill_offer', 'refill_button')
@@ -128,7 +151,7 @@ def inspect_selenium(driver, expected_account, selectors=None):
 
     try:
         require_origin(driver, 'https://www.alditalk-kundenportal.de/')
-        if not session_visible(driver):
+        if not protected_session_visible(driver):
             return unavailable('session_unverified')
 
         account = _unique(driver, selectors['account'])
@@ -159,14 +182,14 @@ def inspect_reconciliation_selenium(driver, expected_account, selectors=None):
     1-GB wording. Any ambiguity remains UNKNOWN and must continue blocking retry.
     """
     from browser_dom import rendered_text
-    from monitoring import session_visible, require_origin
+    from monitoring import require_origin
 
     selectors = configured_selectors() if selectors is None else selectors
     if not selectors.get('account') or not selectors.get('refill_reconcile'):
         return 'UNKNOWN'
     try:
         require_origin(driver, 'https://www.alditalk-kundenportal.de/')
-        if not session_visible(driver):
+        if not protected_session_visible(driver):
             return 'UNKNOWN'
         if not _account_matches(driver, expected_account, selectors['account']):
             return 'UNKNOWN'
