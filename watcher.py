@@ -94,6 +94,31 @@ def safe_click(driver, element):
         driver.execute_script("arguments[0].click();", element)
 
 
+def aldi_protected_session_visible(driver):
+    """Confirm an ALDI session only on the protected customer portal.
+
+    This deliberately does not treat disappearance of the login form as success.
+    The browser must be on the official customer portal, have cookies, expose a
+    protected account marker, and have no visible password field (including open
+    shadow roots).
+    """
+    try:
+        require_origin(driver, ALDI_OVERVIEW_URL)
+        if not driver.get_cookies():
+            return False
+        if find_visible_elements(driver, "input[type='password']"):
+            return False
+        markers = driver.find_elements(
+            By.XPATH,
+            "//*[contains(normalize-space(.), 'Guthaben') or "
+            "contains(normalize-space(.), 'Datenvolumen') or "
+            "contains(normalize-space(.), 'Verbrauch')]"
+        )
+        return any(element.is_displayed() for element in markers)
+    except Exception:
+        return False
+
+
 # ============================================================
 # ALDI TALK
 # ============================================================
@@ -107,10 +132,12 @@ def aldi_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
+
     def unique_enabled(selector):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         elements = find_visible_elements(driver, selector)
         return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
+
     user_field = wait.until(
         lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
     )
@@ -125,12 +152,14 @@ def aldi_login(driver) -> bool:
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     pass_field.clear()
     pass_field.send_keys(ALDI_PASS)
+
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
                    if element_label(driver, e).strip().casefold() == 'anmelden'
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
+
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
@@ -150,8 +179,15 @@ def aldi_login(driver) -> bool:
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", fresh_button)
         time.sleep(0.3)
         driver.execute_script("arguments[0].click();", fresh_button)
-    phase('session_validation')
-    wait.until(session_visible)
+
+    # The SSO host does not reliably expose a logout marker immediately after
+    # submitting credentials. Probe the official protected overview once instead
+    # of retrying the login submission.
+    phase('protected_session_probe')
+    time.sleep(1)
+    navigate(driver, ALDI_OVERVIEW_URL)
+    require_origin(driver, ALDI_OVERVIEW_URL)
+    wait.until(aldi_protected_session_visible)
     return True
 
 
@@ -161,10 +197,7 @@ def aldi_read_status(driver) -> dict:
     navigate(driver, ALDI_OVERVIEW_URL)
     require_origin(driver, ALDI_OVERVIEW_URL)
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
-    wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Guthaben')]")))
-    time.sleep(2)
-    if not session_visible(driver):
-        raise PermissionError('session_invalid')
+    wait.until(aldi_protected_session_visible)
     phase('usage_parse')
     body_text = driver.find_element(By.TAG_NAME, 'body').text
     for line in body_text.splitlines():
