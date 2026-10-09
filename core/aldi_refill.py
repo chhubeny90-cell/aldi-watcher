@@ -1,13 +1,12 @@
-"""Evidence-gated ALDI TALK free 1-GB refill helpers.
+"""Read-only evidence for the ALDI TALK free 1-GB refill.
 
-Read-only inspection and live booking share exactly the same account/offer
-validation. Live booking is intentionally separate and requires explicit
-selectors captured from authenticated provider markup. No endpoint is guessed.
+No selector is guessed and this module never clicks a control. A refill becomes
+eligible only when an authenticated account exposes uniquely scoped account,
+tariff, offer and action elements configured from observed provider markup.
+Persistent reconciliation is also read-only and requires a provider-side marker.
 """
 import os
 import re
-
-from plugins.base_watcher import RechargeUnknownError
 
 
 SELECTOR_ENV = {
@@ -90,30 +89,8 @@ def assess_refill(account, expected_account, tariff, offer, button, enabled):
     }
 
 
-def _unique(driver, selector, scope=None):
-    from browser_dom import find_visible_elements
-    elements = find_visible_elements(driver, selector, scope=scope)
-    if len(elements) != 1:
-        raise ValueError('ambiguous_or_hidden_element')
-    return elements[0]
-
-
-def _button_enabled(button):
-    return (
-        button.is_enabled()
-        and button.get_attribute('aria-disabled') != 'true'
-        and button.get_attribute('disabled') is None
-    )
-
-
-def _account_matches(driver, expected_account, selector):
-    from browser_dom import rendered_text
-    observed = normalize_msisdn(rendered_text(driver, _unique(driver, selector)))
-    expected = normalize_msisdn(expected_account)
-    return bool(expected and observed and expected == observed)
-
-
-def _success_text_ok(text):
+def success_text_is_specific(text):
+    """Validate explicit provider wording for one successful 1-GB operation."""
     text = ' '.join((text or '').split())
     quantities = re.findall(r'(?<![\d.,])(\d+(?:[.,]\d+)?)\s*GB\b', text, re.I)
     return bool(
@@ -122,6 +99,21 @@ def _success_text_ok(text):
         and _SUCCESS_WORDS.search(text)
         and not _NEGATIVE_WORDS.search(text)
     )
+
+
+def _unique(driver, selector, scope=None):
+    from browser_dom import find_visible_elements
+    elements = find_visible_elements(driver, selector, scope=scope)
+    if len(elements) != 1:
+        raise ValueError('ambiguous_or_hidden_element')
+    return elements[0]
+
+
+def _account_matches(driver, expected_account, selector):
+    from browser_dom import rendered_text
+    observed = normalize_msisdn(rendered_text(driver, _unique(driver, selector)))
+    expected = normalize_msisdn(expected_account)
+    return bool(expected and observed and expected == observed)
 
 
 def inspect_selenium(driver, expected_account, selectors=None):
@@ -143,90 +135,28 @@ def inspect_selenium(driver, expected_account, selectors=None):
         tariff = _unique(driver, selectors['active_tariff'])
         offer = _unique(driver, selectors['refill_offer'])
         button = _unique(driver, selectors['refill_button'], scope=offer)
+        enabled = (
+            button.is_enabled()
+            and button.get_attribute('aria-disabled') != 'true'
+            and button.get_attribute('disabled') is None
+        )
         return assess_refill(
             rendered_text(driver, account),
             expected_account,
             rendered_text(driver, tariff),
             rendered_text(driver, offer),
             element_label(driver, button),
-            _button_enabled(button),
+            enabled,
         )
     except Exception:
         return unavailable('offer_unverified')
 
 
-def book_selenium(driver, expected_account, selectors=None, timeout_seconds=15):
-    """Click exactly once after a fresh evidence check and require a new success notice.
+def inspect_reconciliation_selenium(driver, expected_account, selectors=None):
+    """Read a provider-side persistent success marker without clicking.
 
-    Any exception after the click is UNKNOWN: the caller must persist the lock and
-    reconcile before another booking attempt.
-    """
-    from browser_dom import rendered_text
-    from monitoring import session_visible, require_origin
-    from selenium.webdriver.support.ui import WebDriverWait
-
-    selectors = configured_selectors() if selectors is None else selectors
-    required = ('account', 'active_tariff', 'refill_offer', 'refill_button', 'refill_success')
-    if not all(selectors.get(key) for key in required):
-        return False
-
-    evidence = inspect_selenium(driver, expected_account, selectors)
-    if not (
-        evidence.get('account_verified') is True
-        and evidence.get('refill_eligible') is True
-        and evidence.get('refill_type') == 'FREE_ONE_GB'
-    ):
-        return False
-
-    require_origin(driver, 'https://www.alditalk-kundenportal.de/')
-    if not session_visible(driver) or not _account_matches(driver, expected_account, selectors['account']):
-        return False
-
-    # An already-visible success notice cannot prove this new request.
-    old_success = []
-    try:
-        from browser_dom import find_visible_elements
-        old_success = find_visible_elements(driver, selectors['refill_success'])
-    except Exception:
-        return False
-    if old_success:
-        return False
-
-    offer = _unique(driver, selectors['refill_offer'])
-    button = _unique(driver, selectors['refill_button'], scope=offer)
-    if not _button_enabled(button):
-        return False
-
-    clicked = False
-    try:
-        button.click()
-        clicked = True
-        success = WebDriverWait(driver, timeout_seconds).until(
-            lambda _: (_unique(driver, selectors['refill_success'])
-                       if len(__import__('browser_dom').find_visible_elements(driver, selectors['refill_success'])) == 1
-                       else False)
-        )
-        require_origin(driver, 'https://www.alditalk-kundenportal.de/')
-        if not session_visible(driver):
-            raise RechargeUnknownError('ALDI session lost after booking action')
-        if not _account_matches(driver, expected_account, selectors['account']):
-            raise RechargeUnknownError('ALDI account changed after booking action')
-        if not _success_text_ok(rendered_text(driver, success)):
-            raise RechargeUnknownError('ALDI success notice is not specific to a successful 1-GB refill')
-        return True
-    except RechargeUnknownError:
-        raise
-    except Exception:
-        if clicked:
-            raise RechargeUnknownError('ALDI browser booking outcome is unknown') from None
-        return False
-
-
-def reconcile_selenium(driver, expected_account, selectors=None):
-    """Read a provider-side persistent reconciliation marker without clicking.
-
-    Returns SUCCESS only for an account-scoped, explicit successful 1-GB marker.
-    Anything else remains UNKNOWN and therefore blocks retries.
+    SUCCESS is returned only for the expected account and explicit successful
+    1-GB wording. Any ambiguity remains UNKNOWN and must continue blocking retry.
     """
     from browser_dom import rendered_text
     from monitoring import session_visible, require_origin
@@ -241,6 +171,6 @@ def reconcile_selenium(driver, expected_account, selectors=None):
         if not _account_matches(driver, expected_account, selectors['account']):
             return 'UNKNOWN'
         marker = _unique(driver, selectors['refill_reconcile'])
-        return 'SUCCESS' if _success_text_ok(rendered_text(driver, marker)) else 'UNKNOWN'
+        return 'SUCCESS' if success_text_is_specific(rendered_text(driver, marker)) else 'UNKNOWN'
     except Exception:
         return 'UNKNOWN'
