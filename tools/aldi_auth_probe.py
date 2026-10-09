@@ -42,6 +42,45 @@ def _host_class(driver):
     return "other"
 
 
+def _network_state(driver):
+    """Return HTTP status categories/counts only; never URLs, headers or bodies."""
+    counts = {
+        "network_401_count": 0,
+        "network_403_count": 0,
+        "network_404_count": 0,
+        "network_429_count": 0,
+        "network_5xx_count": 0,
+        "network_failed_count": 0,
+        "redirect_count": 0,
+    }
+    try:
+        for entry in driver.get_log("performance"):
+            message = json.loads(entry["message"])["message"]
+            params = message.get("params", {})
+            if message.get("method") == "Network.loadingFailed":
+                counts["network_failed_count"] += 1
+                continue
+            if message.get("method") == "Network.requestWillBeSent" and "redirectResponse" in params:
+                counts["redirect_count"] += 1
+                continue
+            if message.get("method") != "Network.responseReceived":
+                continue
+            status = int(params.get("response", {}).get("status", 0) or 0)
+            if status == 401:
+                counts["network_401_count"] += 1
+            elif status == 403:
+                counts["network_403_count"] += 1
+            elif status == 404:
+                counts["network_404_count"] += 1
+            elif status == 429:
+                counts["network_429_count"] += 1
+            elif 500 <= status <= 599:
+                counts["network_5xx_count"] += 1
+    except Exception:
+        pass
+    return counts
+
+
 def _structural_state(driver):
     """Return only non-secret structural indicators from the current page."""
     state = {
@@ -124,6 +163,7 @@ def _structural_state(driver):
         state["document_ready"] = ready if ready in {"loading", "interactive", "complete"} else "unknown"
     except Exception:
         pass
+    state.update(_network_state(driver))
     return state
 
 
