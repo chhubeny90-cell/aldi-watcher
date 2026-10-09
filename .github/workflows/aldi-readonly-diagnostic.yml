@@ -32,6 +32,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run sanitized ALDI auth and evidence probe
         env:
+          PYTHONPATH: ${{ github.workspace }}
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
