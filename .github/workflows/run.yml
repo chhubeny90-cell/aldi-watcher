@@ -30,7 +30,9 @@ jobs:
         run: python -m pytest -q
 
   watch:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Manual runs are allowed. Scheduled live auth stays off until the account
+    # credentials have been verified and ALDI_MONITORING_ENABLED is explicitly true.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.ALDI_MONITORING_ENABLED == 'true')
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -48,30 +50,23 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run watcher in safety mode
+      - name: Run ALDI watcher in safety mode
         env:
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          LIDL_USER: ${{ secrets.LIDL_USER }}
-          LIDL_PASS: ${{ secrets.LIDL_PASS }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          LIDL_USER_ENC: ${{ secrets.LIDL_USER_ENC }}
-          LIDL_PASS_ENC: ${{ secrets.LIDL_PASS_ENC }}
           ALDI_ACCOUNT_SELECTOR: ${{ vars.ALDI_ACCOUNT_SELECTOR }}
           ALDI_ACTIVE_TARIFF_SELECTOR: ${{ vars.ALDI_ACTIVE_TARIFF_SELECTOR }}
           ALDI_REFILL_OFFER_SELECTOR: ${{ vars.ALDI_REFILL_OFFER_SELECTOR }}
           ALDI_REFILL_BUTTON_SELECTOR: ${{ vars.ALDI_REFILL_BUTTON_SELECTOR }}
           ALDI_REFILL_SUCCESS_SELECTOR: ${{ vars.ALDI_REFILL_SUCCESS_SELECTOR }}
           ALDI_REFILL_RECONCILE_SELECTOR: ${{ vars.ALDI_REFILL_RECONCILE_SELECTOR }}
-          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ vars.LIDL_ACTIVE_TARIFF_SELECTOR }}
-          LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
-          LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}
           AUTO_BOOK_ENABLED: 'false'
-        run: python watcher.py --run-once
+        run: python watcher.py --run-once --provider aldi_talk
       - name: Preserve sanitized heartbeat and diagnosis
         if: always()
         uses: actions/upload-artifact@v4
