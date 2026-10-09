@@ -247,9 +247,9 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
-    # Trigger the one validated Anmelden control exactly once. There is no
-    # ENTER/click fallback or retry after an uncertain outcome.
-    driver.execute_script("arguments[0].click();", button)
+    # Submit exactly once with a WebDriver keyboard event on the validated button.
+    # This avoids an untrusted JavaScript click while keeping retries/fallbacks forbidden.
+    button.send_keys(Keys.ENTER)
     if diagnostic_mode:
         ALDI_AUTH_DIAGNOSTIC_STATE['submit_attempted_once'] = True
 
