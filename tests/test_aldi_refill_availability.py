@@ -2,7 +2,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.aldi_refill import assess_refill, inspect_selenium, normalize_msisdn
+from core.aldi_refill import (
+    assess_refill,
+    inspect_reconciliation_selenium,
+    inspect_selenium,
+    normalize_msisdn,
+    success_text_is_specific,
+)
 
 
 ACCOUNT = '0152 00000000'
@@ -13,6 +19,7 @@ SELECTORS = {
     'refill_offer': '.offer',
     'refill_button': '.refill',
     'refill_success': '.success',
+    'refill_reconcile': '.history-latest-refill',
 }
 
 
@@ -41,6 +48,17 @@ def test_only_exact_free_one_gb_offer_is_eligible(account, tariff, offer, button
     result = assess_refill(account, ACCOUNT, tariff, offer, button, enabled)
     assert result['refill_reason'] == reason
     assert result['refill_eligible'] is (reason == 'free_one_gb_offer_available')
+
+
+@pytest.mark.parametrize('text,expected', [
+    ('1 GB erfolgreich nachgebucht', True),
+    ('1,0 GB wurde erfolgreich aktiviert', True),
+    ('1 GB Buchung fehlgeschlagen', False),
+    ('2 GB erfolgreich nachgebucht', False),
+    ('Erfolgreich', False),
+])
+def test_success_text_requires_specific_one_gb_outcome(text, expected):
+    assert success_text_is_specific(text) is expected
 
 
 def test_unconfigured_selectors_do_not_touch_driver():
@@ -84,6 +102,39 @@ def test_authenticated_inspection_is_read_only_and_account_scoped():
         'account_verified': True,
     }
     button.click.assert_not_called()
+
+
+def test_reconciliation_is_read_only_account_scoped_and_specific():
+    driver = MagicMock()
+    driver.current_url = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+    account, marker = MagicMock(), MagicMock()
+
+    def find(_driver, selector, scope=None):
+        assert scope is None
+        return {'.account': [account], '.history-latest-refill': [marker]}.get(selector, [])
+
+    text = {account: ACCOUNT, marker: '1 GB erfolgreich nachgebucht'}
+    with patch('monitoring.session_visible', return_value=True), \
+         patch('browser_dom.find_visible_elements', side_effect=find), \
+         patch('browser_dom.rendered_text', side_effect=lambda _driver, element: text[element]):
+        result = inspect_reconciliation_selenium(driver, ACCOUNT, SELECTORS)
+
+    assert result == 'SUCCESS'
+    driver.execute_script.assert_not_called()
+
+
+def test_reconciliation_ambiguity_stays_unknown():
+    driver = MagicMock()
+    driver.current_url = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
+    account, first, second = MagicMock(), MagicMock(), MagicMock()
+
+    def find(_driver, selector, scope=None):
+        return {'.account': [account], '.history-latest-refill': [first, second]}.get(selector, [])
+
+    with patch('monitoring.session_visible', return_value=True), \
+         patch('browser_dom.find_visible_elements', side_effect=find), \
+         patch('browser_dom.rendered_text', return_value=ACCOUNT):
+        assert inspect_reconciliation_selenium(driver, ACCOUNT, SELECTORS) == 'UNKNOWN'
 
 
 def test_wrong_origin_fails_closed_without_click():
