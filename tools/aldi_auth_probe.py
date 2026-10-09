@@ -66,9 +66,16 @@ def _path_class(driver):
 
 
 def _network_state(driver):
-    """Return HTTP status categories/counts only; never URLs, headers or bodies."""
+    """Return bounded network classifications only; never URLs, headers or bodies."""
     counts = {
         "network_401_count": 0,
+        "network_401_document_count": 0,
+        "network_401_fetch_xhr_count": 0,
+        "network_401_get_count": 0,
+        "network_401_post_count": 0,
+        "network_401_sso_count": 0,
+        "network_401_portal_count": 0,
+        "network_401_other_count": 0,
         "network_403_count": 0,
         "network_404_count": 0,
         "network_429_count": 0,
@@ -76,21 +83,49 @@ def _network_state(driver):
         "network_failed_count": 0,
         "redirect_count": 0,
     }
+    methods = {}
     try:
         for entry in driver.get_log("performance"):
             message = json.loads(entry["message"])["message"]
             params = message.get("params", {})
-            if message.get("method") == "Network.loadingFailed":
+            event = message.get("method")
+            request_id = params.get("requestId")
+            if event == "Network.requestWillBeSent":
+                request = params.get("request", {})
+                if request_id:
+                    methods[request_id] = str(request.get("method", "")).upper()
+                if "redirectResponse" in params:
+                    counts["redirect_count"] += 1
+                continue
+            if event == "Network.loadingFailed":
                 counts["network_failed_count"] += 1
                 continue
-            if message.get("method") == "Network.requestWillBeSent" and "redirectResponse" in params:
-                counts["redirect_count"] += 1
+            if event != "Network.responseReceived":
                 continue
-            if message.get("method") != "Network.responseReceived":
-                continue
-            status = int(params.get("response", {}).get("status", 0) or 0)
+            response = params.get("response", {})
+            status = int(response.get("status", 0) or 0)
             if status == 401:
                 counts["network_401_count"] += 1
+                resource_type = str(params.get("type", ""))
+                if resource_type == "Document":
+                    counts["network_401_document_count"] += 1
+                elif resource_type in {"Fetch", "XHR"}:
+                    counts["network_401_fetch_xhr_count"] += 1
+                request_method = methods.get(request_id, "")
+                if request_method == "GET":
+                    counts["network_401_get_count"] += 1
+                elif request_method == "POST":
+                    counts["network_401_post_count"] += 1
+                try:
+                    host = urlsplit(response.get("url", "")).hostname
+                except Exception:
+                    host = None
+                if host == "login.alditalk-kundenbetreuung.de":
+                    counts["network_401_sso_count"] += 1
+                elif host == "www.alditalk-kundenportal.de":
+                    counts["network_401_portal_count"] += 1
+                else:
+                    counts["network_401_other_count"] += 1
             elif status == 403:
                 counts["network_403_count"] += 1
             elif status == 404:
