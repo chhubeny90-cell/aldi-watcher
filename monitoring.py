@@ -132,11 +132,15 @@ def safe_refill_evidence(name, usage):
             and usage.get('refill_type') == 'FREE_ONE_GB'
             and reason == 'free_one_gb_offer_available'
         )
+        reconciliation_status = str(usage.get('reconciliation_status', 'UNKNOWN')).upper()
+        if reconciliation_status not in {'SUCCESS', 'UNKNOWN'}:
+            reconciliation_status = 'UNKNOWN'
         return {
             'refill_eligible': eligible,
             'refill_type': 'FREE_ONE_GB' if eligible else 'UNKNOWN',
             'refill_reason': reason,
             'account_verified': account_verified,
+            'reconciliation_status': reconciliation_status,
         }
 
     return {}
