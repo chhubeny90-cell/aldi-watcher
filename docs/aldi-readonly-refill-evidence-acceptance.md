@@ -8,10 +8,13 @@ No transactional ALDI action belongs in this PR.
 | Gate | Status | Evidence requirement |
 | --- | --- | --- |
 | Official ALDI SSO reached | PASS | allowlisted HTTPS SSO host |
-| Credentials submitted once | PASS | no retry loop |
+| Credential fields populated | PASS | both native inputs have values and pass native validity before submit |
+| Single submit attempt | PASS | exactly one submit attempt; no fallback/retry loop |
+| Provider credential request | BLOCKED | latest probe observed no post-submit network request |
 | Protected ALDI session | BLOCKED | `login_ok=true` on the official customer portal |
-| MFA / OTP challenge | NOT OBSERVED | structural probe only; no OTP input visible |
-| Visible credential validation error | NOT OBSERVED | no invalid input / alert state observed |
+| MFA / OTP challenge | NOT OBSERVED | no OTP input visible |
+| Server-side credential rejection | NOT OBSERVED | no post-submit 401/403/5xx response exists because no request leaves the browser |
+| Client-side login validation | BLOCKED | after submit both inputs are cleared and become `valueMissing`/invalid locally |
 | Account binding | BLOCKED | exact full-number `account_verified=true` |
 | Active tariff | BLOCKED | one observed authenticated selector |
 | Free refill | BLOCKED | exactly `1 GB` plus explicit `0 EUR` / `kostenlos` |
@@ -20,10 +23,21 @@ No transactional ALDI action belongs in this PR.
 | Persistent reconciliation | BLOCKED | provider-side marker/history surviving a new session |
 | Live booking | DISABLED | existing RuntimeError guard remains; hosted workflow keeps `AUTO_BOOK_ENABLED=false` |
 
-The latest automated auth probe reaches ALDI SSO but does not establish a protected
-customer-portal session. It intentionally records only structural and HTTP-category
-counts; it does not persist page text, account identifiers, URLs, cookie values,
-headers, tokens or provider response bodies.
+## Latest authenticated diagnostic finding
+
+The current GitHub Actions probe reaches the official ALDI SSO login UI. Immediately
+before the single submit attempt, both username and password inputs are populated,
+natively valid, and not marked invalid. After the submit attempt, both native inputs
+are empty and locally marked invalid with `valueMissing=true`. The sanitized network
+probe observes no post-submit request, redirect, 401, 403, or 5xx response.
+
+Therefore the remaining authentication blocker is currently classified as a
+client-side ALDI SSO/component-state problem. This is not evidence of wrong
+credentials and not evidence of a provider HTTP authentication rejection.
+
+The diagnostic deliberately records only booleans, counts and coarse classifications.
+It does not persist page text, account identifiers, field values, full URLs, cookie
+values, headers, tokens or provider response bodies.
 
 All ALDI account/tariff/offer/button/success/reconciliation selectors remain
 provider-observation inputs. They must not be guessed or populated from unrelated
@@ -41,7 +55,7 @@ A real authenticated read-only run must prove:
 - `refill_reason=free_one_gb_offer_available`,
 - explicit zero-price evidence,
 - persistent provider reconciliation semantics,
-- no booking request or click during evidence collection.
+- no booking request or refill click during evidence collection.
 
 A later booking implementation must additionally persist PENDING before the single
 side effect, verify a new account-scoped success state, and reconcile provider state
