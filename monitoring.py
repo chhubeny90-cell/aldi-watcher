@@ -90,6 +90,58 @@ def evaluate_run(results, auto_book_enabled=False):
                 auto_booking={'enabled': False, 'executed': False, 'reason': 'monitoring_only'})
 
 
+def safe_refill_evidence(name, usage):
+    """Return only allowlisted refill classifications; never raw account or offer text."""
+    if name == 'lidl_connect':
+        from core.lidl_refill import unavailable
+        reasons = {
+            'selectors_unconfigured', 'session_unverified', 'offer_unverified',
+            'active_tariff_unverified', 'not_exactly_one_gb', 'not_unlimited_refill',
+            'paid_option', 'price_unverified', 'conflicting_terms', 'button_unverified',
+            'button_disabled', 'free_one_gb_button_available',
+        }
+        reason = usage.get('refill_reason')
+        if reason not in reasons:
+            return unavailable('offer_unverified')
+        eligible = (
+            usage.get('refill_eligible') is True
+            and usage.get('refill_type') == 'FREE_UNLIMITED'
+            and reason == 'free_one_gb_button_available'
+        )
+        return {
+            'refill_eligible': eligible,
+            'refill_type': 'FREE_UNLIMITED' if eligible else 'UNKNOWN',
+            'refill_reason': reason,
+        }
+
+    if name == 'aldi_talk':
+        from core.aldi_refill import unavailable
+        reasons = {
+            'selectors_unconfigured', 'session_unverified', 'offer_unverified',
+            'account_unverified', 'account_mismatch', 'active_tariff_unverified',
+            'not_exactly_one_gb', 'paid_option', 'price_unverified', 'conflicting_terms',
+            'button_unverified', 'button_disabled', 'free_one_gb_offer_available',
+        }
+        reason = usage.get('refill_reason')
+        if reason not in reasons:
+            return unavailable('offer_unverified')
+        account_verified = usage.get('account_verified') is True
+        eligible = (
+            account_verified
+            and usage.get('refill_eligible') is True
+            and usage.get('refill_type') == 'FREE_ONE_GB'
+            and reason == 'free_one_gb_offer_available'
+        )
+        return {
+            'refill_eligible': eligible,
+            'refill_type': 'FREE_ONE_GB' if eligible else 'UNKNOWN',
+            'refill_reason': reason,
+            'account_verified': account_verified,
+        }
+
+    return {}
+
+
 def diagnostics(driver):
     """Allowlisted metadata only; no bodies, URLs, headers, cookie values or tokens."""
     result = dict(http_status=None, redirect_count=None, csrf_found=None,
@@ -163,23 +215,7 @@ def execute_provider(name, factory, login, read, run_id):
             phase('usage_read')
             usage = read(driver)
             remaining = usage.get('inland_frei_gb')
-            if name == 'lidl_connect':
-                # Derived, allowlisted evidence only; never raw tariff/account text.
-                from core.lidl_refill import unavailable
-                reasons = {'selectors_unconfigured', 'session_unverified', 'offer_unverified',
-                           'active_tariff_unverified', 'not_exactly_one_gb', 'not_unlimited_refill',
-                           'paid_option', 'price_unverified', 'conflicting_terms', 'button_unverified',
-                           'button_disabled', 'free_one_gb_button_available'}
-                reason = usage.get('refill_reason')
-                if reason not in reasons:
-                    result.update(unavailable('offer_unverified'))
-                else:
-                    eligible = (usage.get('refill_eligible') is True
-                                and usage.get('refill_type') == 'FREE_UNLIMITED'
-                                and reason == 'free_one_gb_button_available')
-                    result.update(refill_eligible=eligible,
-                                  refill_type='FREE_UNLIMITED' if eligible else 'UNKNOWN',
-                                  refill_reason=reason)
+            result.update(safe_refill_evidence(name, usage))
             if isinstance(remaining, bool) or not isinstance(remaining, (int, float)) or not math.isfinite(remaining) or remaining < 0:
                 raise ValueError('usage_invalid')
             result.update(status='ok', message='Session und Restvolumen geprüft', phase='complete')
