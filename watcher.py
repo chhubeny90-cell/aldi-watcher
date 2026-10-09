@@ -219,7 +219,7 @@ def aldi_login(driver) -> bool:
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
 
-    wait.until(submit_control)
+    button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
 
@@ -236,8 +236,11 @@ def aldi_login(driver) -> bool:
         except Exception:
             pass
 
-    # Submit exactly once. Never click or send ENTER again in the same run.
-    pass_field.send_keys(Keys.ENTER)
+    # The authenticated probe established that these fields are not associated
+    # with a native form and the validated Anmelden control is type=button, so
+    # ENTER cannot submit it. Trigger that already-validated control exactly once
+    # through the DOM. There is deliberately no ENTER/click fallback or retry.
+    driver.execute_script("arguments[0].click();", button)
     if diagnostic_mode:
         ALDI_AUTH_DIAGNOSTIC_STATE['submit_attempted_once'] = True
 
