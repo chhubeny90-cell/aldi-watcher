@@ -44,6 +44,7 @@ jobs:
           ALDI_REFILL_OFFER_SELECTOR: ${{ vars.ALDI_REFILL_OFFER_SELECTOR }}
           ALDI_REFILL_BUTTON_SELECTOR: ${{ vars.ALDI_REFILL_BUTTON_SELECTOR }}
           ALDI_REFILL_SUCCESS_SELECTOR: ${{ vars.ALDI_REFILL_SUCCESS_SELECTOR }}
+          ALDI_REFILL_RECONCILE_SELECTOR: ${{ vars.ALDI_REFILL_RECONCILE_SELECTOR }}
           AUTO_BOOK_ENABLED: 'false'
         run: python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
       - name: Preserve sanitized ALDI diagnosis
