@@ -6,20 +6,17 @@ DOM-Selektoren & Requests (aus watcher.py):
 - Login: POST /konto/login
 - Overview: GET /konto/uebersicht
 - Datenvolumen-Parsing: Regex '(\d+\.?\d*)\s*MB\s*von\s*(\d+\.?\d*)\s*MB'
-- Recharge: POST /konto/datenvolumen/nachbuchen
+- Recharge: legacy endpoint intentionally disabled
 """
 
 import re
 import aiohttp
 from typing import Dict, Optional
-from .base_watcher import BaseWatcher, RechargeUnknownError
+from .base_watcher import BaseWatcher
 
 
 class AldiTalkWatcher(BaseWatcher):
-    """
-    Watcher für ALDI Talk Prepaid-Daten.
-    Nutzt HTTP/API-Zugriff auf alditalk.de.
-    """
+    """ALDI Talk watcher with live booking kept fail-closed."""
 
     BASE_URL = "https://www.alditalk.de"
     LOGIN_URL = f"{BASE_URL}/konto/login"
@@ -31,19 +28,14 @@ class AldiTalkWatcher(BaseWatcher):
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Erstellt oder returniert existierende Session."""
+        """Create or return the existing HTTP session."""
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession()
         return self.session
 
     async def login(self) -> str:
-        """
-        Login bei ALDI Talk.
-        Returns Session-Cookie für weitere Requests.
-        """
+        """Legacy HTTP login used only by the legacy read path."""
         session = await self._get_session()
-        
-        # Login-Request
         async with session.post(
             self.LOGIN_URL,
             data={"username": self.username, "password": self.password},
@@ -51,41 +43,31 @@ class AldiTalkWatcher(BaseWatcher):
         ) as response:
             if response.status != 200:
                 raise Exception(f"ALDI Login failed: {response.status}")
-            
-            # Session-Cookie extrahieren
             session_cookie = response.cookies.get("PHPSESSID")
             if not session_cookie:
                 raise Exception("ALDI Login: No session cookie")
-            
             return session_cookie.value
 
     async def check_usage(self) -> Dict[str, float]:
-        """
-        Prüft Datenvolumen bei ALDI Talk.
-        """
+        """Read legacy data-volume text; this path never establishes refill evidence."""
         session = await self._get_session()
-        
         async with session.get(
             self.OVERVIEW_URL,
             headers={"Cookie": f"PHPSESSID={await self.login()}"}
         ) as response:
             html = await response.text()
-            
-            # Datenvolumen parsen (Regex aus watcher.py)
             match = re.search(r'(\d+\.?\d*)\s*MB\s*von\s*(\d+\.?\d*)\s*MB', html)
             if not match:
                 raise Exception("ALDI: Could not parse data volume")
-            
             used_mb = float(match.group(1))
             total_mb = float(match.group(2))
-            
             return {"used_mb": used_mb, "total_mb": total_mb}
 
     def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
-        """Fail closed unless the provider check verified a free refill."""
+        """Fail closed unless the verified ALDI evidence says FREE_ONE_GB."""
         return bool(
             usage.get("refill_eligible") is True
-            and usage.get("refill_type") == "FREE_UNLIMITED"
+            and usage.get("refill_type") == "FREE_ONE_GB"
         )
 
     async def trigger_recharge(self, recharge_id: Optional[str] = None) -> bool:
@@ -97,6 +79,6 @@ class AldiTalkWatcher(BaseWatcher):
         raise RuntimeError("ALDI live booking disabled: no verified free 1-GB flow")
 
     async def close(self):
-        """Schliet die HTTP-Session."""
+        """Close the HTTP session."""
         if self.session and not self.session.closed:
             await self.session.close()
