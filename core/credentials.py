@@ -9,7 +9,9 @@ CREDENTIAL_NAMES = ("ALDI_USER", "ALDI_PASS", "LIDL_USER", "LIDL_PASS")
 
 def validated(name, value):
     placeholders = {'your-aldi-password', 'your-lidl-password', 'your-password',
-                    'your_aldi_password', 'your_lidl_password', 'changeme', 'change_me'}
+                    'your_aldi_password', 'your_lidl_password', 'changeme', 'change_me',
+                    'your-aldi-passwort', 'your-lidl-passwort', 'your-passwort',
+                    'your_aldi_passwort', 'your_lidl_passwort'}
     if name.endswith('_PASS') and value and value.casefold() in placeholders:
         raise ValueError(f"Placeholder credential for {name}")
     return value or None
