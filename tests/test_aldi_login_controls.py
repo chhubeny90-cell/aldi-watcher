@@ -16,7 +16,7 @@ def login_page(monkeypatch):
     monkeypatch.setattr(watcher, 'navigate', lambda *_: None)
     monkeypatch.setattr(watcher, 'dismiss_cookie_banner', lambda *_: None)
     monkeypatch.setattr(watcher, 'element_label', lambda *_: 'Anmelden')
-    monkeypatch.setattr(watcher, 'session_visible', lambda *_: True)
+    monkeypatch.setattr(watcher, 'aldi_protected_session_visible', lambda *_: True)
     monkeypatch.setattr(watcher, 'WAIT_TIMEOUT', .01)
     def elements(_, selector):
         if 'autocomplete' in selector:
