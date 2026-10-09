@@ -69,7 +69,7 @@ def test_exactly_one_click_requires_changed_provider_reconciliation():
 
     with patch('core.aldi_booking.inspect_selenium', side_effect=[ELIGIBLE, ELIGIBLE]), \
          patch('core.aldi_booking.reconciliation_snapshot', side_effect=[('NONE', None), ('SUCCESS', 'new-hash')]), \
-         patch('core.aldi_booking.success_snapshot', return_value=('SUCCESS', 'confirm-hash')), \
+         patch('core.aldi_booking.success_snapshot', side_effect=[('NONE', None), ('SUCCESS', 'confirm-new')]), \
          patch('core.aldi_booking._unique', side_effect=unique), \
          patch('core.aldi_booking.element_label', return_value='1 GB nachbuchen'), \
          patch('core.aldi_booking.protected_session_visible', return_value=True), \
@@ -100,7 +100,7 @@ def test_unchanged_reconciliation_after_click_is_unknown_and_never_retried():
 
     with patch('core.aldi_booking.inspect_selenium', side_effect=[ELIGIBLE, ELIGIBLE]), \
          patch('core.aldi_booking.reconciliation_snapshot', side_effect=[('SUCCESS', 'same-hash'), ('SUCCESS', 'same-hash')]), \
-         patch('core.aldi_booking.success_snapshot', return_value=('SUCCESS', 'confirm-hash')), \
+         patch('core.aldi_booking.success_snapshot', side_effect=[('NONE', None), ('SUCCESS', 'confirm-new')]), \
          patch('core.aldi_booking._unique', side_effect=unique), \
          patch('core.aldi_booking.element_label', return_value='1 GB nachbuchen'), \
          patch('core.aldi_booking.protected_session_visible', return_value=True), \
@@ -113,3 +113,30 @@ def test_unchanged_reconciliation_after_click_is_unknown_and_never_retried():
 
     button.click.assert_called_once_with()
     driver.refresh.assert_called_once_with()
+
+
+def test_stale_success_marker_cannot_confirm_new_click():
+    driver = MagicMock()
+    offer = MagicMock()
+    button = MagicMock()
+    button.is_enabled.return_value = True
+    button.get_attribute.return_value = None
+
+    def unique(_driver, selector, scope=None):
+        if selector == '.offer':
+            return offer
+        if selector == '.refill' and scope is offer:
+            return button
+        raise AssertionError(selector)
+
+    with patch('core.aldi_booking.inspect_selenium', side_effect=[ELIGIBLE, ELIGIBLE]), \
+         patch('core.aldi_booking.reconciliation_snapshot', return_value=('NONE', None)), \
+         patch('core.aldi_booking.success_snapshot', side_effect=[('SUCCESS', 'old-success'), ('SUCCESS', 'old-success')]), \
+         patch('core.aldi_booking._unique', side_effect=unique), \
+         patch('core.aldi_booking.element_label', return_value='1 GB nachbuchen'), \
+         patch('selenium.webdriver.support.ui.WebDriverWait', ImmediateWait):
+        with pytest.raises(BookingUnknownError):
+            execute_free_one_gb_selenium(driver, ACCOUNT, SELECTORS)
+
+    button.click.assert_called_once_with()
+    driver.refresh.assert_not_called()
