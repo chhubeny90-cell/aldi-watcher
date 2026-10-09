@@ -119,6 +119,8 @@ def _field_state(driver, element, prefix):
 
 def _network_state(driver):
     state = {
+        'network_request_count': 0, 'network_post_count': 0,
+        'network_document_count': 0, 'network_fetch_xhr_count': 0,
         'network_401_count': 0, 'network_401_document_count': 0,
         'network_401_fetch_xhr_count': 0, 'network_401_get_count': 0,
         'network_401_post_count': 0, 'network_401_sso_count': 0,
@@ -136,8 +138,17 @@ def _network_state(driver):
             request_id = params.get('requestId')
             if event == 'Network.requestWillBeSent':
                 request = params.get('request', {})
+                method = str(request.get('method', '')).upper()
+                resource_type = str(params.get('type', ''))
+                state['network_request_count'] += 1
+                if method == 'POST':
+                    state['network_post_count'] += 1
+                if resource_type == 'Document':
+                    state['network_document_count'] += 1
+                elif resource_type in {'Fetch', 'XHR'}:
+                    state['network_fetch_xhr_count'] += 1
                 if request_id:
-                    methods[request_id] = str(request.get('method', '')).upper()
+                    methods[request_id] = method
                 if 'redirectResponse' in params:
                     state['redirect_count'] += 1
                 continue

@@ -1,6 +1,6 @@
 name: ALDI read-only diagnostic
 
-# Manual retrigger marker: 2026-10-09 post-main login verification.
+# One-shot diagnostic branch. AUTO_BOOK_ENABLED always remains false.
 on:
   push:
     branches:
@@ -31,7 +31,7 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run sanitized ALDI auth and evidence probe
+      - name: Run sanitized ALDI password-enter auth and evidence probe
         env:
           PYTHONPATH: ${{ github.workspace }}
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
@@ -49,7 +49,7 @@ jobs:
           ALDI_REFILL_RECONCILE_SELECTOR: ${{ vars.ALDI_REFILL_RECONCILE_SELECTOR }}
           ALDI_AUTH_DIAGNOSTIC: 'true'
           AUTO_BOOK_ENABLED: 'false'
-        run: python tools/aldi_pointer_auth_probe.py
+        run: python tools/aldi_password_enter_auth_probe.py
       - name: Preserve sanitized ALDI diagnosis
         if: always()
         uses: actions/upload-artifact@v4
