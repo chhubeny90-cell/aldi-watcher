@@ -1,10 +1,7 @@
 name: ALDI read-only diagnostic
 
-# One-shot diagnostic branch. AUTO_BOOK_ENABLED always remains false.
+# Live authentication probes are manual-only to avoid repeated account attempts.
 on:
-  push:
-    branches:
-      - hardening/aldi-readonly-refill-evidence
   workflow_dispatch:
 
 permissions:
