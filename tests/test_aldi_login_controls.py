@@ -1,6 +1,7 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 import pytest
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.keys import Keys
 import watcher
 
 
@@ -8,12 +9,13 @@ import watcher
 def login_page(monkeypatch):
     driver = Mock(current_url=watcher.ALDI_LOGIN_URL)
     user, password, submit = (Mock() for _ in range(3))
+    navigate_mock = Mock()
     for control in (user, password, submit):
         control.is_enabled.return_value = True
         control.get_attribute.return_value = None
     monkeypatch.setattr(watcher, 'ALDI_USER', 'PRIVATE_USER')
     monkeypatch.setattr(watcher, 'ALDI_PASS', 'PRIVATE_PASSWORD')
-    monkeypatch.setattr(watcher, 'navigate', lambda *_: None)
+    monkeypatch.setattr(watcher, 'navigate', navigate_mock)
     monkeypatch.setattr(watcher, 'dismiss_cookie_banner', lambda *_: None)
     monkeypatch.setattr(watcher, 'element_label', lambda *_: 'Anmelden')
     monkeypatch.setattr(watcher, 'session_visible', lambda *_: True)
@@ -25,42 +27,73 @@ def login_page(monkeypatch):
             return [password]
         return [submit]
     monkeypatch.setattr(watcher, 'find_visible_elements', elements)
-    return driver, user, password, submit
+    return driver, user, password, submit, navigate_mock
 
 
-def test_shadow_controls_are_filled_and_submitted_once(login_page):
-    driver, user, password, submit = login_page
+def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
+    driver, user, password, submit, navigate_mock = login_page
     assert watcher.aldi_login(driver)
-    user.send_keys.assert_called_once_with('PRIVATE_USER')
-    password.send_keys.assert_called_once_with('PRIVATE_PASSWORD')
-    submit.click.assert_called_once()
-    driver.execute_script.assert_not_called()  # No JS-click fallback.
+    assert user.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'),
+        call(Keys.BACKSPACE),
+        call('PRIVATE_USER'),
+        call(Keys.TAB),
+    ]
+    assert password.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'),
+        call(Keys.BACKSPACE),
+        call('PRIVATE_PASSWORD'),
+        call(Keys.TAB),
+    ]
+    submit.click.assert_not_called()
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
+    navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
+    driver.execute_script.assert_not_called()
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, _ = login_page
     driver.current_url = 'https://attacker.invalid/'
     with pytest.raises(PermissionError):
         watcher.aldi_login(driver)
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    submit.send_keys.assert_not_called()
+    driver.execute_script.assert_not_called()
+
+
+def test_sso_host_is_not_a_confirmed_portal_session(login_page):
+    driver, user, password, submit, _ = login_page
+    driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
+    with pytest.raises(TimeoutException):
+        watcher.aldi_login(driver)
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
 
 
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
-    driver, user, password, submit = login_page
+    driver, user, password, submit, _ = login_page
     monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [user, Mock()])
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    submit.send_keys.assert_not_called()
+    driver.execute_script.assert_not_called()
 
 
-def test_uncertain_login_submit_is_not_repeated(login_page):
-    driver, user, password, submit = login_page
-    submit.click.side_effect = TimeoutException('PRIVATE upstream content')
+def test_uncertain_keyboard_submit_is_not_repeated(login_page):
+    driver, user, password, submit, _ = login_page
+    submit.send_keys.side_effect = TimeoutException('PRIVATE upstream content')
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    submit.click.assert_called_once()
-    password.send_keys.assert_called_once_with('PRIVATE_PASSWORD')
+    assert user.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_USER'), call(Keys.TAB)
+    ]
+    assert password.send_keys.call_args_list == [
+        call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_PASSWORD'), call(Keys.TAB)
+    ]
+    submit.click.assert_not_called()
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
+    driver.execute_script.assert_not_called()

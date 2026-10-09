@@ -1,5 +1,6 @@
 import os
 import time
+from urllib.parse import urlsplit
 from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label
 from core.lidl_refill import inspect_selenium
@@ -112,15 +113,20 @@ def aldi_login(driver) -> bool:
     )
     dismiss_cookie_banner(driver)
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    user_field.clear()
+    # Component-backed inputs need keyboard edits and a blur/change event.
+    user_field.send_keys(Keys.CONTROL, 'a')
+    user_field.send_keys(Keys.BACKSPACE)
     user_field.send_keys(ALDI_USER)
+    user_field.send_keys(Keys.TAB)
     phase('password_field')
     pass_field = wait.until(
         lambda _: unique_enabled("input[type='password']")
     )
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    pass_field.clear()
+    pass_field.send_keys(Keys.CONTROL, 'a')
+    pass_field.send_keys(Keys.BACKSPACE)
     pass_field.send_keys(ALDI_PASS)
+    pass_field.send_keys(Keys.TAB)
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
@@ -130,7 +136,12 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    button.click()
+    # One trusted keyboard submission; never retry an uncertain login submit.
+    button.send_keys(Keys.ENTER)
+    phase('sso_redirect')
+    portal_host = urlsplit(ALDI_OVERVIEW_URL).hostname
+    wait.until(lambda _: urlsplit(driver.current_url).hostname == portal_host)
+    require_origin(driver, ALDI_OVERVIEW_URL)
     phase('session_validation')
     wait.until(session_visible)
     return True
