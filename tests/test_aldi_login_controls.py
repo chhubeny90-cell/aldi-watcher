@@ -1,6 +1,7 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 import pytest
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.keys import Keys
 import watcher
 
 
@@ -32,9 +33,9 @@ def test_shadow_controls_are_filled_and_submitted_once(login_page):
     driver, user, password, submit = login_page
     assert watcher.aldi_login(driver)
     user.send_keys.assert_called_once_with('PRIVATE_USER')
-    password.send_keys.assert_called_once_with('PRIVATE_PASSWORD')
-    submit.click.assert_called_once()
-    driver.execute_script.assert_not_called()  # No JS-click fallback.
+    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD'), call(Keys.ENTER)]
+    submit.click.assert_not_called()
+    driver.execute_script.assert_not_called()
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
@@ -57,10 +58,10 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     submit.click.assert_not_called()
 
 
-def test_uncertain_login_submit_is_not_repeated(login_page):
+def test_uncertain_enter_submit_is_not_repeated(login_page):
     driver, user, password, submit = login_page
-    submit.click.side_effect = TimeoutException('PRIVATE upstream content')
+    password.send_keys.side_effect = [None, TimeoutException('PRIVATE upstream content')]
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    submit.click.assert_called_once()
-    password.send_keys.assert_called_once_with('PRIVATE_PASSWORD')
+    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD'), call(Keys.ENTER)]
+    submit.click.assert_not_called()
