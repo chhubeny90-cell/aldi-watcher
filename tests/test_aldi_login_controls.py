@@ -1,7 +1,6 @@
 from unittest.mock import Mock, call
 import pytest
 from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.keys import Keys
 import watcher
 
 
@@ -34,10 +33,10 @@ def test_shadow_controls_are_filled_and_submitted_once(login_page):
     driver, user, password, submit, navigate_mock = login_page
     assert watcher.aldi_login(driver)
     user.send_keys.assert_called_once_with('PRIVATE_USER')
-    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD'), call(Keys.ENTER)]
+    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD')]
     submit.click.assert_not_called()
     navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
-    driver.execute_script.assert_not_called()
+    driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
@@ -48,6 +47,7 @@ def test_untrusted_origin_never_receives_credentials(login_page):
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    driver.execute_script.assert_not_called()
 
 
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
@@ -58,12 +58,14 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    driver.execute_script.assert_not_called()
 
 
-def test_uncertain_enter_submit_is_not_repeated(login_page):
+def test_uncertain_dom_submit_is_not_repeated(login_page):
     driver, user, password, submit, _ = login_page
-    password.send_keys.side_effect = [None, TimeoutException('PRIVATE upstream content')]
+    driver.execute_script.side_effect = TimeoutException('PRIVATE upstream content')
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD'), call(Keys.ENTER)]
+    assert password.send_keys.call_args_list == [call('PRIVATE_PASSWORD')]
     submit.click.assert_not_called()
+    driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
