@@ -46,8 +46,9 @@ def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
         call(Keys.TAB),
     ]
     submit.click.assert_not_called()
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
     navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
-    driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
+    driver.execute_script.assert_not_called()
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
@@ -58,6 +59,7 @@ def test_untrusted_origin_never_receives_credentials(login_page):
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    submit.send_keys.assert_not_called()
     driver.execute_script.assert_not_called()
 
 
@@ -69,12 +71,13 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
     submit.click.assert_not_called()
+    submit.send_keys.assert_not_called()
     driver.execute_script.assert_not_called()
 
 
-def test_uncertain_dom_submit_is_not_repeated(login_page):
+def test_uncertain_keyboard_submit_is_not_repeated(login_page):
     driver, user, password, submit, _ = login_page
-    driver.execute_script.side_effect = TimeoutException('PRIVATE upstream content')
+    submit.send_keys.side_effect = TimeoutException('PRIVATE upstream content')
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     assert user.send_keys.call_args_list == [
@@ -84,4 +87,5 @@ def test_uncertain_dom_submit_is_not_repeated(login_page):
         call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_PASSWORD'), call(Keys.TAB)
     ]
     submit.click.assert_not_called()
-    driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
+    driver.execute_script.assert_not_called()
