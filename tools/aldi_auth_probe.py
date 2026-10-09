@@ -3,7 +3,8 @@
 The probe performs the same account login as watcher.py but never books or
 clicks a refill control. On authentication failure it emits only structural,
 allowlisted booleans/counts so SSO/MFA/error states can be distinguished
-without exposing account data, page text, URLs, cookies, tokens, or raw errors.
+without exposing account data, page text, URLs, cookies, tokens, field values,
+or raw errors.
 """
 import json
 from pathlib import Path
@@ -27,6 +28,8 @@ _ALLOWED_WEBDRIVER_ERRORS = {
     'TimeoutException',
     'WebDriverException',
 }
+_ALLOWED_INPUT_TYPES = {'text', 'tel', 'email', 'password', 'number', 'other'}
+_ALLOWED_SUBMIT_TYPES = {'submit', 'button', 'other'}
 
 
 def _visible(elements):
@@ -149,6 +152,97 @@ def _network_state(driver):
     return counts
 
 
+def _field_state(driver, element, prefix):
+    """Return native validity booleans only; never return a field value/message."""
+    state = {
+        f"{prefix}_field_present": element is not None,
+        f"{prefix}_has_value": None,
+        f"{prefix}_aria_invalid": None,
+        f"{prefix}_disabled": None,
+        f"{prefix}_readonly": None,
+        f"{prefix}_form_associated": None,
+        f"{prefix}_native_valid": None,
+        f"{prefix}_value_missing": None,
+        f"{prefix}_pattern_mismatch": None,
+        f"{prefix}_type_mismatch": None,
+        f"{prefix}_too_short": None,
+        f"{prefix}_too_long": None,
+        f"{prefix}_custom_error": None,
+    }
+    if element is None:
+        return state
+    try:
+        state[f"{prefix}_has_value"] = bool(
+            driver.execute_script("return Boolean(arguments[0].value);", element)
+        )
+    except Exception:
+        pass
+    try:
+        state[f"{prefix}_aria_invalid"] = (
+            (element.get_attribute("aria-invalid") or "").lower() == "true"
+        )
+        state[f"{prefix}_disabled"] = bool(element.get_attribute("disabled"))
+        state[f"{prefix}_readonly"] = bool(element.get_attribute("readonly"))
+    except Exception:
+        pass
+    try:
+        state[f"{prefix}_form_associated"] = bool(
+            driver.execute_script("return arguments[0].form !== null;", element)
+        )
+    except Exception:
+        pass
+    try:
+        validity = driver.execute_script(
+            """
+            const v = arguments[0].validity;
+            if (!v) return null;
+            return {
+              valid: Boolean(v.valid),
+              valueMissing: Boolean(v.valueMissing),
+              patternMismatch: Boolean(v.patternMismatch),
+              typeMismatch: Boolean(v.typeMismatch),
+              tooShort: Boolean(v.tooShort),
+              tooLong: Boolean(v.tooLong),
+              customError: Boolean(v.customError)
+            };
+            """,
+            element,
+        )
+        if isinstance(validity, dict):
+            state[f"{prefix}_native_valid"] = bool(validity.get("valid"))
+            state[f"{prefix}_value_missing"] = bool(validity.get("valueMissing"))
+            state[f"{prefix}_pattern_mismatch"] = bool(validity.get("patternMismatch"))
+            state[f"{prefix}_type_mismatch"] = bool(validity.get("typeMismatch"))
+            state[f"{prefix}_too_short"] = bool(validity.get("tooShort"))
+            state[f"{prefix}_too_long"] = bool(validity.get("tooLong"))
+            state[f"{prefix}_custom_error"] = bool(validity.get("customError"))
+    except Exception:
+        pass
+    return state
+
+
+def _input_type(element):
+    if element is None:
+        return None
+    try:
+        value = (element.get_attribute("type") or "text").lower()
+        return value if value in _ALLOWED_INPUT_TYPES else "other"
+    except Exception:
+        return None
+
+
+def _submit_type(element):
+    if element is None:
+        return None
+    try:
+        value = (element.get_attribute("type") or "").lower()
+        if value in {'submit', 'button'}:
+            return value
+        return 'other'
+    except Exception:
+        return None
+
+
 def _structural_state(driver):
     """Return only non-secret structural indicators from the current page."""
     state = {
@@ -157,18 +251,25 @@ def _structural_state(driver):
         "cookie_count": None,
         "visible_input_count": None,
         "visible_password_count": None,
+        "username_candidate_count": None,
+        "username_input_type": None,
+        "password_input_type": None,
         "mfa_input_visible": False,
         "alert_region_visible": False,
         "invalid_input_count": None,
         "visible_control_count": None,
         "login_submit_visible": False,
         "login_submit_enabled": False,
+        "login_submit_type": None,
         "continue_control_visible": False,
         "consent_control_visible": False,
         "logout_visible": False,
         "frame_count": None,
         "document_ready": None,
     }
+    username = None
+    password = None
+    submit = None
     try:
         state["cookie_count"] = len(driver.get_cookies())
     except Exception:
@@ -176,10 +277,26 @@ def _structural_state(driver):
     try:
         inputs = _visible(find_visible_elements(driver, "input"))
         state["visible_input_count"] = len(inputs)
-        state["visible_password_count"] = sum(
-            (element.get_attribute("type") or "").lower() == "password"
-            for element in inputs
-        )
+        passwords = [
+            element for element in inputs
+            if (element.get_attribute("type") or "").lower() == "password"
+        ]
+        usernames = [
+            element for element in inputs
+            if (element.get_attribute("autocomplete") or "").lower() == "username"
+            or (element.get_attribute("type") or "").lower() in {"tel", "email"}
+        ]
+        if not usernames:
+            usernames = [
+                element for element in inputs
+                if (element.get_attribute("type") or "").lower() == "text"
+            ]
+        state["visible_password_count"] = len(passwords)
+        state["username_candidate_count"] = len(usernames)
+        password = passwords[0] if len(passwords) == 1 else None
+        username = usernames[0] if len(usernames) == 1 else None
+        state["username_input_type"] = _input_type(username)
+        state["password_input_type"] = _input_type(password)
         state["mfa_input_visible"] = any(
             (element.get_attribute("autocomplete") or "").lower() == "one-time-code"
             for element in inputs
@@ -190,6 +307,8 @@ def _structural_state(driver):
         )
     except Exception:
         pass
+    state.update(_field_state(driver, username, "username"))
+    state.update(_field_state(driver, password, "password"))
     try:
         alerts = _visible(find_visible_elements(
             driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"
@@ -206,10 +325,12 @@ def _structural_state(driver):
         submits = [element for element, label in zip(controls, labels) if label == "anmelden"]
         state["login_submit_visible"] = len(submits) == 1
         if len(submits) == 1:
+            submit = submits[0]
             state["login_submit_enabled"] = bool(
-                submits[0].is_enabled()
-                and submits[0].get_attribute("aria-disabled") != "true"
+                submit.is_enabled()
+                and submit.get_attribute("aria-disabled") != "true"
             )
+            state["login_submit_type"] = _submit_type(submit)
         state["continue_control_visible"] = any(
             label in {"weiter", "fortfahren", "weiter zu aldi talk", "zum kundenkonto"}
             for label in labels
