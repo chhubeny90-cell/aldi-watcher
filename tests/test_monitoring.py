@@ -74,6 +74,15 @@ def test_browser_start_failure():
     assert result['phase'] == 'browser_start'
 
 
+def test_click_failure_category_does_not_expose_exception_text():
+    from selenium.common.exceptions import ElementClickInterceptedException
+    error = ElementClickInterceptedException('PRIVATE_PASSWORD PRIVATE_DOM')
+    result = m.execute_provider('aldi_talk', driver, Mock(side_effect=error), Mock(), 'test')
+    assert result['status'] == 'browser_error'
+    assert result['browser_error_kind'] == 'click_intercepted'
+    assert 'PRIVATE' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('explicit_paths', [True, False])
 def test_browser_uses_configured_paths_or_local_discovery(monkeypatch, explicit_paths):
     for name, value in [('CHROME_BINARY', '/opt/chrome/chrome'),

@@ -185,8 +185,16 @@ def execute_provider(name, factory, login, read, run_id):
             result.update(status='ok', message='Session und Restvolumen geprüft', phase='complete')
     except TimeoutException:
         result.update(status='timeout', message='Zeitlimit in protokollierter Phase erreicht')
-    except WebDriverException:
-        result.update(status='browser_error', message='Browser- oder Navigationsfehler')
+    except WebDriverException as error:
+        # Fixed categories only: exception messages can contain private DOM data.
+        categories = {
+            'ElementClickInterceptedException': 'click_intercepted',
+            'ElementNotInteractableException': 'element_not_interactable',
+            'StaleElementReferenceException': 'stale_element',
+            'InvalidSessionIdException': 'invalid_browser_session',
+        }
+        result.update(status='browser_error', message='Browser- oder Navigationsfehler',
+                      browser_error_kind=categories.get(type(error).__name__, 'webdriver_error'))
     except PermissionError:
         result.update(login_ok=False, status='auth_failed', message='Session oder Portal-Domain nicht validiert')
     except ValueError:
