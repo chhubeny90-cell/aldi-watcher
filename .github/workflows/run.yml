@@ -30,8 +30,9 @@ jobs:
         run: python -m pytest -q
 
   watch:
-    # Verify deployed fixes against the portal immediately after a main push.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    # Manual runs are always allowed. Scheduled live auth is fail-closed until
+    # ALDI_MONITORING_ENABLED is explicitly set to true after credentials are verified.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.ALDI_MONITORING_ENABLED == 'true')
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,24 +50,17 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run watcher in safety mode
+      - name: Run ALDI watcher in safety mode
         env:
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          LIDL_USER: ${{ secrets.LIDL_USER }}
-          LIDL_PASS: ${{ secrets.LIDL_PASS }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          LIDL_USER_ENC: ${{ secrets.LIDL_USER_ENC }}
-          LIDL_PASS_ENC: ${{ secrets.LIDL_PASS_ENC }}
-          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ vars.LIDL_ACTIVE_TARIFF_SELECTOR }}
-          LIDL_REFILL_OFFER_SELECTOR: ${{ vars.LIDL_REFILL_OFFER_SELECTOR }}
-          LIDL_REFILL_BUTTON_SELECTOR: ${{ vars.LIDL_REFILL_BUTTON_SELECTOR }}
           AUTO_BOOK_ENABLED: 'false'
-        run: python watcher.py --run-once
+        run: python watcher.py --run-once --provider aldi_talk
       - name: Preserve sanitized heartbeat and diagnosis
         if: always()
         uses: actions/upload-artifact@v4
