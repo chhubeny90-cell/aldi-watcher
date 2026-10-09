@@ -2,8 +2,8 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
 from dataclasses import dataclass
+from typing import Dict, Optional
 
 from core.database import Database, RechargeLockedError
 
@@ -67,17 +67,17 @@ class BaseWatcher(ABC):
             self.provider_name, self.username
         ):
             try:
-                status = (await self.check_recharge_status(record.recharge_id)).upper()
+                status = (await self.check_recharge_status(record["recharge_id"])).upper()
             except Exception as exc:
                 actual = self.database.set_recharge_status(
-                    record.recharge_id, "UNKNOWN", type(exc).__name__
+                    record["recharge_id"], "UNKNOWN", type(exc).__name__
                 )
-                resolved.append((record.recharge_id, actual))
+                resolved.append((record["recharge_id"], actual))
                 continue
             if status not in {"SUCCESS", "FAILED", "UNKNOWN"}:
                 status = "UNKNOWN"
-            actual = self.database.set_recharge_status(record.recharge_id, status)
-            resolved.append((record.recharge_id, actual))
+            actual = self.database.set_recharge_status(record["recharge_id"], status)
+            resolved.append((record["recharge_id"], actual))
         return resolved
 
     async def _recharge_once(self):
@@ -92,7 +92,6 @@ class BaseWatcher(ABC):
             status = self.database.set_recharge_status(recharge_id, "UNKNOWN", type(exc).__name__)
             return recharge_id, status, status == "SUCCESS"
         except Exception as exc:
-            # The external side effect may have happened before the exception.
             status = self.database.set_recharge_status(recharge_id, "UNKNOWN", type(exc).__name__)
             return recharge_id, status, status == "SUCCESS"
 
@@ -114,6 +113,17 @@ class BaseWatcher(ABC):
             recharge_status = "NOT_TRIGGERED"
 
             if should_recharge:
+                if self.database is not None and self.database.is_in_cooldown(
+                    self.provider_name,
+                    self.username,
+                    cooldown_seconds=getattr(self, "recharge_guard_seconds", 300),
+                ):
+                    recharge_status = "COOLDOWN"
+                    return WatcherResult(
+                        self.provider_name, self.username, True,
+                        used_mb, total_mb, True, False,
+                        "cooldown_active", None, recharge_status
+                    )
                 if self.dry_run:
                     print(f"DRY RUN: Would trigger recharge for {self.provider_name}")
                 else:
@@ -121,11 +131,11 @@ class BaseWatcher(ABC):
                         recharge_id, recharge_status, recharge_triggered = (
                             await self._recharge_once()
                         )
-                    except RechargeLockedError as exc:
+                    except RechargeLockedError:
                         recharge_status = "BLOCKED"
                         return WatcherResult(
                             self.provider_name, self.username, True,
-                            used_mb, total_mb, True, False, 'recharge_locked',
+                            used_mb, total_mb, True, False, "recharge_locked",
                             None, recharge_status
                         )
 
