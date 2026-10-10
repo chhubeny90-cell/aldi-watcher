@@ -1,1 +1,1 @@
-Trigger public ALDI login-control inspection only. No credentials are loaded, typed, or submitted.
+Trigger public ALDI login-control inspection after the login widget is fully rendered. No credentials are loaded, typed, or submitted.
