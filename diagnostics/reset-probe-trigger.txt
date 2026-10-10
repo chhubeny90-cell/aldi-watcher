@@ -1,0 +1,2 @@
+Trigger sanitized ALDI password-reset form inspection only.
+No personal data is typed and no reset request is submitted.
