@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 from .security import SecurityManager
 
-CREDENTIAL_NAMES = ("ALDI_USER", "ALDI_PASS", "LIDL_USER", "LIDL_PASS")
+CREDENTIAL_NAMES = ("ALDI_LOGIN_USER", "ALDI_USER", "ALDI_PASS", "LIDL_USER", "LIDL_PASS")
 
 
 def validated(name, value):
