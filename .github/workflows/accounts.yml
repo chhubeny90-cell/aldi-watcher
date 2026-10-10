@@ -1,0 +1,62 @@
+name: ALDI Accounts
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: aldi-accounts-monitor
+  cancel-in-progress: false
+jobs:
+  monitor_accounts:
+    # Scheduling needs explicit activation after authenticated account checks.
+    if: github.event_name == 'workflow_dispatch' || vars.ALDI_ACCOUNTS_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTO_BOOK_ENABLED: 'false'
+      ALDI_ACCOUNTS_ENC: ${{ secrets.ALDI_ACCOUNTS_ENC }}
+      CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check protected account configuration
+        id: configured
+        shell: bash
+        run: |
+          if [ -n "$ALDI_ACCOUNTS_ENC" ] && [ -n "$CREDENTIAL_ENCRYPTION_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Account monitoring skipped: encrypted configuration/key missing."
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.configured.outputs.ready == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        if: steps.configured.outputs.ready == 'true'
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        if: steps.configured.outputs.ready == 'true'
+        run: pip install -r requirements.txt
+      - name: Check each enabled ALDI account in an isolated browser
+        if: steps.configured.outputs.ready == 'true'
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_ACCOUNTS_REPORT: aldi-accounts-report.json
+        run: timeout 900s python aldi_accounts_monitor.py
+      - name: Preserve sanitized account report
+        if: always() && steps.configured.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-accounts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-accounts-report.json
+          if-no-files-found: warn
+          retention-days: 7
