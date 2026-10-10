@@ -1,6 +1,6 @@
-"""Compatibility entry point for the current ALDI callback-login diagnostic."""
+"""Compatibility entry point for the current ALDI login diagnostic."""
 
-from aldi_callback_exact_query_probe import main
+from aldi_frontend_submit_probe import main
 
 
 if __name__ == "__main__":
