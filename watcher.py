@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label, rendered_text
 from core.lidl_refill import inspect_selenium
+from core.aldi_refill import inspect_selenium as inspect_aldi_refill
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -232,6 +233,8 @@ def aldi_read_status(driver) -> dict:
         status['inland_frei_gb'] = remaining_gb(text)
     except NoSuchElementException:
         pass
+    phase('refill_availability')
+    status.update(inspect_aldi_refill(driver, status['inland_frei_gb']))
     return status
 
 
