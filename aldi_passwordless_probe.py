@@ -2,14 +2,16 @@
 
 No secrets are loaded, no personal data is typed and no form is submitted. The
 probe only navigates to the passwordless login screen and records sanitized
-field/control shapes and submit structure.
+field/control shapes, submit structure and public JavaScript asset locations.
 """
 
 import json
 import os
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
 from browser_dom import element_label, find_visible_elements, rendered_text
@@ -34,6 +36,45 @@ def _passwordless_link(driver):
         except Exception:
             continue
     return matches[0] if len(matches) == 1 else None
+
+
+def _safe_asset(url):
+    try:
+        parsed = urlsplit(url or "")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        # Assets are public. Query/fragment are deliberately omitted.
+        return {"host": parsed.hostname[:120], "path": (parsed.path or "/")[:220]}
+    except Exception:
+        return None
+
+
+def _asset_sources(driver):
+    rows = []
+    seen = set()
+    try:
+        for element in driver.find_elements(By.CSS_SELECTOR, "script[src]")[:40]:
+            safe = _safe_asset(element.get_attribute("src"))
+            if safe and (safe["host"], safe["path"]) not in seen:
+                seen.add((safe["host"], safe["path"]))
+                rows.append(safe)
+    except Exception:
+        pass
+    try:
+        entries = driver.execute_script(
+            "return performance.getEntriesByType('resource').map(e => e.name).filter(Boolean);"
+        ) or []
+        for url in entries:
+            safe = _safe_asset(url)
+            if not safe or not safe["path"].lower().endswith((".js", ".mjs")):
+                continue
+            key = (safe["host"], safe["path"])
+            if key not in seen:
+                seen.add(key)
+                rows.append(safe)
+    except Exception:
+        pass
+    return rows[:60]
 
 
 def _submit_structure(driver, control):
@@ -76,7 +117,6 @@ def _submit_structure(driver, control):
         row.rect_height_bucket = r.height < 24 ? 'small' : (r.height < 64 ? 'medium' : 'tall');
         return row;
     """, control)
-    # Only allow the two already-trusted ALDI hosts in structural output.
     if raw.get("form_action_host") not in {
         "www.alditalk-kundenportal.de", "login.alditalk-kundenbetreuung.de"
     }:
@@ -97,6 +137,7 @@ def main():
         "field_shapes": [],
         "control_labels": [],
         "send_control_structure": None,
+        "script_assets": [],
         "text_flags": {},
         "exception_type": None,
     }
@@ -139,6 +180,7 @@ def main():
         if len(send_matches) == 1:
             report["send_control_structure"] = _submit_structure(driver, send_matches[0])
 
+        report["script_assets"] = _asset_sources(driver)
         try:
             text = rendered_text(driver).casefold()
         except Exception:
