@@ -11,18 +11,18 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
 from browser_dom import element_label, find_visible_elements
-from monitoring import navigate, require_origin
+from monitoring import navigate, require_origin, session_visible
 import watcher
 
 
 OBSERVE_SECONDS = int(os.getenv("ALDI_SSO_OBSERVE_SECONDS", "120"))
 SAMPLE_SECONDS = max(2, int(os.getenv("ALDI_SSO_SAMPLE_SECONDS", "5")))
+PROBE_AFTER_SECONDS = max(5, int(os.getenv("ALDI_SSO_PROBE_AFTER_SECONDS", "15")))
 
 
 def utcnow():
@@ -44,6 +44,7 @@ def _scrub_path(path):
 
 def safe_url(url):
     try:
+        from urllib.parse import urlsplit
         parsed = urlsplit(url or "")
         return {
             "scheme": parsed.scheme,
@@ -130,6 +131,14 @@ def network_summary(driver):
     return rows[-120:]
 
 
+def confirmed_portal_session(driver):
+    try:
+        require_origin(driver, watcher.ALDI_OVERVIEW_URL)
+    except PermissionError:
+        return False
+    return session_visible(driver)
+
+
 def main():
     report_path = os.getenv("ALDI_SSO_REPORT", "aldi-sso-diagnostic.json")
     report = {
@@ -137,6 +146,7 @@ def main():
         "finished_at": None,
         "booking_executed": False,
         "login_submit_count": 0,
+        "protected_probe_count": 0,
         "outcome": "unknown",
         "samples": [],
         "network": [],
@@ -192,14 +202,24 @@ def main():
         report["login_submit_count"] = 1
 
         start = time.monotonic()
-        portal_host = urlsplit(watcher.ALDI_OVERVIEW_URL).hostname
+        protected_probe_done = False
         while True:
             elapsed = time.monotonic() - start
             report["samples"].append(snapshot(driver, elapsed))
-            current_host = urlsplit(getattr(driver, "current_url", "")).hostname
-            if current_host == portal_host:
-                report["outcome"] = "portal_returned"
+
+            if confirmed_portal_session(driver):
+                report["outcome"] = "portal_session_confirmed"
                 break
+
+            if not protected_probe_done and elapsed >= PROBE_AFTER_SECONDS:
+                protected_probe_done = True
+                report["protected_probe_count"] = 1
+                navigate(driver, watcher.ALDI_OVERVIEW_URL, attempts=1)
+                report["samples"].append(snapshot(driver, time.monotonic() - start))
+                if confirmed_portal_session(driver):
+                    report["outcome"] = "portal_session_confirmed"
+                    break
+
             if elapsed >= OBSERVE_SECONDS:
                 report["outcome"] = "sso_timeout"
                 break
@@ -222,6 +242,7 @@ def main():
         print(json.dumps({
             "outcome": report["outcome"],
             "login_submit_count": report["login_submit_count"],
+            "protected_probe_count": report["protected_probe_count"],
             "sample_count": len(report["samples"]),
             "network_event_count": len(report["network"]),
             "booking_executed": False,
@@ -232,7 +253,7 @@ def main():
             except Exception:
                 pass
 
-    return 0 if report["outcome"] == "portal_returned" else 2
+    return 0 if report["outcome"] == "portal_session_confirmed" else 2
 
 
 if __name__ == "__main__":
