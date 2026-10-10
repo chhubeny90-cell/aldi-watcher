@@ -1,97 +1,87 @@
-"""Sanitized ALDI password login using ALDI's observed two-stage auth tree.
+"""Sanitized one-shot ALDI login through the authentication callback ALDI serves.
 
-The first trusted pointer interaction is accepted only as an auth-tree
-initialization when ALDI returns stage-loginPage without an error. Credentials
-are then rebound after the component render and submitted exactly once. No
-booking control is inspected or activated. Reports contain booleans/structure
-only, never credential, cookie, token, query-string or raw response-body values.
+The browser first obtains ALDI's own stage-loginPage callback object. The probe
+keeps authId and every callback in memory, changes only the NameCallback and
+PasswordCallback input values to the configured secrets, and POSTs that object
+once to the exact same validated ALDI /authenticate URL. No secret, authId,
+token, cookie value, raw body or URL query is written to logs or artifacts.
+No booking control is inspected or activated.
 """
 
+import copy
 import json
 import os
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-
-from browser_dom import element_label, find_visible_elements
+from browser_dom import find_visible_elements
 from monitoring import navigate, require_origin
 import watcher
-from aldi_sso_diagnostic import drain_network
+from aldi_sso_diagnostic import _classify_text
 
 REPORT_PATH = os.getenv("ALDI_PASSWORD_POINTER_REPORT", "aldi-password-pointer.json")
-OBSERVE_SECONDS = max(10, min(60, int(os.getenv("ALDI_PASSWORD_POINTER_SECONDS", "35"))))
+ALLOWED_AUTH_HOSTS = {"login.alditalk-kundenbetreuung.de"}
 
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _unique_enabled(driver, selector):
-    require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
-    items = find_visible_elements(driver, selector)
-    return items[0] if len(items) == 1 and items[0].is_enabled() else False
-
-
-def _login_control(driver):
-    matches = []
-    for element in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']"):
-        try:
-            if (element_label(driver, element).strip().casefold() == "anmelden"
-                    and element.is_enabled()
-                    and element.get_attribute("aria-disabled") != "true"
-                    and element.get_attribute("disabled") is None):
-                matches.append(element)
-        except Exception:
+def _callback_schema(obj):
+    rows = []
+    for callback in obj.get("callbacks", []) if isinstance(obj, dict) else []:
+        if not isinstance(callback, dict):
             continue
-    return matches[0] if len(matches) == 1 else False
+        rows.append({
+            "type": str(callback.get("type") or "")[:80],
+            "input_names": [
+                str(item.get("name") or "")[:80]
+                for item in callback.get("input", [])
+                if isinstance(item, dict)
+            ][:12],
+            "output_names": [
+                str(item.get("name") or "")[:80]
+                for item in callback.get("output", [])
+                if isinstance(item, dict)
+            ][:20],
+        })
+    return rows[:20]
 
 
-def _trusted_pointer_click(driver, element):
-    driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'center'});", element)
-    time.sleep(0.25)
-    rect = driver.execute_script(
-        "const r=arguments[0].getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};",
-        element,
-    )
-    if not rect or rect.get("w", 0) <= 1 or rect.get("h", 0) <= 1:
-        raise RuntimeError("login_control_not_rendered")
-    x = float(rect["x"]) + float(rect["w"]) / 2.0
-    y = float(rect["y"]) + float(rect["h"]) / 2.0
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "button": "none"})
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1})
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})
+def _text_output_category(obj):
+    parts = []
+    if isinstance(obj, dict):
+        for callback in obj.get("callbacks", []):
+            if not isinstance(callback, dict) or callback.get("type") != "TextOutputCallback":
+                continue
+            for item in callback.get("output", []):
+                if isinstance(item, dict) and isinstance(item.get("value"), str):
+                    parts.append(item["value"])
+    return _classify_text(" ".join(parts))
+
+
+def _shape(obj, status=None):
     return {
-        "width_bucket": "small" if rect["w"] < 80 else ("medium" if rect["w"] < 240 else "wide"),
-        "height_bucket": "small" if rect["h"] < 24 else ("medium" if rect["h"] < 64 else "tall"),
+        "http_status": status,
+        "json_object": isinstance(obj, dict),
+        "top_keys": sorted(str(k)[:64] for k in obj.keys())[:30] if isinstance(obj, dict) else [],
+        "stage_identifier": (
+            obj.get("stage") if isinstance(obj, dict)
+            and isinstance(obj.get("stage"), str)
+            and len(obj.get("stage")) <= 80 else None
+        ),
+        "has_auth_id": isinstance(obj, dict) and isinstance(obj.get("authId"), str) and bool(obj.get("authId")),
+        "has_token_id": isinstance(obj, dict) and isinstance(obj.get("tokenId"), str) and bool(obj.get("tokenId")),
+        "has_callbacks": isinstance(obj, dict) and isinstance(obj.get("callbacks"), list),
+        "callback_schema": _callback_schema(obj),
+        "text_output_category": _text_output_category(obj),
+        "has_success_url": isinstance(obj, dict) and isinstance(obj.get("successUrl"), str),
+        "has_failure_url": isinstance(obj, dict) and isinstance(obj.get("failureUrl"), str),
     }
 
 
-def _fill_credentials(driver, wait):
-    user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
-    user.send_keys(Keys.CONTROL, "a"); user.send_keys(Keys.BACKSPACE); user.send_keys(watcher.ALDI_USER); user.send_keys(Keys.TAB)
-    password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
-    password.send_keys(Keys.CONTROL, "a"); password.send_keys(Keys.BACKSPACE); password.send_keys(watcher.ALDI_PASS); password.send_keys(Keys.TAB)
-    submit = wait.until(lambda _: _login_control(driver))
-    user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
-    password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
-    state = {
-        "username_matches_secret": user.get_attribute("value") == watcher.ALDI_USER,
-        "password_matches_secret": password.get_attribute("value") == watcher.ALDI_PASS,
-        "submit_enabled": bool(_login_control(driver)),
-    }
-    return state, submit
-
-
-def _latest_login_stage(report):
-    for shape in reversed(report["auth_response_shapes"]):
-        if shape.get("stage_identifier"):
-            return shape
-    return None
-
-
-def _shape_has_auth_error(shape):
+def _has_auth_error(shape):
     category = (shape or {}).get("text_output_category") or {}
     return any(category.get(key) for key in (
         "invalid_credentials", "account_locked", "account_deactivated",
@@ -99,126 +89,231 @@ def _shape_has_auth_error(shape):
     ))
 
 
+def _validated_auth_url(url):
+    try:
+        parsed = urlsplit(url or "")
+        return (parsed.scheme == "https"
+                and parsed.hostname in ALLOWED_AUTH_HOSTS
+                and parsed.path.rstrip("/").endswith("/authenticate"))
+    except Exception:
+        return False
+
+
+def _capture_login_challenge(driver, timeout=15):
+    """Return (exact_url, raw_challenge) in memory; never log either value."""
+    deadline = time.monotonic() + timeout
+    pending = {}
+    while time.monotonic() < deadline:
+        try:
+            entries = driver.get_log("performance")
+        except Exception:
+            entries = []
+        for entry in entries:
+            try:
+                message = json.loads(entry.get("message", "{}"))["message"]
+                method = message.get("method")
+                params = message.get("params", {})
+                request_id = params.get("requestId")
+                if method == "Network.requestWillBeSent":
+                    request = params.get("request", {})
+                    url = request.get("url") or ""
+                    if request.get("method") == "POST" and _validated_auth_url(url):
+                        pending[request_id] = url
+                elif method == "Network.responseReceived":
+                    response = params.get("response", {})
+                    url = response.get("url") or pending.get(request_id) or ""
+                    if not _validated_auth_url(url) or int(response.get("status") or 0) != 200:
+                        continue
+                    pending[request_id] = url
+            except Exception:
+                continue
+
+        # getResponseBody may become available shortly after responseReceived.
+        for request_id, url in list(pending.items()):
+            try:
+                body = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id}).get("body", "")
+                obj = json.loads(body)
+            except Exception:
+                continue
+            shape = _shape(obj, 200)
+            if (shape.get("stage_identifier") == "stage-loginPage"
+                    and shape.get("has_auth_id")
+                    and shape.get("has_callbacks")
+                    and not shape.get("has_token_id")
+                    and not _has_auth_error(shape)):
+                return url, obj
+        time.sleep(0.35)
+    return None, None
+
+
+def _set_callback_secret(callback, secret):
+    inputs = callback.get("input")
+    if not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(inputs[0], dict):
+        raise RuntimeError("unexpected_callback_input_shape")
+    name = inputs[0].get("name")
+    if not isinstance(name, str) or not name or len(name) > 80:
+        raise RuntimeError("unexpected_callback_input_name")
+    inputs[0]["value"] = secret
+
+
+def _prepare_payload(challenge):
+    if not isinstance(challenge, dict) or not isinstance(challenge.get("authId"), str):
+        raise RuntimeError("challenge_missing_auth_id")
+    callbacks = challenge.get("callbacks")
+    if not isinstance(callbacks, list):
+        raise RuntimeError("challenge_missing_callbacks")
+    allowed = {
+        "NameCallback", "PasswordCallback", "ConfirmationCallback",
+        "HiddenValueCallback", "TextOutputCallback",
+    }
+    counts = {"NameCallback": 0, "PasswordCallback": 0}
+    payload_callbacks = copy.deepcopy(callbacks)
+    for callback in payload_callbacks:
+        if not isinstance(callback, dict):
+            raise RuntimeError("unexpected_callback_shape")
+        kind = callback.get("type")
+        if kind not in allowed:
+            raise RuntimeError("unexpected_callback_type")
+        if kind == "NameCallback":
+            counts[kind] += 1
+            _set_callback_secret(callback, watcher.ALDI_USER)
+        elif kind == "PasswordCallback":
+            counts[kind] += 1
+            _set_callback_secret(callback, watcher.ALDI_PASS)
+    if counts != {"NameCallback": 1, "PasswordCallback": 1}:
+        raise RuntimeError("credential_callback_count_unexpected")
+    return {
+        "authId": challenge["authId"],
+        "callbacks": payload_callbacks,
+    }
+
+
+def _submit_callback(driver, exact_url, payload):
+    """POST once from the already-open same-origin ALDI browser context."""
+    if not _validated_auth_url(exact_url):
+        raise PermissionError("untrusted_auth_url")
+    result = driver.execute_async_script(r"""
+        const url = arguments[0];
+        const payload = arguments[1];
+        const done = arguments[arguments.length - 1];
+        fetch(url, {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-API-Version': 'resource=2.1, protocol=1.0'
+          },
+          body: JSON.stringify(payload)
+        }).then(async response => {
+          let body = null;
+          try { body = await response.json(); } catch (_) {}
+          done({status: response.status, body: body});
+        }).catch(() => done({status: 0, body: null}));
+    """, exact_url, payload)
+    if not isinstance(result, dict):
+        return 0, None
+    return int(result.get("status") or 0), result.get("body")
+
+
 def main():
     report = {
         "started_at": utcnow(), "finished_at": None,
         "outcome": "unknown", "booking_executed": False,
-        "pre_init_credential_state": None, "post_init_credential_state": None,
-        "auth_tree_init_count": 0, "credential_submit_count": 0,
-        "submit_method": "cdp_trusted_pointer_two_stage",
-        "init_pointer_geometry": None, "credential_pointer_geometry": None,
+        "challenge_captured": False,
+        "challenge_shape": None,
+        "credential_callback_submit_count": 0,
+        "credential_response_shape": None,
         "portal_session": False,
-        "network": [], "auth_request_shapes": [], "auth_response_shapes": [],
         "exception_type": None,
     }
     if not watcher.configure_credentials("ALDI"):
         report["outcome"] = "credentials_unavailable"
         report["finished_at"] = utcnow()
-        with open(REPORT_PATH, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=False, indent=2)
-        print(json.dumps(report, ensure_ascii=False), flush=True)
+        with open(REPORT_PATH, "w", encoding="utf-8") as stream:
+            json.dump(report, stream, ensure_ascii=False, indent=2)
         return 3
 
     driver = None
-    seen = set()
     try:
         driver = watcher.build_driver()
         navigate(driver, watcher.ALDI_LOGIN_URL)
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
         watcher.dismiss_cookie_banner(driver)
-        wait = WebDriverWait(driver, 30)
 
-        # Existing UI renders the fields before the ForgeRock/AM tree has been
-        # initialized. Populate them only to make ALDI's login action available.
-        state, submit = _fill_credentials(driver, wait)
-        report["pre_init_credential_state"] = state
-        if not all(state.values()):
-            report["outcome"] = "pre_init_form_not_ready"
-            return 4
-
-        drain_network(driver, report, seen)
-        report["init_pointer_geometry"] = _trusted_pointer_click(driver, submit)
-        report["auth_tree_init_count"] = 1
-
-        # The first interaction is considered initialization only if ALDI itself
-        # returns the known login-page challenge without a failure category.
-        init_deadline = time.monotonic() + 10
-        init_shape = None
-        while time.monotonic() < init_deadline:
-            time.sleep(0.75)
-            drain_network(driver, report, seen)
-            init_shape = _latest_login_stage(report)
-            if init_shape is not None:
+        # Waiting for the rendered login fields also gives ALDI's initial
+        # /authenticate challenge time to finish; no credential is typed here.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if (find_visible_elements(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']")
+                    and find_visible_elements(driver, "input[type='password']")):
                 break
-        if (init_shape is None or init_shape.get("stage_identifier") != "stage-loginPage"
-                or init_shape.get("has_token_id") or _shape_has_auth_error(init_shape)):
-            report["outcome"] = "auth_tree_init_unverified"
+            time.sleep(0.25)
+
+        exact_url, challenge = _capture_login_challenge(driver)
+        if challenge is None or exact_url is None:
+            report["outcome"] = "login_challenge_not_captured"
+            return 2
+        report["challenge_captured"] = True
+        report["challenge_shape"] = _shape(challenge, 200)
+
+        payload = _prepare_payload(challenge)
+        report["credential_callback_submit_count"] = 1
+        status, response_obj = _submit_callback(driver, exact_url, payload)
+        response_shape = _shape(response_obj, status)
+        report["credential_response_shape"] = response_shape
+
+        if status != 200:
+            report["outcome"] = "credential_callback_http_error"
+            return 2
+        if _has_auth_error(response_shape):
+            report["outcome"] = "credential_callback_rejected_or_error"
             return 2
 
-        # The challenge may re-render the custom elements. Re-resolve and refill
-        # from secrets, then submit credentials exactly once.
-        state, submit = _fill_credentials(driver, wait)
-        report["post_init_credential_state"] = state
-        if not all(state.values()):
-            report["outcome"] = "post_init_form_not_ready"
-            return 4
-
-        baseline_requests = len(report["auth_request_shapes"])
-        baseline_responses = len(report["auth_response_shapes"])
-        report["credential_pointer_geometry"] = _trusted_pointer_click(driver, submit)
-        report["credential_submit_count"] = 1
-
-        start = time.monotonic()
-        while time.monotonic() - start < OBSERVE_SECONDS:
-            time.sleep(1.25)
-            drain_network(driver, report, seen)
-            if watcher.aldi_session_visible(driver):
-                report["portal_session"] = True
-                report["outcome"] = "portal_session_confirmed"
-                return 0
-            new_responses = report["auth_response_shapes"][baseline_responses:]
-            if any(shape.get("has_token_id") for shape in new_responses):
-                report["outcome"] = "auth_token_observed_waiting_for_portal"
-            if any(_shape_has_auth_error(shape) for shape in new_responses):
-                report["outcome"] = "credential_response_rejected_or_error"
-                return 2
-
-        report["portal_session"] = watcher.aldi_session_visible(driver)
-        if report["portal_session"]:
-            report["outcome"] = "portal_session_confirmed"
-            return 0
-        if report["outcome"] == "auth_token_observed_waiting_for_portal":
+        if response_shape.get("has_token_id"):
+            # Never retain or print the token. Probe the official protected page
+            # once to verify that ALDI set an authenticated browser session.
+            navigate(driver, watcher.ALDI_OVERVIEW_URL, attempts=1)
+            require_origin(driver, watcher.ALDI_OVERVIEW_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
+            session_deadline = time.monotonic() + 15
+            while time.monotonic() < session_deadline:
+                if watcher.aldi_session_visible(driver):
+                    report["portal_session"] = True
+                    report["outcome"] = "portal_session_confirmed"
+                    return 0
+                time.sleep(0.5)
+            report["outcome"] = "token_observed_session_not_confirmed"
             return 5
-        if len(report["auth_request_shapes"]) <= baseline_requests:
-            report["outcome"] = "credential_submit_no_auth_request"
-        else:
-            report["outcome"] = "credential_submit_no_confirmed_session"
+
+        if response_shape.get("has_callbacks"):
+            report["outcome"] = "credential_callback_advanced_to_next_stage"
+            return 6
+        report["outcome"] = "credential_callback_unrecognized_response"
         return 2
     except Exception as exc:
         report["outcome"] = "exception"
         report["exception_type"] = type(exc).__name__
-        if driver is not None:
-            drain_network(driver, report, seen)
         return 2
     finally:
         report["finished_at"] = utcnow()
-        with open(REPORT_PATH, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=False, indent=2)
+        with open(REPORT_PATH, "w", encoding="utf-8") as stream:
+            json.dump(report, stream, ensure_ascii=False, indent=2)
         print(json.dumps({
             "outcome": report["outcome"],
-            "pre_init_credential_state": report["pre_init_credential_state"],
-            "post_init_credential_state": report["post_init_credential_state"],
-            "auth_tree_init_count": report["auth_tree_init_count"],
-            "credential_submit_count": report["credential_submit_count"],
+            "challenge_captured": report["challenge_captured"],
+            "challenge_shape": report["challenge_shape"],
+            "credential_callback_submit_count": report["credential_callback_submit_count"],
+            "credential_response_shape": report["credential_response_shape"],
             "portal_session": report["portal_session"],
-            "auth_request_shapes": report["auth_request_shapes"],
-            "auth_response_shapes": report["auth_response_shapes"],
             "exception_type": report["exception_type"],
             "booking_executed": False,
         }, ensure_ascii=False), flush=True)
         if driver is not None:
-            try: driver.quit()
-            except Exception: pass
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
