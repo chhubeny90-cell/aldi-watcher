@@ -20,12 +20,14 @@ def login_page(monkeypatch):
     monkeypatch.setattr(watcher, 'element_label', lambda *_: 'Anmelden')
     monkeypatch.setattr(watcher, 'session_visible', lambda *_: True)
     monkeypatch.setattr(watcher, 'WAIT_TIMEOUT', .01)
+
     def elements(_, selector):
         if 'autocomplete' in selector:
             return [user]
         if 'password' in selector:
             return [password]
         return [submit]
+
     monkeypatch.setattr(watcher, 'find_visible_elements', elements)
     return driver, user, password, submit, navigate_mock
 
@@ -64,11 +66,33 @@ def test_untrusted_origin_never_receives_credentials(login_page):
 
 
 def test_sso_host_is_not_a_confirmed_portal_session(login_page):
-    driver, user, password, submit, _ = login_page
+    driver, user, password, submit, navigate_mock = login_page
     driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     submit.send_keys.assert_called_once_with(Keys.ENTER)
+    assert navigate_mock.call_args_list == [
+        call(driver, watcher.ALDI_LOGIN_URL),
+        call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
+    ]
+
+
+def test_sso_session_can_be_confirmed_by_one_protected_page_probe(login_page):
+    driver, user, password, submit, navigate_mock = login_page
+    driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
+
+    def navigate_side_effect(_driver, url, attempts=2):
+        if navigate_mock.call_count == 2:
+            driver.current_url = watcher.ALDI_OVERVIEW_URL
+
+    navigate_mock.side_effect = navigate_side_effect
+
+    assert watcher.aldi_login(driver)
+    submit.send_keys.assert_called_once_with(Keys.ENTER)
+    assert navigate_mock.call_args_list == [
+        call(driver, watcher.ALDI_LOGIN_URL),
+        call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
+    ]
 
 
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
