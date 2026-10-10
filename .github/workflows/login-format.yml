@@ -1,4 +1,4 @@
-name: ALDI Login Format Diagnostic
+name: ALDI Login Diagnostics
 
 on:
   push:
@@ -43,5 +43,40 @@ jobs:
         with:
           name: aldi-login-format-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-login-format.json
+          retention-days: 2
+          if-no-files-found: warn
+
+  password_reset_probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[reset-probe]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Inspect password-reset form without typing or submitting
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_RESET_PROBE_REPORT: aldi-password-reset-probe.json
+        run: python aldi_password_reset_probe.py
+      - name: Preserve sanitized reset report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-password-reset-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-password-reset-probe.json
           retention-days: 2
           if-no-files-found: warn
