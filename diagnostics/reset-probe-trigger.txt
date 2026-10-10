@@ -1,1 +1,1 @@
-Probe ALDI password reset navigation across top document and visible iframe without entering or submitting account data.
+Inspect ALDI password-reset form after the public login widget has fully rendered. No personal data is typed and no reset request is submitted.
