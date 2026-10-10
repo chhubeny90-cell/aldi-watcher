@@ -1,3 +1,3 @@
-Trigger one read-only ALDI live smoke using the production one-DOM-click login path.
-Run: 2026-10-10T03:05Z
+Trigger one sanitized ALDI SSO diagnostic using the production one-DOM-click login path.
+Run: 2026-10-10T03:12Z
 No booking is enabled by this trigger.
