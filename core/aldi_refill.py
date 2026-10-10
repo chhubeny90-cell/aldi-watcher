@@ -56,7 +56,7 @@ def _eligible_tariff(active_tariff_text):
         )
         if match:
             identities.append(line)
-    # A single active identity is required. Multiple products are ambiguous.
+    # Refill-section headings (for example, "Unlimited GB nachbuchen") are\n    # offers, not tariff identities, and are deliberately not accepted here.\n    # A single active identity is required. Multiple products are ambiguous.
     return "UNLIMITED" if len(identities) == 1 else None
 
 
