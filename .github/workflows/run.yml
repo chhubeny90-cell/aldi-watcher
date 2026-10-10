@@ -30,12 +30,14 @@ jobs:
         run: python -m pytest -q
 
   watch:
-    # Manual runs are always allowed. Scheduled live auth is fail-closed until
-    # ALDI_MONITORING_ENABLED is explicitly set to true after credentials are verified.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.ALDI_MONITORING_ENABLED == 'true')
+    # Run only for explicit manual checks and the cron schedule.
+    # Booking remains hard-disabled by AUTO_BOOK_ENABLED=false.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      AUTO_BOOK_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
       - name: Python setup
@@ -50,7 +52,11 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run ALDI watcher in safety mode
+      - name: Verify read-only safety guard
+        run: |
+          test "$AUTO_BOOK_ENABLED" = "false"
+          echo "Read-only safety guard active; booking is disabled."
+      - name: Run ALDI watcher in read-only safety mode
         env:
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
@@ -59,8 +65,7 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          AUTO_BOOK_ENABLED: 'false'
-        run: python watcher.py --run-once --provider aldi_talk
+        run: python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
       - name: Preserve sanitized heartbeat and diagnosis
         if: always()
         uses: actions/upload-artifact@v4
