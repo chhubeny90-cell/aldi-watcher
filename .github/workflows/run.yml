@@ -13,11 +13,10 @@ permissions:
 
 concurrency:
   group: aldi-watcher-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/feature/') }}
 
 jobs:
-  # Tests run independently so scheduled read-only monitoring is not blocked by
-  # the test job. Booking stays disabled in the watcher job regardless.
+  # Tests run independently from the scheduled account check.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -31,18 +30,14 @@ jobs:
       - name: Run full test suite
         run: python -m pytest -q
 
-  watch:
-    # Run only for explicit manual checks and the cron schedule.
-    # Booking remains hard-disabled by AUTO_BOOK_ENABLED=false.
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+  # Temporary feature-branch diagnostic: one login, no booking, sanitized output.
+  diagnostic:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/aldi-auto-free-1gb'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    env:
-      AUTO_BOOK_ENABLED: 'false'
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Python setup
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install Chrome
@@ -53,11 +48,59 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Verify read-only safety guard
+      - name: Run sanitized selector probe
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          AUTO_BOOK_ENABLED: 'false'
+        run: python aldi_selector_probe.py
+      - name: Preserve sanitized selector probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selector-probe-${{ github.run_id }}
+          path: selector-probe.json
+          retention-days: 2
+          if-no-files-found: warn
+
+  watch:
+    # Account access runs only on explicit manual checks and the cron schedule.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Keep the legacy booking path hard-disabled. The separate guarded runner
+      # below is the only code allowed to perform a free 1-GB click.
+      AUTO_BOOK_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify legacy booking remains disabled
         run: |
           test "$AUTO_BOOK_ENABLED" = "false"
-          echo "Read-only safety guard active; booking is disabled."
-      - name: Run ALDI watcher with bounded automatic restart
+          echo "Legacy booking path disabled. Guarded free-1GB runner is isolated."
+
+      - name: Run ALDI read-only watcher with bounded automatic restart
         env:
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
@@ -86,11 +129,9 @@ jobs:
 
             if [ "$last_rc" -eq 0 ]; then
               echo "Watcher completed successfully."
-              exit 0
+              break
             fi
 
-            # Exit code 3 is a configuration/secrets problem. Retrying the same
-            # configuration would only create unnecessary login attempts.
             if [ "$last_rc" -eq 3 ]; then
               echo "Configuration error detected; not retrying."
               exit 3
@@ -103,13 +144,76 @@ jobs:
             fi
           done
 
-          echo "Watcher still failed after ${attempts} attempts (last exit ${last_rc})."
-          exit "$last_rc"
-      - name: Preserve sanitized heartbeat and diagnosis
+          if [ "$last_rc" -ne 0 ]; then
+            echo "Watcher still failed after ${attempts} attempts (last exit ${last_rc})."
+            exit "$last_rc"
+          fi
+
+      - name: Restore persistent guarded refill state
+        id: restore-refill-state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: aldi-free-1gb-state-${{ github.run_id }}-restore
+          restore-keys: |
+            aldi-free-1gb-state-
+
+      - name: Prepare one verified free 1-GB refill
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          ALDI_AUTO_REFILL_ENABLED: 'true'
+        run: |
+          python aldi_auto_refill.py prepare \
+            --state .state/aldi-booking-state.json \
+            --plan .state/aldi-booking-plan.json \
+            --report auto-refill-report.json
+
+      # Persist PENDING before any click. If the runner dies during the booking
+      # step, the next scheduled run restores this PENDING state and reconciles
+      # instead of blindly clicking again.
+      - name: Persist pre-click refill state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: aldi-free-1gb-state-${{ github.run_id }}-pre
+
+      - name: Execute at most one verified free 1-GB refill
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          ALDI_AUTO_REFILL_ENABLED: 'true'
+        run: |
+          python aldi_auto_refill.py execute \
+            --state .state/aldi-booking-state.json \
+            --plan .state/aldi-booking-plan.json \
+            --report auto-refill-report.json
+
+      - name: Persist final refill state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: aldi-free-1gb-state-${{ github.run_id }}-post
+
+      - name: Preserve sanitized monitoring reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: monitoring-${{ github.run_id }}-${{ github.run_attempt }}
-          path: monitoring-report.json
+          path: |
+            monitoring-report.json
+            auto-refill-report.json
           retention-days: 7
           if-no-files-found: warn

@@ -3,6 +3,7 @@ import time
 from urllib.parse import urlsplit
 from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label
+from core.aldi_refill import protected_session_visible
 from core.lidl_refill import inspect_selenium
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
@@ -104,46 +105,53 @@ def aldi_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
+
     def unique_enabled(selector):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         elements = find_visible_elements(driver, selector)
         return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
-    user_field = wait.until(
-        lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
-    )
+
+    user_selector = "input[autocomplete='username'],input[type='tel'],input[type='text']"
+    password_selector = "input[type='password']"
+    user_field = wait.until(lambda _: unique_enabled(user_selector))
     dismiss_cookie_banner(driver)
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # Component-backed inputs need keyboard edits and a blur/change event.
     user_field.send_keys(Keys.CONTROL, 'a')
     user_field.send_keys(Keys.BACKSPACE)
     user_field.send_keys(ALDI_USER)
     user_field.send_keys(Keys.TAB)
+
     phase('password_field')
-    pass_field = wait.until(
-        lambda _: unique_enabled("input[type='password']")
-    )
+    pass_field = wait.until(lambda _: unique_enabled(password_selector))
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
     pass_field.send_keys(Keys.CONTROL, 'a')
     pass_field.send_keys(Keys.BACKSPACE)
     pass_field.send_keys(ALDI_PASS)
     pass_field.send_keys(Keys.TAB)
+
+    # Re-resolve the password field after blur in case ALDI re-rendered it.
+    pass_field = wait.until(lambda _: unique_enabled(password_selector))
+
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
                    if element_label(driver, e).strip().casefold() == 'anmelden'
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
-    button = wait.until(submit_control)
+
+    # Validate that exactly one trusted Anmelden action exists, then submit once
+    # through the password field. Never retry an uncertain login submit.
+    wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # One trusted keyboard submission; never retry an uncertain login submit.
-    button.send_keys(Keys.ENTER)
+    pass_field.send_keys(Keys.ENTER)
+
     phase('sso_redirect')
     portal_host = urlsplit(ALDI_OVERVIEW_URL).hostname
     wait.until(lambda _: urlsplit(driver.current_url).hostname == portal_host)
     require_origin(driver, ALDI_OVERVIEW_URL)
     phase('session_validation')
-    wait.until(session_visible)
+    wait.until(protected_session_visible)
     return True
 
 
@@ -153,10 +161,7 @@ def aldi_read_status(driver) -> dict:
     navigate(driver, ALDI_OVERVIEW_URL)
     require_origin(driver, ALDI_OVERVIEW_URL)
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
-    wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Guthaben')]")))
-    time.sleep(2)
-    if not session_visible(driver):
-        raise PermissionError('session_invalid')
+    wait.until(protected_session_visible)
     phase('usage_parse')
     body_text = driver.find_element(By.TAG_NAME, 'body').text
     for line in body_text.splitlines():
@@ -185,7 +190,6 @@ def lidl_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     time.sleep(2)
-    # Rufnummer-Feld (aria-label="Mobilfunknummer" oder type=tel)
     phase('username_field')
     user_field = wait.until(
         EC.visibility_of_element_located((
@@ -201,7 +205,6 @@ def lidl_login(driver) -> bool:
     )
     pass_field.clear()
     pass_field.send_keys(LIDL_PASS)
-    # Login-Button
     submit_candidates = driver.find_elements(
         By.XPATH,
         "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'einloggen') or "
@@ -218,7 +221,6 @@ def lidl_login(driver) -> bool:
             break
     if not clicked:
         pass_field.send_keys(Keys.ENTER)
-    # Sichtbare Session-Merkmale statt bereits passender Login-URL prüfen
     phase('session_validation')
     wait.until(session_visible)
     return True
