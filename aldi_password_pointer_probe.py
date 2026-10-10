@@ -4,10 +4,10 @@ The browser first obtains ALDI's own stage-loginPage callback object. The probe
 keeps authId and every callback in memory, fills only values required by those
 callbacks, and POSTs that object once to the exact same validated ALDI
 /authenticate URL. Name/password come from configured secrets; hidden inputs
-come only from ALDI's corresponding output values; the confirmation choice is
-accepted only when ALDI exposes one unambiguous login/submit option. No secret,
-authId, token, cookie value, raw body or URL query is written to logs/artifacts.
-No booking control is inspected or activated.
+come only from ALDI's corresponding output values; the confirmation choice uses
+ALDI's own valid default option. No secret, authId, token, cookie value, raw
+body or URL query is written to logs/artifacts. No booking control is inspected
+or activated.
 """
 
 import copy
@@ -174,6 +174,9 @@ def _confirmation_index(callback):
     default = _output_value(callback, "defaultOption")
     if not isinstance(options, list) or not options or len(options) > 10:
         raise RuntimeError("confirmation_options_unexpected")
+    if (isinstance(default, int) and not isinstance(default, bool)
+            and 0 <= default < len(options)):
+        return default, "aldi_default_option"
     candidates = []
     for index, option in enumerate(options):
         if not isinstance(option, str):
@@ -183,8 +186,6 @@ def _confirmation_index(callback):
             candidates.append(index)
     if len(candidates) == 1:
         return candidates[0], "unique_login_option"
-    if len(options) == 1 and isinstance(default, int) and not isinstance(default, bool) and default == 0:
-        return 0, "single_default_option"
     raise RuntimeError("confirmation_choice_ambiguous")
 
 
