@@ -1,0 +1,1 @@
+Validate the configured ALDI login identifier in the password-reset form without submitting any reset request.
