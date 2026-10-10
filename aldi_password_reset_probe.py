@@ -55,10 +55,11 @@ def main():
         for control in find_visible_elements(driver, "a,button,[role='button']"):
             try:
                 label = element_label(driver, control).strip().casefold()
-                # This remains deliberately strict. Multiple rendered controls
-                # with the same reset intent are harmless; none of them submits
-                # credentials or changes account state by itself.
-                if "passwort" in label and any(word in label for word in ("vergessen", "zurücksetzen", "zuruecksetzen")):
+                # ALDI currently exposes the reset action with password/new-password
+                # wording. Duplicate rendered controls are harmless navigation only.
+                if "passwort" in label and any(word in label for word in (
+                    "vergessen", "zurücksetzen", "zuruecksetzen", "neu",
+                )):
                     reset_links.append(control)
             except Exception:
                 continue
@@ -67,8 +68,6 @@ def main():
             report["outcome"] = "reset_navigation_missing"
             return 2
 
-        # Navigation only; no account-changing submit occurs here. If the UI
-        # renders duplicate reset controls, follow the first strict match.
         driver.execute_script("arguments[0].click();", reset_links[0])
         report["reset_navigation_clicked"] = True
 
