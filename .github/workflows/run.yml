@@ -16,6 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Tests run independently so scheduled read-only monitoring is not blocked by
+  # the test job. Booking stays disabled in the watcher job regardless.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -33,9 +35,8 @@ jobs:
     # Run only for explicit manual checks and the cron schedule.
     # Booking remains hard-disabled by AUTO_BOOK_ENABLED=false.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       AUTO_BOOK_ENABLED: 'false'
     steps:
@@ -56,7 +57,7 @@ jobs:
         run: |
           test "$AUTO_BOOK_ENABLED" = "false"
           echo "Read-only safety guard active; booking is disabled."
-      - name: Run ALDI watcher in read-only safety mode
+      - name: Run ALDI watcher with bounded automatic restart
         env:
           CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
@@ -65,7 +66,45 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-        run: python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
+        shell: bash
+        run: |
+          set -u
+          attempts=3
+          last_rc=1
+
+          for attempt in $(seq 1 "$attempts"); do
+            echo "==> Read-only watcher attempt ${attempt}/${attempts}"
+            rm -f monitoring-report.json
+
+            set +e
+            timeout 180s python watcher.py \
+              --run-once \
+              --provider aldi_talk \
+              --report monitoring-report.json
+            last_rc=$?
+            set -e
+
+            if [ "$last_rc" -eq 0 ]; then
+              echo "Watcher completed successfully."
+              exit 0
+            fi
+
+            # Exit code 3 is a configuration/secrets problem. Retrying the same
+            # configuration would only create unnecessary login attempts.
+            if [ "$last_rc" -eq 3 ]; then
+              echo "Configuration error detected; not retrying."
+              exit 3
+            fi
+
+            if [ "$attempt" -lt "$attempts" ]; then
+              delay=$((30 * attempt))
+              echo "Watcher interrupted/failed (exit ${last_rc}); restarting in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+
+          echo "Watcher still failed after ${attempts} attempts (last exit ${last_rc})."
+          exit "$last_rc"
       - name: Preserve sanitized heartbeat and diagnosis
         if: always()
         uses: actions/upload-artifact@v4
