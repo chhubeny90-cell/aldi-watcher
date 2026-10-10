@@ -50,15 +50,18 @@ def main():
         "exception_type": None,
     }
 
-    if not watcher.configure_credentials("ALDI"):
-        report["outcome"] = "credentials_unavailable"
+    # Do not load or require the password for this diagnostic. Use the explicit
+    # login identifier when present, otherwise the backwards-compatible account
+    # identifier. The raw value is never written to the report.
+    identifier = os.getenv("ALDI_LOGIN_USER") or os.getenv("ALDI_USER") or ""
+    if not identifier:
+        report["outcome"] = "identifier_unavailable"
         report["finished_at"] = _now()
         _write(report)
         return 3
 
-    identifier = watcher.ALDI_USER
     report["identifier_format"] = classify_identifier(identifier)
-    compact_len = len(re.sub(r"\s", "", identifier or ""))
+    compact_len = len(re.sub(r"[\s()\-/]", "", identifier))
     if compact_len <= 8:
         report["identifier_length_bucket"] = "short"
     elif compact_len <= 12:
