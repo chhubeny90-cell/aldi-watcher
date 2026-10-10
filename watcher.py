@@ -184,10 +184,10 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # Exactly one native click on the trusted ALDI login control. Do not retry an
-    # uncertain click; the client-side app needs a real click event to advance its
-    # authentication callback chain.
-    button.click()
+    # Exactly one trusted DOM click. ALDI's component-backed login can re-render
+    # during a native WebDriver click; invoking the element's click handler once
+    # avoids that race while still exercising the real client-side auth flow.
+    driver.execute_script("arguments[0].click();", button)
 
     def confirmed_portal_session(_):
         return aldi_session_visible(driver)
