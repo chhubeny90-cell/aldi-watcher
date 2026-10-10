@@ -57,7 +57,7 @@ def _action_kind(driver, control):
         return "unknown"
     if re.search(r"\b(?:bestätigen|bestaetigen|confirm|weiter)\b", label, re.I):
         return "confirm"
-    if re.search(r"\b(?:nachbuchen|buchen)\b|(?<!\d)\+\s*1\s*GB\b", label):
+    if re.search(r"\b(?:nachbuchen|buchen)\b|(?<!\d)\+\s*1\s*GB\b", label, re.I):
         return "book"
     return "unknown"
 
