@@ -12,6 +12,7 @@ import re
 import time
 from datetime import datetime, timezone
 
+from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -62,6 +63,35 @@ def _count_visible(driver, selector):
         return None
 
 
+def refill_evidence(driver):
+    """Return booleans/counts only; never copy tariff or control text to logs."""
+    result = {
+        "unlimited_detected": False,
+        "free_one_gb_control_count": 0,
+    }
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text.casefold()
+        result["unlimited_detected"] = "unlimited" in body_text
+
+        matches = []
+        for control in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']"):
+            try:
+                label = element_label(driver, control).strip().casefold()
+                exactly_one_gb = bool(re.search(r"(?<![\d.,])1(?:[.,]0+)?\s*gb\b", label))
+                free_price = any(marker in label for marker in (
+                    "kostenlos", "0 €", "0,00 €", "0.00 €", "0,- €", "0,-"
+                ))
+                enabled = control.is_enabled() and control.get_attribute("aria-disabled") != "true"
+                if exactly_one_gb and free_price and enabled:
+                    matches.append(control)
+            except Exception:
+                continue
+        result["free_one_gb_control_count"] = len(matches)
+    except Exception:
+        pass
+    return result
+
+
 def snapshot(driver, elapsed):
     snap = {
         "elapsed_s": round(elapsed, 1),
@@ -71,6 +101,7 @@ def snapshot(driver, elapsed):
         "alert_like_elements": _count_visible(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"),
         "buttons": _count_visible(driver, "button,[role='button'],input[type='submit']"),
     }
+    snap.update(refill_evidence(driver))
     try:
         snap["ready_state"] = driver.execute_script("return document.readyState")
     except Exception:
@@ -239,12 +270,15 @@ def main():
         report["finished_at"] = utcnow()
         with open(report_path, "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=2, ensure_ascii=False)
+        latest = report["samples"][-1] if report["samples"] else {}
         print(json.dumps({
             "outcome": report["outcome"],
             "login_submit_count": report["login_submit_count"],
             "protected_probe_count": report["protected_probe_count"],
             "sample_count": len(report["samples"]),
             "network_event_count": len(report["network"]),
+            "unlimited_detected": bool(latest.get("unlimited_detected")),
+            "free_one_gb_control_count": int(latest.get("free_one_gb_control_count") or 0),
             "booking_executed": False,
         }, ensure_ascii=False), flush=True)
         if driver is not None:
