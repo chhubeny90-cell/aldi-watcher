@@ -230,7 +230,7 @@ zu validieren. Zuerst denselben Ablauf in `DRY_RUN=true` prüfen.
 
 Buchender Dauerbetrieb benötigt eine dauerhafte SQLite-Datei auf demselben
 Datenträger und darf nicht mit einer leeren DB je GitHub-hosted Runner starten.
-Der gehostete Zehn-Minuten-Workflow bleibt deshalb beim read-only Monitoring.
+Der gehostete Stunden-Workflow bleibt deshalb beim read-only Monitoring.
 
 ## Troubleshooting
 
