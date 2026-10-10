@@ -5,6 +5,7 @@ writes only sanitized structural selector candidates to selector-probe.json.
 """
 
 import json
+import os
 
 from core.aldi_selector_probe import probe_selectors, sanitized_probe
 from monitoring import write_report
@@ -14,6 +15,14 @@ import watcher
 def main():
     if not watcher.configure_credentials('ALDI'):
         return 3
+
+    # ALDI's SSO callback can take longer than the generic 30-second UI wait.
+    # Extend the login/session wait for this authenticated probe without adding
+    # a second submit or retrying the login action.
+    watcher.WAIT_TIMEOUT = max(
+        watcher.WAIT_TIMEOUT,
+        int(os.getenv('ALDI_LOGIN_WAIT_SECONDS', '90')),
+    )
 
     driver = None
     try:
