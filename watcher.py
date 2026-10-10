@@ -18,7 +18,11 @@ from selenium.common.exceptions import (
 )
 
 # ===== KONFIGURATION =====
-ALDI_USER = ''.join(os.environ.get('ALDI_USER', '').split())
+# Keep the SIM/account identifier separate from the portal login identifier.
+# ALDI_LOGIN_USER may be an alternative A-... username. If it is absent, the
+# existing ALDI_USER value remains the backwards-compatible login fallback.
+ALDI_ACCOUNT_USER = ''.join(os.environ.get('ALDI_USER', '').split())
+ALDI_USER = ''.join((os.environ.get('ALDI_LOGIN_USER') or os.environ.get('ALDI_USER', '')).split())
 ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
@@ -36,9 +40,18 @@ WAIT_TIMEOUT = 30
 
 
 def configure_credentials(prefix):
+    if prefix == 'ALDI':
+        account_user = get_credential('ALDI_USER') or ''
+        login_user = get_credential('ALDI_LOGIN_USER') or account_user
+        password = get_credential('ALDI_PASS') or ''
+        globals()['ALDI_ACCOUNT_USER'] = ''.join(account_user.split())
+        globals()['ALDI_USER'] = ''.join(login_user.split())
+        globals()['ALDI_PASS'] = password
+        return bool(login_user and password)
+
     user = get_credential(prefix + '_USER') or ''
     password = get_credential(prefix + '_PASS') or ''
-    globals()[prefix + '_USER'] = ''.join(user.split()) if prefix == 'ALDI' else user
+    globals()[prefix + '_USER'] = user
     globals()[prefix + '_PASS'] = password
     return bool(user and password)
 
