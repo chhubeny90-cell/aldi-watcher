@@ -1,13 +1,29 @@
 """Run the full-fidelity ALDI callback probe against the exact initial auth URL.
 
 This reuses the sanitized fidelity probe but retains ALDI's initial query string
-for the single continuation POST. No raw query, credential, authId or token is
-logged or persisted.
+for the single continuation POST. The ConfirmationCallback is accepted only
+when exactly one ALDI option is labelled exactly "Anmelden". No raw query,
+credential, authId or token is logged or persisted.
 """
 
 import aldi_callback_fidelity_probe as base
 
 
+def _exact_login_confirmation(callback):
+    options = base._output_value(callback, "options")
+    if not isinstance(options, list) or not options or len(options) > 10:
+        raise RuntimeError("confirmation_options_unexpected")
+    matches = [
+        index for index, option in enumerate(options)
+        if isinstance(option, str) and option.strip().casefold() == "anmelden"
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("exact_login_confirmation_not_unique")
+    return matches[0], "unique_exact_anmelden_option"
+
+
+# _prepare_payload resolves this helper from the base module at call time.
+base._confirmation_index = _exact_login_confirmation
 _original_prepare_payload = base._prepare_payload
 
 
