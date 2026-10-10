@@ -26,6 +26,9 @@ def _unavailable(reason='price_unverified_or_paid'):
 
 def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     driver = Mock()
+    # Unit tests simulate a durable local host, independently of the CI host.
+    # The separate hosted-runner regression explicitly tests that rejection.
+    monkeypatch.setenv('GITHUB_ACTIONS', 'false')
     db_path = tmp_path / 'journal.sqlite'
     Database(str(db_path))
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
