@@ -1,15 +1,18 @@
 # aldi-watcher
 
-Read-only-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem separaten, noch nicht live freigegebenen Buchungskern.
+Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem streng abgesicherten ALDI-Live-Refill.
 
 ## Aktiver Betrieb und Full Run
 
-GitHub Actions startet `watcher.py --run-once` mit Selenium/Chrome und
-`AUTO_BOOK_ENABLED=false`. Der Workflow plant einen Lauf alle zehn Minuten;
-GitHub kann Starts verzögern. Ein grüner Push-/PR-Testlauf ist kein Live-Nachweis.
-`watcher.py` enthält keine Buchungsfunktion und liest Zugangsdaten nur aus
-Umgebungsvariablen beziehungsweise GitHub Secrets; es lädt keine `.env`.
-
+Nach dem Merge in `main` startet der GitHub-Stundenplan den separaten
+`aldi_live_refill.py` für drei Profile, seriell. Der Read-only-Watcher läuft nur
+bei einem manuellen Watch-Aufruf. Der Refill-Runner darf
+`AUTO_BOOK_ENABLED=true` nur in diesem eigenen Job verwenden. Er klickt nur, wenn
+Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
+identifiziert wird und genau ein aktiviertes Angebot mit exakt 1 GB und ausdrücklich
+0 Euro sichtbar ist. Ein unklarer oder kostenpflichtiger Fall wird nicht gebucht.
+GitHub kann Starts verzögern; ein grüner Testlauf ist kein Live-Nachweis.
+Der normale Watcher bleibt read-only und lädt keine `.env`.
 ```bash
 # Tests: ohne echte Providerzugriffe
 python -m pytest -q
@@ -21,6 +24,14 @@ AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
 
 Die Secrets heißen `ALDI_USER`, `ALDI_PASS`, `LIDL_USER` und `LIDL_PASS`.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
+
+Für die drei ALDI-Profile liest der Actions-Workflow die Repository-Secrets
+`ALDI_PROFILE_1_USER` bis `ALDI_PROFILE_3_USER` sowie das gemeinsame `ALDI_PASS`.
+Als `USER` kommt jeweils der Loginname (hier: die Rufnummer) hinein; `ALDI_PASS` muss
+das für alle drei Logins gültige Testpasswort enthalten. Die Nutzernamen werden unter
+**Settings → Secrets and variables → Actions** eingetragen, niemals in Dateien, Issues
+oder Chat. Fehlt ein Secret, wird kein Loginversuch für das betroffene Profil gestartet.
+Der streng gegatete Live-Refill läuft stündlich, seriell; der Read-only-Watcher nicht.
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
 3 Konfigurationsfehler. LIDL meldet zusätzlich `refill_eligible`, `refill_type` und `refill_reason`,
@@ -220,9 +231,9 @@ Buchung pro Durchlauf aus. **Die beiden Flags alleine belegen keine Live-Reife:*
 Anmeldung, Selektoren und Erfolgsbestätigung sind noch am tatsächlichen Konto
 zu validieren. Zuerst denselben Ablauf in `DRY_RUN=true` prüfen.
 
-Buchender Dauerbetrieb benötigt eine dauerhafte SQLite-Datei auf demselben
-Datenträger und darf nicht mit einer leeren DB je GitHub-hosted Runner starten.
-Der gehostete Zehn-Minuten-Workflow bleibt deshalb beim read-only Monitoring.
+Der buchende Plugin-Dauerbetrieb benötigt eine dauerhafte SQLite-Datei auf demselben
+Datenträger und darf nicht mit einer leeren DB je GitHub-hosted Runner starten. Der
+separate ALDI-One-shot-Runner braucht keine DB und prüft den Buchungserfolg nach dem Klick.
 
 ## Troubleshooting
 
