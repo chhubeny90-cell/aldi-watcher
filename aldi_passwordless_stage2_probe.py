@@ -1,12 +1,14 @@
 """Request one ALDI TALK passwordless SMS code and inspect the next form safely.
 
-The probe uses the configured ALDI account identifier, requests exactly one
-confirmation code, never reads or logs the identifier, never types a code and
-never performs a booking action. Only sanitized field/control shapes are saved.
+The probe uses the configured ALDI account identifier, requests at most one
+confirmation code, never logs the identifier, never types a code and never
+performs a booking action. It will not click while ALDI marks the send control
+aria-disabled. Only sanitized field/control shapes are saved.
 """
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -25,16 +27,27 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _unique_control(driver, expected_label):
+def _find_control(driver, expected_label):
     matches = []
     wanted = expected_label.strip().casefold()
     for control in find_visible_elements(driver, "a,button,[role='button'],input[type='submit']"):
         try:
-            if element_label(driver, control).strip().casefold() == wanted and control.is_enabled():
+            if element_label(driver, control).strip().casefold() == wanted:
                 matches.append(control)
         except Exception:
             continue
     return matches[0] if len(matches) == 1 else None
+
+
+def _control_enabled(control):
+    if control is None:
+        return False
+    try:
+        return (bool(control.is_enabled())
+                and control.get_attribute("aria-disabled") != "true"
+                and control.get_attribute("disabled") is None)
+    except Exception:
+        return False
 
 
 def _passwordless_link(driver):
@@ -88,6 +101,49 @@ def _control_labels(driver):
     return labels
 
 
+def _identifier_variants(value):
+    """Return common German phone representations without ever reporting values."""
+    compact = re.sub(r"[\s()\-/]", "", value or "")
+    variants = []
+
+    def add(kind, candidate):
+        if candidate and candidate not in [v for _, v in variants]:
+            variants.append((kind, candidate))
+
+    add("configured", compact)
+    if compact.startswith("+49") and len(compact) > 3:
+        add("national_zero", "0" + compact[3:])
+        add("international_0049", "0049" + compact[3:])
+        add("digits_without_country_plus", "49" + compact[3:])
+    elif compact.startswith("0049") and len(compact) > 4:
+        add("national_zero", "0" + compact[4:])
+        add("international_plus49", "+49" + compact[4:])
+        add("digits_without_country_plus", "49" + compact[4:])
+    elif compact.startswith("49") and len(compact) > 2:
+        add("national_zero", "0" + compact[2:])
+        add("international_plus49", "+49" + compact[2:])
+        add("international_0049", "0049" + compact[2:])
+    elif compact.startswith("0") and len(compact) > 1:
+        add("international_plus49", "+49" + compact[1:])
+        add("international_0049", "0049" + compact[1:])
+        add("digits_without_country_plus", "49" + compact[1:])
+    return variants[:4]
+
+
+def _set_field(field, value):
+    field.send_keys(Keys.CONTROL, "a")
+    field.send_keys(Keys.BACKSPACE)
+    field.send_keys(value)
+    field.send_keys(Keys.TAB)
+
+
+def _field_valid(driver, field):
+    try:
+        return bool(driver.execute_script("return arguments[0].checkValidity();", field))
+    except Exception:
+        return None
+
+
 def main():
     report = {
         "started_at": now(),
@@ -95,9 +151,12 @@ def main():
         "outcome": "unknown",
         "navigation_clicked": False,
         "identifier_typed": False,
+        "identifier_variant_selected": None,
+        "variant_checks": [],
         "code_requested": False,
         "code_typed": False,
-        "submit_method": "native_click",
+        "submit_method": "dom_click_after_explicit_enablement",
+        "submit_state_before_click": None,
         "field_shapes": [],
         "control_labels": [],
         "text_flags": {},
@@ -106,7 +165,7 @@ def main():
     }
     driver = None
     try:
-        identifier = "".join((os.getenv("ALDI_USER") or os.getenv("ALDI_LOGIN_USER") or "").split())
+        identifier = (os.getenv("ALDI_USER") or os.getenv("ALDI_LOGIN_USER") or "").strip()
         if not identifier:
             report["outcome"] = "identifier_unavailable"
             return 3
@@ -132,17 +191,42 @@ def main():
             )
         )
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
-        field.send_keys(Keys.CONTROL, "a")
-        field.send_keys(Keys.BACKSPACE)
-        field.send_keys(identifier)
-        field.send_keys(Keys.TAB)
-        report["identifier_typed"] = True
 
-        submit = WebDriverWait(driver, 10).until(
-            lambda _: _unique_control(driver, "Bestätigungscode senden") or False
-        )
+        selected = None
+        submit = None
+        for kind, candidate in _identifier_variants(identifier):
+            _set_field(field, candidate)
+            report["identifier_typed"] = True
+            time.sleep(0.7)
+            submit = _find_control(driver, "Bestätigungscode senden")
+            enabled = _control_enabled(submit)
+            report["variant_checks"].append({
+                "kind": kind,
+                "html_valid": _field_valid(driver, field),
+                "submit_enabled": enabled,
+                "aria_disabled": None if submit is None else submit.get_attribute("aria-disabled") == "true",
+            })
+            if enabled:
+                selected = kind
+                break
+
+        report["identifier_variant_selected"] = selected
+        if selected is None or submit is None:
+            report["outcome"] = "send_control_not_enabled"
+            report["field_shapes"] = _field_shapes(driver)
+            report["control_labels"] = _control_labels(driver)
+            return 4
+
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
-        submit.click()
+        report["submit_state_before_click"] = {
+            "enabled": _control_enabled(submit),
+            "aria_disabled": submit.get_attribute("aria-disabled") == "true",
+            "tag": (submit.tag_name or "")[:16],
+            "role": (submit.get_attribute("role") or "")[:24],
+        }
+        # This exact Shadow-DOM action is intentionally invoked only after ALDI
+        # itself has removed aria-disabled. One submission maximum per run.
+        driver.execute_script("arguments[0].click();", submit)
         report["code_requested"] = True
 
         # Observe only the resulting code-entry form. Never enter a code here.
@@ -168,7 +252,7 @@ def main():
             } else "other"
         except Exception:
             report["page_host"] = "unknown"
-        report["outcome"] = "observed"
+        report["outcome"] = "observed_after_enabled_submit"
         return 0
     except Exception as exc:
         report["outcome"] = "error"
