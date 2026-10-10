@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aldi_http_probe import HttpProbe, ProbeError, AUTH_URL, OVERVIEW, MASTER, OFFERS, main, trusted, login_choice
+from aldi_http_probe import HttpProbe, ProbeError, AUTH_URL, OVERVIEW, MASTER, OFFERS, main, trusted, login_choice, authentication_result_shape
 
 PHONE = '015000000000'
 PASSWORD = 'test-only-password'
@@ -76,6 +76,25 @@ def test_http_success_without_auth_result_is_failure_no_retry():
     with pytest.raises(ProbeError, match='authentication_not_completed'):
         probe.run(PHONE, PASSWORD)
     assert not report['login_ok']
+    assert report['credential_submissions'] == 1
+    assert not any(url == MASTER for url, _ in calls)
+
+
+def test_auth_result_redaction_preserves_only_public_error_keys():
+    result = {'authId': PHONE, 'tokenId': PASSWORD, 'message': PHONE + PASSWORD,
+              'callbacks': [{'type': 'TextOutputCallback', 'output': [
+                  {'name': 'message', 'value': 'custom.alditalk.common.error$custom.alditalk.accountLock.accountLockMsg'}]}]}
+    shape = authentication_result_shape(result)
+    assert shape['account_locked']
+    assert shape['has_auth_id'] and shape['has_token_id']
+    assert 'custom.alditalk.accountLock.accountLockMsg' in shape['public_message_keys']
+    assert PHONE not in json.dumps(shape) and PASSWORD not in json.dumps(shape)
+
+
+def test_provider_credential_error_is_classified_without_retry():
+    probe, report, calls = fake_probe(auth_result={'message': 'invalid credentials'})
+    with pytest.raises(ProbeError, match='invalid_credentials'):
+        probe.run(PHONE, PASSWORD)
     assert report['credential_submissions'] == 1
     assert not any(url == MASTER for url, _ in calls)
 

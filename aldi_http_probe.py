@@ -103,6 +103,32 @@ def login_choice(options):
     return choices[0]
 
 
+def authentication_result_shape(result):
+    callbacks = result.get('callbacks', [])
+    callbacks = callbacks if isinstance(callbacks, list) else []
+    messages = [str(result.get(key, '')) for key in ('message', 'detail')]
+    for cb in callbacks:
+        if isinstance(cb, dict) and cb.get('type') == 'TextOutputCallback':
+            messages.extend(str(item.get('value', '')) for item in cb.get('output', [])
+                            if item.get('name') == 'message')
+    text = ' '.join(messages).casefold()
+    keys = sorted(set(re.findall(r'custom\.[A-Za-z._-]{1,120}', ' '.join(messages))))[:10]
+    return {
+        'has_success_url': bool(result.get('successUrl')),
+        'has_token_id': bool(result.get('tokenId')),
+        'has_auth_id': bool(result.get('authId')),
+        'has_failure_url': bool(result.get('failureUrl')),
+        'callback_types': sorted({cb.get('type') if cb.get('type') in CALLBACKS else 'unsupported'
+                                  for cb in callbacks if isinstance(cb, dict)}),
+        'public_message_keys': keys,
+        'account_locked': any(word in text for word in ('accountlock', 'account locked', 'gesperrt', 'too many')),
+        'invalid_credentials': any(word in text for word in ('invalid credentials', 'password incorrect',
+                                      'authentication failed', 'userpasswrong', 'passwort falsch', 'anmeldedaten')),
+        'additional_authentication': any(word in text for word in ('sms-tan', 'sms-code', 'one-time', 'otp', 'sicherheitscode')),
+        'technical_error': any(word in text for word in ('technical', 'technischer fehler', 'temporarily unavailable')),
+    }
+
+
 def fill_callbacks(payload, username, password):
     result = copy.deepcopy(payload)
     callbacks = result.get('callbacks')
@@ -215,8 +241,15 @@ class HttpProbe:
         self.report['phase'] = 'password_submission'
         self.report['credential_submissions'] = 1
         result = self.request_json(AUTH_URL, payload)
+        self.report['auth_result'] = authentication_result_shape(result)
         success = result.get('successUrl')
         if not success:
+            if self.report['auth_result']['account_locked']:
+                raise ProbeError('account_locked')
+            if self.report['auth_result']['invalid_credentials']:
+                raise ProbeError('invalid_credentials')
+            if self.report['auth_result']['additional_authentication']:
+                raise ProbeError('additional_authentication_required')
             raise ProbeError('authentication_not_completed')
         self.report['phase'] = 'portal_redirects'
         self.request(trusted(urljoin(AUTH, success)))
