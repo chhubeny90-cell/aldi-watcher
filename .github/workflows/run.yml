@@ -1,24 +1,49 @@
-name: CI and Safe Watcher
+name: ALDI Watcher
 
 on:
   push:
     branches: [main, develop, 'hardening/**', 'feature/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: What should this run do?
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - tests
+          - watch
+          - public-probe
+          - sso-diagnostic
   schedule:
+    # Main read-only watcher cadence.
     - cron: '*/10 * * * *'
+    # Temporary SSO observation cadence. The job itself stops attempting
+    # logins after the bounded diagnostic window below.
+    - cron: '7,37 * * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: aldi-watcher-${{ github.ref }}
+  group: aldi-watcher-${{ github.ref }}-${{ github.event_name }}-${{ github.event.schedule || 'manual' }}
   cancel-in-progress: false
 
+env:
+  # Workflow-level hard guard. Production booking is still separately guarded
+  # in provider code until the free 1-GB flow is verified end-to-end.
+  AUTO_BOOK_ENABLED: 'false'
+
 jobs:
-  # Tests run independently so scheduled read-only monitoring is not blocked by
-  # the test job. Booking stays disabled in the watcher job regardless.
   test:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch')) ||
+      (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,27 +51,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run full test suite
         run: python -m pytest -q
 
   watch:
-    # Run only for explicit manual checks and the cron schedule.
-    # Booking remains hard-disabled by AUTO_BOOK_ENABLED=false.
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') ||
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.mode == 'all' || inputs.mode == 'watch'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
-    env:
-      AUTO_BOOK_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
-      - name: Python setup
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
       - name: Install Chrome
-        id: setup-chrome
+        id: chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -56,11 +81,11 @@ jobs:
       - name: Verify read-only safety guard
         run: |
           test "$AUTO_BOOK_ENABLED" = "false"
-          echo "Read-only safety guard active; booking is disabled."
+          echo "Read-only safety guard active."
       - name: Run ALDI watcher with bounded automatic restart
         env:
-          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
-          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
           ALDI_USER: ${{ secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
@@ -71,45 +96,126 @@ jobs:
           set -u
           attempts=3
           last_rc=1
-
           for attempt in $(seq 1 "$attempts"); do
-            echo "==> Read-only watcher attempt ${attempt}/${attempts}"
+            echo "==> watcher attempt ${attempt}/${attempts}"
             rm -f monitoring-report.json
-
             set +e
-            timeout 180s python watcher.py \
-              --run-once \
-              --provider aldi_talk \
-              --report monitoring-report.json
+            timeout 180s python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
             last_rc=$?
             set -e
-
             if [ "$last_rc" -eq 0 ]; then
-              echo "Watcher completed successfully."
               exit 0
             fi
-
-            # Exit code 3 is a configuration/secrets problem. Retrying the same
-            # configuration would only create unnecessary login attempts.
             if [ "$last_rc" -eq 3 ]; then
-              echo "Configuration error detected; not retrying."
+              echo "Configuration/secrets error; not retrying."
               exit 3
             fi
-
             if [ "$attempt" -lt "$attempts" ]; then
               delay=$((30 * attempt))
-              echo "Watcher interrupted/failed (exit ${last_rc}); restarting in ${delay}s."
+              echo "Watcher failed with exit ${last_rc}; retrying in ${delay}s."
               sleep "$delay"
             fi
           done
-
-          echo "Watcher still failed after ${attempts} attempts (last exit ${last_rc})."
           exit "$last_rc"
-      - name: Preserve sanitized heartbeat and diagnosis
+      - name: Preserve sanitized watcher report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: monitoring-${{ github.run_id }}-${{ github.run_attempt }}
           path: monitoring-report.json
           retention-days: 7
+          if-no-files-found: warn
+
+  public_probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.mode == 'all' || inputs.mode == 'public-probe')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Inspect public portal pages without credentials
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+        run: python portal_probe.py
+      - name: Preserve public portal diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: portal-probe-report.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  sso_diagnostic:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.mode == 'all' || inputs.mode == 'sso-diagnostic'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check bounded diagnostic window
+        id: window
+        shell: bash
+        run: |
+          now="$(date -u +%s)"
+          end="$(date -u -d '2026-10-11T01:45:00Z' +%s)"
+          if [ "$now" -le "$end" ]; then
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=false" >> "$GITHUB_OUTPUT"
+            echo "24-hour SSO diagnostic window finished; no login attempted."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.window.outputs.active == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.window.outputs.active == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        if: steps.window.outputs.active == 'true'
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        if: steps.window.outputs.active == 'true'
+        run: pip install -r requirements.txt
+      - name: Run one sanitized SSO observation
+        if: steps.window.outputs.active == 'true'
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          ALDI_SSO_OBSERVE_SECONDS: '120'
+          ALDI_SSO_SAMPLE_SECONDS: '5'
+          ALDI_SSO_REPORT: aldi-sso-diagnostic.json
+        run: python aldi_sso_diagnostic.py
+      - name: Preserve sanitized SSO diagnosis
+        if: steps.window.outputs.active == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-sso-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-sso-diagnostic.json
+          retention-days: 3
           if-no-files-found: warn
