@@ -8,10 +8,10 @@ all of these are simultaneously proven from the rendered page:
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
 
-Verified product evidence as of 2026-09-05: ALDI TALK Tarif S states that once
-the initially included data volume is <= 1 GB, 1 GB may be added repeatedly
-and free of charge during the option term. Literal "Unlimited" portal wording
-is retained as an accepted legacy/portal marker, but is no longer required.
+Verified product evidence: ALDI TALK Tarif S, M and L are current
+"Unlimited GB nachbuchen" tariffs where 1 GB can be added repeatedly for free
+once the portal makes the refill available. Literal "Unlimited" portal wording
+is also retained as an accepted portal marker.
 """
 
 import math
@@ -36,8 +36,9 @@ def _normalise(value):
 
 def _eligible_tariff(page_text):
     """Return a sanitized tariff marker only for explicitly verified contexts."""
-    if re.search(r"\bTarif\s*S\b", page_text, re.I):
-        return "TARIF_S"
+    match = re.search(r"\bTarif\s*([SML])\b", page_text, re.I)
+    if match:
+        return f"TARIF_{match.group(1).upper()}"
     if re.search(r"\bUnlimited\b", page_text, re.I):
         return "UNLIMITED"
     return None
@@ -66,7 +67,8 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("remaining_volume_unverified")
     if not math.isfinite(remaining_gb) or remaining_gb < 0:
         return unavailable("remaining_volume_unverified")
-    # Verified Tarif S terms use <= 1 GB as the refill threshold.
+    # The exact portal offer remains the final gate. Allow the contract boundary
+    # of 1.00 GB, but no value above it.
     if remaining_gb > 1.0:
         return unavailable("remaining_volume_above_one_gb")
 
