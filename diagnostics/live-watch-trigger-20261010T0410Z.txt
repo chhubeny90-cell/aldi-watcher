@@ -1,0 +1,2 @@
+Trigger read-only three-profile ALDI validation after credential/profile setup.
+No booking is enabled by this trigger.
