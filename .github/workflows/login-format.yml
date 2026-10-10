@@ -81,6 +81,43 @@ jobs:
           retention-days: 2
           if-no-files-found: warn
 
+  reset_identifier_probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[reset-id]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate reset identifier without submitting
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_LOGIN_USER: ${{ secrets.ALDI_LOGIN_USER }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_RESET_IDENTIFIER_REPORT: aldi-reset-identifier-probe.json
+        run: python aldi_reset_identifier_probe.py
+      - name: Preserve sanitized reset identifier report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-reset-identifier-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-reset-identifier-probe.json
+          retention-days: 2
+          if-no-files-found: warn
+
   public_controls:
     if: >-
       github.event_name == 'workflow_dispatch' ||
