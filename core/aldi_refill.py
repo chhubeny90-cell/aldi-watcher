@@ -8,8 +8,9 @@ all of these are simultaneously proven from the rendered page:
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
 
-Only an explicitly identified active Unlimited tariff is eligible. Ordinary
-Tarif S/M/L names, Jahres-Paket/Jahrestarif and Basis-Tarif are not sufficient.
+An explicitly identified active Unlimited tariff or Tarif S may be eligible.
+Tarif S still requires a unique local offer for exactly 1 GB with explicit
+free/0-EUR evidence. Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
 Generic refill hints elsewhere on the page do not prove tariff eligibility.
 """
 
@@ -34,10 +35,11 @@ def _normalise(value):
 
 
 def _eligible_tariff(active_tariff_text):
-    """Require an explicit Unlimited tariff identity; reject annual/base plans.
+    """Require one explicit active Unlimited or Tarif-S identity.
 
-    This is a conservative booking gate, not a claim about every ALDI product.
-    The caller must supply tariff headings, never generic marketing/body text.
+    Tarif S is accepted only because the portal exposes its own local 1-GB
+    control; the exact offer must still pass the explicit free-price gate below.
+    Annual/base plans and generic marketing text remain ineligible.
     """
     if re.search(r"\b(?:Jahres[\s-]*(?:paket|tarif)|Basis[\s-]*Tarif)\b",
                  active_tariff_text, re.I):
@@ -45,7 +47,7 @@ def _eligible_tariff(active_tariff_text):
     identities = []
     for line in active_tariff_text.splitlines():
         line = _normalise(line)
-        match = re.fullmatch(
+        unlimited = re.fullmatch(
             r"(?:ALDI\s+TALK\s+)?"
             r"(?:(?:Tarif\s+)?[SML]\s*[-–:]?\s+Unlimited"
             r"|Unlimited(?:\s+(?:Tarif\s+)?[SML])?"
@@ -54,12 +56,14 @@ def _eligible_tariff(active_tariff_text):
             r")",
             line, re.I,
         )
-        if match:
-            identities.append(line)
-    # Refill-section headings (for example, "Unlimited GB nachbuchen") are
-    # offers, not tariff identities, and are deliberately not accepted here.
-    # A single active identity is required. Multiple products are ambiguous.
-    return "UNLIMITED" if len(identities) == 1 else None
+        tarif_s = re.fullmatch(r"(?:ALDI\s+TALK\s+)?Tarif\s+S", line, re.I)
+        if unlimited:
+            identities.append("UNLIMITED")
+        elif tarif_s:
+            identities.append("TARIF_S")
+    # Refill-section headings are offers, not tariff identities. Exactly one
+    # active identity is required; multiple products are ambiguous.
+    return identities[0] if len(identities) == 1 else None
 
 
 def _exact_one_gb(text):
@@ -104,22 +108,27 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return result
     if not _exact_one_gb(offer_text):
         return unavailable("not_exactly_one_gb")
-    if not re.search(r"\b(?:nachbuchen|nachbuchung|buchen|highspeed|datenvolumen)\b", offer_text, re.I):
+    if not re.search(
+            r"\b(?:nachbuchen|nachbuchung|buchen|highspeed|datenvolumen)\b"
+            r"|(?<![\d.,])\+\s*1\s*GB\b",
+            offer_text, re.I):
         return unavailable("not_refill_offer")
     if not _free_price(offer_text):
         return unavailable("price_unverified_or_paid")
     if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
         return unavailable("conflicting_terms")
-    if not re.search(r"\b(?:nachbuchen|buchen|weiter|bestätigen|bestaetigen)\b", button_text, re.I):
+    if not re.search(
+            r"\b(?:nachbuchen|buchen|weiter|bestätigen|bestaetigen)\b"
+            r"|(?<![\d.,])\+\s*1\s*GB\b",
+            button_text, re.I):
         return unavailable("button_unverified")
     if enabled is not True:
         return unavailable("button_disabled")
 
     return {
         "refill_eligible": True,
-        # Keep the existing stable type for compatibility with the old provider
-        # guard; tariff_evidence distinguishes the verified portal context.
-        "refill_type": "FREE_UNLIMITED",
+        # Preserve the existing Unlimited label; Tarif S gets an explicit type.
+        "refill_type": "FREE_TARIF_S" if tariff == "TARIF_S" else "FREE_UNLIMITED",
         "refill_reason": "free_one_gb_button_available",
         "refill_candidate_count": 1,
         "tariff_evidence": tariff,
@@ -189,7 +198,10 @@ def locate_selenium(driver, remaining_gb):
                 label = element_label(driver, control)
                 context = _offer_context(driver, control)
                 combined = f"{label} {context}"
-                refillish = bool(re.search(r"\b(?:nachbuch\w*|buchen)\b", combined, re.I))
+                refillish = bool(re.search(
+                    r"\b(?:nachbuch\w*|buchen)\b|(?<![\d.,])\+\s*1\s*GB\b",
+                    combined, re.I,
+                ))
                 one_gb = bool(re.search(r"(?<![\d.,])1(?:[.,]0+)?\s*GB\b", combined, re.I))
                 if refillish and one_gb:
                     candidates.append((control, context, label))

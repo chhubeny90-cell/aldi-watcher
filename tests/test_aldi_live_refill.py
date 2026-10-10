@@ -133,6 +133,11 @@ def test_two_verified_free_refills_are_allowed_when_portal_reoffers(monkeypatch,
     assert click.call_args_list == [call(driver, first), call(driver, second)]
 
 
+def test_visible_plus_one_gb_button_is_recognized_after_offer_gate(monkeypatch):
+    monkeypatch.setattr(live, 'element_label', lambda *_: '+1 GB')
+    assert live._action_kind(object(), object()) == 'book'
+
+
 def test_unverified_control_kind_is_not_clicked(monkeypatch, tmp_path):
     control = Mock()
     driver = _setup(monkeypatch, tmp_path, [0.2], [_eligible(control)])
