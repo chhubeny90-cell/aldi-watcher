@@ -117,7 +117,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        profile: [1, 2, 3]
+        profile: [1]
     runs-on: ubuntu-latest
     timeout-minutes: 12
     concurrency:
