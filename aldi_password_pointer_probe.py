@@ -1,8 +1,10 @@
-"""Sanitized one-shot ALDI password login using a trusted Chrome pointer.
+"""Sanitized ALDI password login using ALDI's observed two-stage auth tree.
 
-No booking controls are inspected or activated. Credentials are loaded only from
-configured secrets. Reports contain booleans/structure only, never credential,
-cookie, token, query-string or response-body values.
+The first trusted pointer interaction is accepted only as an auth-tree
+initialization when ALDI returns stage-loginPage without an error. Credentials
+are then rebound after the component render and submitted exactly once. No
+booking control is inspected or activated. Reports contain booleans/structure
+only, never credential, cookie, token, query-string or raw response-body values.
 """
 
 import json
@@ -66,13 +68,46 @@ def _trusted_pointer_click(driver, element):
     }
 
 
+def _fill_credentials(driver, wait):
+    user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
+    user.send_keys(Keys.CONTROL, "a"); user.send_keys(Keys.BACKSPACE); user.send_keys(watcher.ALDI_USER); user.send_keys(Keys.TAB)
+    password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
+    password.send_keys(Keys.CONTROL, "a"); password.send_keys(Keys.BACKSPACE); password.send_keys(watcher.ALDI_PASS); password.send_keys(Keys.TAB)
+    submit = wait.until(lambda _: _login_control(driver))
+    user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
+    password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
+    state = {
+        "username_matches_secret": user.get_attribute("value") == watcher.ALDI_USER,
+        "password_matches_secret": password.get_attribute("value") == watcher.ALDI_PASS,
+        "submit_enabled": bool(_login_control(driver)),
+    }
+    return state, submit
+
+
+def _latest_login_stage(report):
+    for shape in reversed(report["auth_response_shapes"]):
+        if shape.get("stage_identifier"):
+            return shape
+    return None
+
+
+def _shape_has_auth_error(shape):
+    category = (shape or {}).get("text_output_category") or {}
+    return any(category.get(key) for key in (
+        "invalid_credentials", "account_locked", "account_deactivated",
+        "technical_error", "required_fields", "session_error", "unknown_error_text",
+    ))
+
+
 def main():
     report = {
         "started_at": utcnow(), "finished_at": None,
         "outcome": "unknown", "booking_executed": False,
-        "credential_state": None, "submit_count": 0,
-        "submit_method": "cdp_trusted_pointer_after_explicit_enablement",
-        "pointer_geometry": None, "portal_session": False,
+        "pre_init_credential_state": None, "post_init_credential_state": None,
+        "auth_tree_init_count": 0, "credential_submit_count": 0,
+        "submit_method": "cdp_trusted_pointer_two_stage",
+        "init_pointer_geometry": None, "credential_pointer_geometry": None,
+        "portal_session": False,
         "network": [], "auth_request_shapes": [], "auth_response_shapes": [],
         "exception_type": None,
     }
@@ -93,48 +128,71 @@ def main():
         watcher.dismiss_cookie_banner(driver)
         wait = WebDriverWait(driver, 30)
 
-        user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
-        user.send_keys(Keys.CONTROL, "a"); user.send_keys(Keys.BACKSPACE); user.send_keys(watcher.ALDI_USER); user.send_keys(Keys.TAB)
-        password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
-        password.send_keys(Keys.CONTROL, "a"); password.send_keys(Keys.BACKSPACE); password.send_keys(watcher.ALDI_PASS); password.send_keys(Keys.TAB)
-        submit = wait.until(lambda _: _login_control(driver))
-
-        # Re-resolve fields after component blur/re-render before comparing values.
-        user = wait.until(lambda _: _unique_enabled(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"))
-        password = wait.until(lambda _: _unique_enabled(driver, "input[type='password']"))
-        report["credential_state"] = {
-            "username_matches_secret": user.get_attribute("value") == watcher.ALDI_USER,
-            "password_matches_secret": password.get_attribute("value") == watcher.ALDI_PASS,
-            "submit_enabled": bool(_login_control(driver)),
-        }
-        if not all(report["credential_state"].values()):
-            report["outcome"] = "credential_or_submit_not_ready"
+        # Existing UI renders the fields before the ForgeRock/AM tree has been
+        # initialized. Populate them only to make ALDI's login action available.
+        state, submit = _fill_credentials(driver, wait)
+        report["pre_init_credential_state"] = state
+        if not all(state.values()):
+            report["outcome"] = "pre_init_form_not_ready"
             return 4
 
-        # Drain initial navigation noise, then issue exactly one trusted pointer click.
         drain_network(driver, report, seen)
-        report["pointer_geometry"] = _trusted_pointer_click(driver, submit)
-        report["submit_count"] = 1
+        report["init_pointer_geometry"] = _trusted_pointer_click(driver, submit)
+        report["auth_tree_init_count"] = 1
+
+        # The first interaction is considered initialization only if ALDI itself
+        # returns the known login-page challenge without a failure category.
+        init_deadline = time.monotonic() + 10
+        init_shape = None
+        while time.monotonic() < init_deadline:
+            time.sleep(0.75)
+            drain_network(driver, report, seen)
+            init_shape = _latest_login_stage(report)
+            if init_shape is not None:
+                break
+        if (init_shape is None or init_shape.get("stage_identifier") != "stage-loginPage"
+                or init_shape.get("has_token_id") or _shape_has_auth_error(init_shape)):
+            report["outcome"] = "auth_tree_init_unverified"
+            return 2
+
+        # The challenge may re-render the custom elements. Re-resolve and refill
+        # from secrets, then submit credentials exactly once.
+        state, submit = _fill_credentials(driver, wait)
+        report["post_init_credential_state"] = state
+        if not all(state.values()):
+            report["outcome"] = "post_init_form_not_ready"
+            return 4
+
+        baseline_requests = len(report["auth_request_shapes"])
+        baseline_responses = len(report["auth_response_shapes"])
+        report["credential_pointer_geometry"] = _trusted_pointer_click(driver, submit)
+        report["credential_submit_count"] = 1
 
         start = time.monotonic()
         while time.monotonic() - start < OBSERVE_SECONDS:
-            time.sleep(1.5)
+            time.sleep(1.25)
             drain_network(driver, report, seen)
             if watcher.aldi_session_visible(driver):
                 report["portal_session"] = True
                 report["outcome"] = "portal_session_confirmed"
                 return 0
-            # A successful token-bearing auth response is useful evidence even
-            # before the protected portal rendering has settled.
-            if any(shape.get("has_token_id") for shape in report["auth_response_shapes"]):
+            new_responses = report["auth_response_shapes"][baseline_responses:]
+            if any(shape.get("has_token_id") for shape in new_responses):
                 report["outcome"] = "auth_token_observed_waiting_for_portal"
+            if any(_shape_has_auth_error(shape) for shape in new_responses):
+                report["outcome"] = "credential_response_rejected_or_error"
+                return 2
+
         report["portal_session"] = watcher.aldi_session_visible(driver)
         if report["portal_session"]:
             report["outcome"] = "portal_session_confirmed"
             return 0
         if report["outcome"] == "auth_token_observed_waiting_for_portal":
             return 5
-        report["outcome"] = "no_confirmed_session"
+        if len(report["auth_request_shapes"]) <= baseline_requests:
+            report["outcome"] = "credential_submit_no_auth_request"
+        else:
+            report["outcome"] = "credential_submit_no_confirmed_session"
         return 2
     except Exception as exc:
         report["outcome"] = "exception"
@@ -148,9 +206,10 @@ def main():
             json.dump(report, fh, ensure_ascii=False, indent=2)
         print(json.dumps({
             "outcome": report["outcome"],
-            "credential_state": report["credential_state"],
-            "submit_count": report["submit_count"],
-            "submit_method": report["submit_method"],
+            "pre_init_credential_state": report["pre_init_credential_state"],
+            "post_init_credential_state": report["post_init_credential_state"],
+            "auth_tree_init_count": report["auth_tree_init_count"],
+            "credential_submit_count": report["credential_submit_count"],
             "portal_session": report["portal_session"],
             "auth_request_shapes": report["auth_request_shapes"],
             "auth_response_shapes": report["auth_response_shapes"],
