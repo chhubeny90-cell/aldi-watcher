@@ -3,8 +3,10 @@
 Only public ALDI localization keys, callback IDs and structural booleans are
 added to the sanitized report. The callback continuation preserves every hidden
 input exactly as ALDI returned it and changes only username, password and the
-unique password-login confirmation. No raw query, credential, hidden value,
-authId, token or cookie is logged or persisted.
+unique password-login confirmation. Free-text ALDI messages are reduced to
+non-sensitive semantic flags and a length bucket; their text is never logged.
+No raw query, credential, hidden value, authId, token or cookie is logged or
+persisted.
 """
 
 import copy
@@ -80,10 +82,90 @@ def _hidden_meta_with_ids(challenge):
     return rows
 
 
+def _message_length_bucket(length):
+    if length <= 0:
+        return "empty"
+    if length <= 40:
+        return "short"
+    if length <= 120:
+        return "medium"
+    return "long"
+
+
+def _free_text_semantics(message):
+    """Reduce provider free text to safe booleans; never return the source text."""
+    if not isinstance(message, str):
+        return None
+    text = " ".join(message.casefold().split())
+    if not text:
+        return None
+
+    password_reference = any(term in text for term in (
+        "passwort", "password", "kennwort",
+    ))
+    login_identifier_reference = any(term in text for term in (
+        "benutzername", "benutzer", "username", "user name", "rufnummer",
+        "mobilfunknummer", "telefonnummer", "teilnehmer", "login-name",
+        "loginname", "anmeldename", "kennung",
+    ))
+    credential_word = any(term in text for term in (
+        "anmeldedaten", "zugangsdaten", "login-daten", "logindaten",
+        "credentials", "credential",
+    ))
+    invalid_reference = any(term in text for term in (
+        "ungültig", "ungueltig", "falsch", "inkorrekt", "nicht korrekt",
+        "stimmt nicht", "invalid", "incorrect", "wrong",
+    ))
+    not_found = any(term in text for term in (
+        "nicht gefunden", "nicht bekannt", "existiert nicht", "unbekannt",
+        "not found", "does not exist", "unknown user", "nicht registriert",
+    ))
+    retry_reference = any(term in text for term in (
+        "erneut versuchen", "noch einmal", "nochmal", "versuchen sie es erneut",
+        "try again", "retry",
+    ))
+    forgot_password_reference = any(term in text for term in (
+        "passwort vergessen", "forgot password", "passwort zurücksetzen",
+        "passwort zuruecksetzen", "reset password",
+    ))
+    required_reference = any(term in text for term in (
+        "erforderlich", "pflichtfeld", "ausfüllen", "ausfuellen", "eingeben",
+        "required", "must enter", "please enter",
+    ))
+    locked_reference = any(term in text for term in (
+        "gesperrt", "blockiert", "zu viele versuche", "zu viele fehlversuche",
+        "locked", "blocked", "too many attempts",
+    ))
+    technical_reference = any(term in text for term in (
+        "technischer fehler", "technische störung", "technische stoerung",
+        "technical error", "service unavailable", "vorübergehend nicht verfügbar",
+        "voruebergehend nicht verfuegbar",
+    ))
+
+    return {
+        "credential_problem": bool(
+            invalid_reference
+            and (password_reference or login_identifier_reference or credential_word)
+        ) or bool(not_found and (login_identifier_reference or credential_word)),
+        "password_reference": password_reference,
+        "login_identifier_reference": login_identifier_reference,
+        "credential_word": credential_word,
+        "invalid_reference": invalid_reference,
+        "not_found": not_found,
+        "retry_reference": retry_reference,
+        "forgot_password_reference": forgot_password_reference,
+        "required_reference": required_reference,
+        "locked_reference": locked_reference,
+        "technical_reference": technical_reference,
+        "length_bucket": _message_length_bucket(len(text)),
+    }
+
+
 def _text_output_category_with_keys(obj):
     result = _original_text_output_category(obj)
     keys = []
     non_key_messages = 0
+    semantic_rows = []
     if isinstance(obj, dict):
         for callback in obj.get("callbacks", []):
             if not isinstance(callback, dict) or callback.get("type") != "TextOutputCallback":
@@ -91,13 +173,18 @@ def _text_output_category_with_keys(obj):
             for item in callback.get("output", []):
                 if not isinstance(item, dict) or item.get("name") != "message":
                     continue
-                key = _safe_public_key(item.get("value"))
+                value = item.get("value")
+                key = _safe_public_key(value)
                 if key:
                     keys.append(key)
-                elif isinstance(item.get("value"), str) and item.get("value").strip():
+                elif isinstance(value, str) and value.strip():
                     non_key_messages += 1
+                    semantics = _free_text_semantics(value)
+                    if semantics:
+                        semantic_rows.append(semantics)
     result["message_keys"] = keys[:10]
     result["non_key_message_count"] = non_key_messages
+    result["free_text_semantics"] = semantic_rows[:5]
     return result
 
 
