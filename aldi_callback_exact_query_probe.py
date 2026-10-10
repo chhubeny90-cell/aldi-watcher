@@ -1,15 +1,14 @@
 """Run the full-fidelity ALDI callback probe against the exact initial auth URL.
 
-This reuses the sanitized fidelity probe but retains ALDI's initial query string
-for the single continuation POST. Public ConfirmationCallback option labels are
-included in the sanitized report so the password-login action can be selected
-without guessing. No raw query, credential, authId or token is logged or
-persisted.
+The ConfirmationCallback is accepted only when exactly one ALDI option is the
+observed password-login action `custom.alditalk.loginuserbasic.loginbtn`.
+No raw query, credential, authId or token is logged or persisted.
 """
 
 import aldi_callback_fidelity_probe as base
 
 
+LOGIN_OPTION = "custom.alditalk.loginuserbasic.loginbtn"
 _original_confirmation_meta = base._confirmation_meta
 
 
@@ -32,22 +31,21 @@ def _confirmation_meta_with_labels(challenge):
     return result
 
 
-def _exact_login_confirmation(callback):
+def _password_login_confirmation(callback):
     options = base._output_value(callback, "options")
     if not isinstance(options, list) or not options or len(options) > 10:
         raise RuntimeError("confirmation_options_unexpected")
     matches = [
         index for index, option in enumerate(options)
-        if isinstance(option, str) and option.strip().casefold() == "anmelden"
+        if isinstance(option, str) and option.strip().casefold() == LOGIN_OPTION.casefold()
     ]
     if len(matches) != 1:
-        raise RuntimeError("exact_login_confirmation_not_unique")
-    return matches[0], "unique_exact_anmelden_option"
+        raise RuntimeError("password_login_callback_not_unique")
+    return matches[0], "unique_aldi_loginbtn_option"
 
 
-# The base main function resolves these helpers at call time.
 base._confirmation_meta = _confirmation_meta_with_labels
-base._confirmation_index = _exact_login_confirmation
+base._confirmation_index = _password_login_confirmation
 _original_prepare_payload = base._prepare_payload
 
 
