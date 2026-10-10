@@ -1,3 +1,3 @@
-Trigger one read-only ALDI live smoke after switching production login to one native click.
-Run: 2026-10-10T03:02Z
+Trigger one read-only ALDI live smoke using the production native-button login path.
+Run: 2026-10-10T03:04Z
 No booking is enabled by this trigger.
