@@ -52,10 +52,13 @@ def _count(driver, selector):
 
 
 def _classify_text(text):
+    """Classify ALDI text into fixed booleans without returning source text."""
     value = (text or "").casefold()
     result = {
         "invalid_credentials": False,
+        "sms_tan_required": False,
         "account_locked": False,
+        "account_deactivated": False,
         "technical_error": False,
         "required_fields": False,
         "session_error": False,
@@ -63,14 +66,30 @@ def _classify_text(text):
     }
     if not value:
         return result
+
     result["invalid_credentials"] = any(x in value for x in (
         "invalid credential", "incorrect credential", "authentication failed",
         "username or password", "user name or password", "password incorrect",
         "rufnummer oder passwort", "benutzername oder passwort", "passwort falsch",
-        "anmeldedaten", "zugangsdaten", "nicht korrekt", "nicht erkannt",
+        "falsches passwort", "falsche rufnummer", "anmeldedaten", "zugangsdaten",
+        "nicht korrekt", "nicht erkannt", "stimmen nicht überein", "stimmen nicht ueberein",
+        "anmeldung nicht erfolgreich", "anmeldung war nicht erfolgreich",
+        "prüfe deine eingaben", "pruefe deine eingaben",
+        "prüfe die eingegebenen daten", "pruefe die eingegebenen daten",
+    ))
+    result["sms_tan_required"] = any(x in value for x in (
+        "sms-tan", "sms tan", "sms-code", "sms code", "tan eingeben",
+        "sicherheitscode", "bestätigungscode", "bestaetigungscode",
+        "code eingeben", "einmalpasswort", "one-time password", "otp",
     ))
     result["account_locked"] = any(x in value for x in (
-        "account locked", "locked account", "too many attempts", "gesperrt", "zu viele versuche",
+        "account locked", "locked account", "too many attempts", "gesperrt",
+        "zu viele versuche", "vorübergehend eingeschränkt", "voruebergehend eingeschraenkt",
+        "zugang eingeschränkt", "zugang eingeschraenkt", "20 minuten",
+    ))
+    result["account_deactivated"] = any(x in value for x in (
+        "konto deaktiviert", "zugang deaktiviert", "account deactivated",
+        "konto wurde deaktiviert", "account disabled",
     ))
     result["technical_error"] = any(x in value for x in (
         "technical error", "temporarily unavailable", "try again later",
@@ -84,9 +103,12 @@ def _classify_text(text):
         "expired", "invalid", "abgelaufen", "ungültig", "ungueltig",
     ))
     errorish = any(x in value for x in (
-        "error", "failed", "invalid", "incorrect", "fehler", "fehlgeschlagen", "ungültig", "ungueltig",
+        "error", "failed", "invalid", "incorrect", "fehler", "fehlgeschlagen",
+        "ungültig", "ungueltig", "nicht erfolgreich", "gesperrt", "eingeschränkt", "eingeschraenkt",
     ))
-    result["unknown_error_text"] = errorish and not any(v for k, v in result.items() if k != "unknown_error_text")
+    result["unknown_error_text"] = errorish and not any(
+        v for k, v in result.items() if k != "unknown_error_text"
+    )
     return result
 
 
@@ -121,7 +143,7 @@ def snapshot(driver, elapsed):
         "login_controls": login_controls,
         "error_text": any(x in text for x in ("error", "failed", "invalid", "fehler", "fehlgeschlagen", "ungültig", "ungueltig")),
         "captcha_text": any(x in text for x in ("captcha", "ich bin kein roboter")),
-        "mfa_text": any(x in text for x in ("zwei-faktor", "2fa", "sicherheitscode", "verifizierung")),
+        "mfa_text": any(x in text for x in ("zwei-faktor", "2fa", "sicherheitscode", "verifizierung", "sms-tan", "sms tan")),
         "alert_category": _alert_category(driver),
     }
 
