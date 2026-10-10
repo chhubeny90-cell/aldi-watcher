@@ -2,7 +2,7 @@ import os
 import time
 from urllib.parse import urlsplit
 from core.credentials import get_credential
-from browser_dom import find_visible_elements, element_label
+from browser_dom import find_visible_elements, element_label, rendered_text
 from core.lidl_refill import inspect_selenium
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
 from selenium import webdriver
@@ -91,6 +91,37 @@ def safe_click(driver, element):
         driver.execute_script("arguments[0].click();", element)
 
 
+def aldi_session_visible(driver) -> bool:
+    """Confirm a protected ALDI session without requiring a visible logout control."""
+    try:
+        require_origin(driver, ALDI_OVERVIEW_URL)
+    except PermissionError:
+        return False
+
+    # Keep the existing strong signal when ALDI exposes an explicit logout control.
+    if session_visible(driver):
+        return True
+
+    try:
+        if not driver.get_cookies():
+            return False
+        if find_visible_elements(driver, "input[type='password']"):
+            return False
+        text = rendered_text(driver).casefold()
+    except Exception:
+        return False
+
+    # These are protected customer-area concepts; require several to avoid
+    # treating a generic public/error page as an authenticated overview.
+    marker_groups = (
+        ('guthaben',),
+        ('datenvolumen', 'verbrauch', 'restvolumen', 'verbleibend', 'verfügbar'),
+        ('inland', 'tarif', 'unlimited'),
+    )
+    matched_groups = sum(any(marker in text for marker in group) for group in marker_groups)
+    return matched_groups >= 2
+
+
 # ============================================================
 # ALDI TALK
 # ============================================================
@@ -144,13 +175,7 @@ def aldi_login(driver) -> bool:
     button.send_keys(Keys.ENTER)
 
     def confirmed_portal_session(_):
-        # Authentication is confirmed by session evidence on the protected portal,
-        # not merely by seeing a redirect host.
-        try:
-            require_origin(driver, ALDI_OVERVIEW_URL)
-        except PermissionError:
-            return False
-        return session_visible(driver)
+        return aldi_session_visible(driver)
 
     phase('session_validation')
     try:
@@ -178,7 +203,7 @@ def aldi_read_status(driver) -> dict:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Guthaben')]")))
     time.sleep(2)
-    if not session_visible(driver):
+    if not aldi_session_visible(driver):
         raise PermissionError('session_invalid')
     phase('usage_parse')
     body_text = driver.find_element(By.TAG_NAME, 'body').text
