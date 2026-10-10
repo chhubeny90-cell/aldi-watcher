@@ -141,6 +141,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Verify explicit live gate
+        env:
+          RUN_MODE: ${{ inputs.mode }}
         run: |
           test "$AUTO_BOOK_ENABLED" = "true"
           if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
@@ -157,7 +159,6 @@ jobs:
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           ALDI_LIVE_REPORT: aldi-live-refill.json
-          RUN_MODE: ${{ inputs.mode }}
         shell: bash
         run: |
           rm -f aldi-live-refill.json
