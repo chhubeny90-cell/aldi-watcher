@@ -93,7 +93,7 @@ jobs:
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
           ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
-          ALDI_PASS: ${{ secrets[format('ALDI_PROFILE_{0}_PASS', matrix.profile)] }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
         shell: bash
         run: |
           rm -f monitoring-report.json
