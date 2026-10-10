@@ -82,7 +82,7 @@ jobs:
         run: |
           test "$AUTO_BOOK_ENABLED" = "false"
           echo "Read-only safety guard active."
-      - name: Run ALDI watcher with bounded automatic restart
+      - name: Run one ALDI watcher attempt
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
@@ -93,30 +93,8 @@ jobs:
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
         shell: bash
         run: |
-          set -u
-          attempts=3
-          last_rc=1
-          for attempt in $(seq 1 "$attempts"); do
-            echo "==> watcher attempt ${attempt}/${attempts}"
-            rm -f monitoring-report.json
-            set +e
-            timeout 180s python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
-            last_rc=$?
-            set -e
-            if [ "$last_rc" -eq 0 ]; then
-              exit 0
-            fi
-            if [ "$last_rc" -eq 3 ]; then
-              echo "Configuration/secrets error; not retrying."
-              exit 3
-            fi
-            if [ "$attempt" -lt "$attempts" ]; then
-              delay=$((30 * attempt))
-              echo "Watcher failed with exit ${last_rc}; retrying in ${delay}s."
-              sleep "$delay"
-            fi
-          done
-          exit "$last_rc"
+          rm -f monitoring-report.json
+          timeout 180s python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
       - name: Preserve sanitized watcher report
         if: always()
         uses: actions/upload-artifact@v4
