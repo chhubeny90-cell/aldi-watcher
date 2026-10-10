@@ -1,12 +1,16 @@
 """Run the full-fidelity ALDI password-login callback diagnostic.
 
 Only public ALDI localization keys, callback IDs and structural booleans are
-added to the sanitized report. No raw query, credential, hidden value, authId,
-token or cookie is logged or persisted.
+added to the sanitized report. The callback continuation preserves every hidden
+input exactly as ALDI returned it and changes only username, password and the
+unique password-login confirmation. No raw query, credential, hidden value,
+authId, token or cookie is logged or persisted.
 """
 
+import copy
 import re
 import aldi_callback_fidelity_probe as base
+import watcher
 
 
 LOGIN_OPTION = "custom.alditalk.loginuserbasic.loginbtn"
@@ -23,7 +27,6 @@ def _safe_public_key(value):
     value = value.strip()
     if not SAFE_KEY.fullmatch(value):
         return None
-    # Restrict persisted strings to obvious UI/technical localization keys.
     lowered = value.casefold()
     if not any(marker in lowered for marker in ("custom.", "alditalk", "login", "auth", "error", "message", "label")):
         return None
@@ -115,14 +118,59 @@ base._confirmation_meta = _confirmation_meta_with_labels
 base._hidden_meta = _hidden_meta_with_ids
 base._text_output_category = _text_output_category_with_keys
 base._confirmation_index = _password_login_confirmation
-_original_prepare_payload = base._prepare_payload
 
 
 def _prepare_payload(challenge):
-    callbacks, normalization = _original_prepare_payload(challenge)
-    normalization["continuation_query_stripped"] = False
-    normalization["exact_initial_auth_url_reused"] = True
-    return callbacks, normalization
+    if not isinstance(challenge, dict) or not isinstance(challenge.get("authId"), str):
+        raise RuntimeError("challenge_missing_auth_id")
+    callbacks = challenge.get("callbacks")
+    if not isinstance(callbacks, list):
+        raise RuntimeError("challenge_missing_callbacks")
+
+    allowed = {
+        "NameCallback", "PasswordCallback", "ConfirmationCallback",
+        "HiddenValueCallback", "TextOutputCallback",
+    }
+    counts = {"NameCallback": 0, "PasswordCallback": 0, "ConfirmationCallback": 0}
+    normalization = {
+        "hidden_callbacks": 0,
+        "hidden_inputs_preserved_from_aldi": 0,
+        "confirmation_set": False,
+        "confirmation_selection_basis": None,
+        "continuation_query_stripped": False,
+        "full_challenge_object_sent": True,
+        "exact_initial_auth_url_reused": True,
+    }
+
+    payload_callbacks = copy.deepcopy(callbacks)
+    for callback in payload_callbacks:
+        if not isinstance(callback, dict):
+            raise RuntimeError("unexpected_callback_shape")
+        kind = callback.get("type")
+        if kind not in allowed:
+            raise RuntimeError("unexpected_callback_type")
+        if kind == "NameCallback":
+            counts[kind] += 1
+            base._single_input(callback)["value"] = watcher.ALDI_USER
+        elif kind == "PasswordCallback":
+            counts[kind] += 1
+            base._single_input(callback)["value"] = watcher.ALDI_PASS
+        elif kind == "HiddenValueCallback":
+            # ForgeRock supplied these inputs already populated. Preserve them
+            # exactly; the previous output->input copy corrupted the callback.
+            base._single_input(callback)
+            normalization["hidden_callbacks"] += 1
+            normalization["hidden_inputs_preserved_from_aldi"] += 1
+        elif kind == "ConfirmationCallback":
+            counts[kind] += 1
+            index, basis = _password_login_confirmation(callback)
+            base._single_input(callback)["value"] = index
+            normalization["confirmation_set"] = True
+            normalization["confirmation_selection_basis"] = basis
+
+    if counts != {"NameCallback": 1, "PasswordCallback": 1, "ConfirmationCallback": 1}:
+        raise RuntimeError("required_callback_count_unexpected")
+    return payload_callbacks, normalization
 
 
 def _submit_full_challenge(driver, initial_info, challenge, prepared_callbacks):
@@ -130,7 +178,7 @@ def _submit_full_challenge(driver, initial_info, challenge, prepared_callbacks):
     if not base._validated_auth_url(exact_url):
         raise PermissionError("untrusted_auth_url")
 
-    payload = base.copy.deepcopy(challenge)
+    payload = copy.deepcopy(challenge)
     payload["callbacks"] = prepared_callbacks
     headers = dict(initial_info.get("headers") or {})
     headers.setdefault("Accept", "application/json")
