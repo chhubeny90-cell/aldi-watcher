@@ -47,10 +47,10 @@ def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
         call('PRIVATE_PASSWORD'),
         call(Keys.TAB),
     ]
-    submit.click.assert_called_once_with()
+    submit.click.assert_not_called()
     submit.send_keys.assert_not_called()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
     navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
-    driver.execute_script.assert_not_called()
 
 
 def test_untrusted_origin_never_receives_credentials(login_page):
@@ -70,7 +70,7 @@ def test_sso_host_is_not_a_confirmed_portal_session(login_page):
     driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    submit.click.assert_called_once_with()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
     assert navigate_mock.call_args_list == [
         call(driver, watcher.ALDI_LOGIN_URL),
         call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
@@ -88,7 +88,7 @@ def test_sso_session_can_be_confirmed_by_one_protected_page_probe(login_page):
     navigate_mock.side_effect = navigate_side_effect
 
     assert watcher.aldi_login(driver)
-    submit.click.assert_called_once_with()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
     assert navigate_mock.call_args_list == [
         call(driver, watcher.ALDI_LOGIN_URL),
         call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
@@ -146,9 +146,9 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     driver.execute_script.assert_not_called()
 
 
-def test_uncertain_native_click_is_not_repeated(login_page):
+def test_uncertain_dom_submit_is_not_repeated(login_page):
     driver, user, password, submit, _ = login_page
-    submit.click.side_effect = TimeoutException('PRIVATE upstream content')
+    driver.execute_script.side_effect = TimeoutException('PRIVATE upstream content')
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     assert user.send_keys.call_args_list == [
@@ -157,6 +157,6 @@ def test_uncertain_native_click_is_not_repeated(login_page):
     assert password.send_keys.call_args_list == [
         call(Keys.CONTROL, 'a'), call(Keys.BACKSPACE), call('PRIVATE_PASSWORD'), call(Keys.TAB)
     ]
-    submit.click.assert_called_once_with()
+    submit.click.assert_not_called()
     submit.send_keys.assert_not_called()
-    driver.execute_script.assert_not_called()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
