@@ -1,2 +1,2 @@
-Trigger sanitized ALDI password-reset form inspection only.
+Retry sanitized ALDI password-reset form inspection after duplicate-control handling.
 No personal data is typed and no reset request is submitted.
