@@ -4,8 +4,9 @@
 
 ## Aktiver Betrieb und Full Run
 
-GitHub Actions startet den ALDI-Read-only-Watcher sowie den separaten
-`aldi_live_refill.py` stündlich für drei Profile, seriell. Der Refill-Runner darf
+Nach dem Merge in `main` startet der GitHub-Stundenplan den separaten
+`aldi_live_refill.py` für drei Profile, seriell. Der Read-only-Watcher läuft nur
+bei einem manuellen Watch-Aufruf. Der Refill-Runner darf
 `AUTO_BOOK_ENABLED=true` nur in diesem eigenen Job verwenden. Er klickt nur, wenn
 Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
 identifiziert wird und genau ein aktiviertes Angebot mit exakt 1 GB und ausdrücklich
@@ -30,7 +31,7 @@ Als `USER` kommt jeweils der Loginname (hier: die Rufnummer) hinein; `ALDI_PASS`
 das für alle drei Logins gültige Testpasswort enthalten. Die Nutzernamen werden unter
 **Settings → Secrets and variables → Actions** eingetragen, niemals in Dateien, Issues
 oder Chat. Fehlt ein Secret, wird kein Loginversuch für das betroffene Profil gestartet.
-Die Read-only-Prüfung und der streng gegatete Live-Refill laufen stündlich, seriell.
+Der streng gegatete Live-Refill läuft stündlich, seriell; der Read-only-Watcher nicht.
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
 3 Konfigurationsfehler. LIDL meldet zusätzlich `refill_eligible`, `refill_type` und `refill_reason`,
