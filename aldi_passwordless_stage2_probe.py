@@ -48,9 +48,18 @@ def _passwordless_link(driver):
     return matches[0] if len(matches) == 1 else None
 
 
+def _safe_text(value, limit):
+    value = " ".join((value or "").split())
+    return value[:limit]
+
+
 def _field_shapes(driver):
     result = []
     for field in find_visible_elements(driver, "input,textarea,select")[:12]:
+        try:
+            accessible = _safe_text(getattr(field, "accessible_name", ""), 80)
+        except Exception:
+            accessible = ""
         result.append({
             "tag": (field.tag_name or "")[:16],
             "type": (field.get_attribute("type") or "")[:24],
@@ -58,6 +67,11 @@ def _field_shapes(driver):
             "inputmode": (field.get_attribute("inputmode") or "")[:24],
             "required": bool(field.get_attribute("required")),
             "maxlength": (field.get_attribute("maxlength") or "")[:8],
+            "placeholder": _safe_text(field.get_attribute("placeholder"), 80),
+            "aria_label": _safe_text(field.get_attribute("aria-label"), 80),
+            "accessible_name": accessible,
+            "readonly": bool(field.get_attribute("readonly")),
+            "disabled": not field.is_enabled(),
         })
     return result
 
@@ -83,6 +97,7 @@ def main():
         "identifier_typed": False,
         "code_requested": False,
         "code_typed": False,
+        "submit_method": "native_click",
         "field_shapes": [],
         "control_labels": [],
         "text_flags": {},
@@ -127,7 +142,7 @@ def main():
             lambda _: _unique_control(driver, "Bestätigungscode senden") or False
         )
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
-        driver.execute_script("arguments[0].click();", submit)
+        submit.click()
         report["code_requested"] = True
 
         # Observe only the resulting code-entry form. Never enter a code here.
@@ -158,6 +173,12 @@ def main():
     except Exception as exc:
         report["outcome"] = "error"
         report["exception_type"] = type(exc).__name__
+        try:
+            if driver is not None:
+                report["field_shapes"] = _field_shapes(driver)
+                report["control_labels"] = _control_labels(driver)
+        except Exception:
+            pass
         return 2
     finally:
         report["finished_at"] = now()
