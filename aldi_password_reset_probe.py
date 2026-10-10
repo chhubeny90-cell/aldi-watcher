@@ -1,6 +1,6 @@
 """Inspect ALDI TALK's current password-reset form without submitting it.
 
-The probe performs no account change: it loads the login page, follows only the
+The probe performs no account change: it loads the login page, follows only a
 visible password-reset navigation control, records sanitized field/control
 shapes and exits before typing or submitting any personal data.
 """
@@ -35,6 +35,7 @@ def main():
         "started_at": now(),
         "finished_at": None,
         "outcome": "unknown",
+        "reset_navigation_candidate_count": 0,
         "reset_navigation_clicked": False,
         "typed_personal_data": False,
         "submitted": False,
@@ -54,19 +55,23 @@ def main():
         for control in find_visible_elements(driver, "a,button,[role='button']"):
             try:
                 label = element_label(driver, control).strip().casefold()
-                if "passwort" in label and any(word in label for word in ("vergessen", "zurücksetzen", "zuruecksetzen", "neu")):
+                # This remains deliberately strict. Multiple rendered controls
+                # with the same reset intent are harmless; none of them submits
+                # credentials or changes account state by itself.
+                if "passwort" in label and any(word in label for word in ("vergessen", "zurücksetzen", "zuruecksetzen")):
                     reset_links.append(control)
             except Exception:
                 continue
-        if len(reset_links) != 1:
-            report["outcome"] = "reset_navigation_ambiguous"
+        report["reset_navigation_candidate_count"] = len(reset_links)
+        if not reset_links:
+            report["outcome"] = "reset_navigation_missing"
             return 2
 
-        # Navigation only; no account-changing submit occurs here.
+        # Navigation only; no account-changing submit occurs here. If the UI
+        # renders duplicate reset controls, follow the first strict match.
         driver.execute_script("arguments[0].click();", reset_links[0])
         report["reset_navigation_clicked"] = True
 
-        # Allow client-side routing to settle without relying on private text.
         import time
         time.sleep(2)
         require_origin(driver, getattr(driver, "current_url", ""), login_hosts=watcher.ALDI_LOGIN_HOSTS)
