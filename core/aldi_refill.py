@@ -8,10 +8,9 @@ all of these are simultaneously proven from the rendered page:
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
 
-Verified product evidence: ALDI TALK Tarif S, M and L are current
-"Unlimited GB nachbuchen" tariffs where 1 GB can be added repeatedly for free
-once the portal makes the refill available. Literal "Unlimited" portal wording
-is also retained as an accepted portal marker.
+Only an explicitly identified active Unlimited tariff is eligible. Ordinary
+Tarif S/M/L names, Jahres-Paket/Jahrestarif and Basis-Tarif are not sufficient.
+Generic refill hints elsewhere on the page do not prove tariff eligibility.
 """
 
 import math
@@ -34,14 +33,33 @@ def _normalise(value):
     return " ".join((value or "").split())
 
 
-def _eligible_tariff(page_text):
-    """Return a sanitized tariff marker only for explicitly verified contexts."""
-    match = re.search(r"\bTarif\s*([SML])\b", page_text, re.I)
-    if match:
-        return f"TARIF_{match.group(1).upper()}"
-    if re.search(r"\bUnlimited\b", page_text, re.I):
-        return "UNLIMITED"
-    return None
+def _eligible_tariff(active_tariff_text):
+    """Require an explicit Unlimited tariff identity; reject annual/base plans.
+
+    This is a conservative booking gate, not a claim about every ALDI product.
+    The caller must supply tariff headings, never generic marketing/body text.
+    """
+    if re.search(r"\b(?:Jahres[\s-]*(?:paket|tarif)|Basis[\s-]*Tarif)\b",
+                 active_tariff_text, re.I):
+        return None
+    identities = []
+    for line in active_tariff_text.splitlines():
+        line = _normalise(line)
+        match = re.fullmatch(
+            r"(?:ALDI\s+TALK\s+)?"
+            r"(?:(?:Tarif\s+)?[SML]\s*[-–:]?\s+Unlimited"
+            r"|Unlimited(?:\s+(?:Tarif\s+)?[SML])?"
+            r"|Tarif\s+Unlimited(?:\s+[SML])?"
+            r"|Tarif\s+[SML]\s*[-–:]?\s+Unlimited"
+            r")",
+            line, re.I,
+        )
+        if match:
+            identities.append(line)
+    # Refill-section headings (for example, "Unlimited GB nachbuchen") are
+    # offers, not tariff identities, and are deliberately not accepted here.
+    # A single active identity is required. Multiple products are ambiguous.
+    return "UNLIMITED" if len(identities) == 1 else None
 
 
 def _exact_one_gb(text):
@@ -58,8 +76,12 @@ def _free_price(text):
     return bool(prices) or bool(re.search(r"\bkostenlos\b", text, re.I))
 
 
-def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb):
-    page_text = _normalise(page_text)
+def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb,
+                  active_tariff_text=None):
+    # Pure callers may supply a tariff identity as page_text. Live DOM callers
+    # must pass visible tariff headings separately from the rest of the page.
+    tariff_text = page_text if active_tariff_text is None else active_tariff_text
+    tariff_text = tariff_text or ""
     offer_text = _normalise(offer_text)
     button_text = _normalise(button_text)
 
@@ -72,7 +94,7 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     if remaining_gb > 1.0:
         return unavailable("remaining_volume_above_one_gb")
 
-    tariff = _eligible_tariff(page_text)
+    tariff = _eligible_tariff(tariff_text)
     if tariff is None:
         return unavailable("active_tariff_unverified")
 
@@ -153,6 +175,14 @@ def locate_selenium(driver, remaining_gb):
         if not watcher.aldi_session_visible(driver):
             return unavailable("session_unverified"), None
         page_text = rendered_text(driver)
+        tariff_headings = []
+        for heading in find_visible_elements(driver, "h1,h2,h3,h4,h5,h6,[role='heading']"):
+            text = rendered_text(driver, heading)
+            if re.search(r"\b(?:tarif|unlimited|jahres[\s-]*paket)\b", text, re.I):
+                tariff_headings.append(text)
+        active_tariff_text = "\n".join(tariff_headings)
+        if _eligible_tariff(active_tariff_text) is None:
+            return unavailable("active_tariff_unverified"), None
         candidates = []
         for control in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']"):
             try:
@@ -175,7 +205,8 @@ def locate_selenium(driver, remaining_gb):
         enabled = (control.is_enabled()
                    and control.get_attribute("aria-disabled") != "true"
                    and control.get_attribute("disabled") is None)
-        result = assess_refill(page_text, context, label, enabled, 1, remaining_gb)
+        result = assess_refill(page_text, context, label, enabled, 1, remaining_gb,
+                               active_tariff_text=active_tariff_text)
         return result, control if result["refill_eligible"] else None
     except Exception:
         return unavailable("offer_unverified"), None
