@@ -22,12 +22,12 @@ AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
 Die Secrets heißen `ALDI_USER`, `ALDI_PASS`, `LIDL_USER` und `LIDL_PASS`.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
-Für die drei ALDI-Profile liest der read-only Actions-Workflow die sechs Repository-Secrets
-`ALDI_PROFILE_1_USER`/`ALDI_PROFILE_1_PASS` bis `ALDI_PROFILE_3_USER`/`ALDI_PROFILE_3_PASS`.
-Als `USER` kommt jeweils der Loginname (hier: die Rufnummer) hinein. Die Werte werden
-unter **Settings → Secrets and variables → Actions** eingetragen, niemals in Dateien,
-Issues oder Chat. Fehlt ein Profil-Secret, meldet nur dieses Profil `config_error`;
-es wird dann kein Login versucht. Automatische ALDI-Prüfungen laufen stündlich, seriell
+Für die drei ALDI-Profile liest der read-only Actions-Workflow die Repository-Secrets
+`ALDI_PROFILE_1_USER` bis `ALDI_PROFILE_3_USER` sowie das gemeinsame `ALDI_PASS`.
+Als `USER` kommt jeweils der Loginname (hier: die Rufnummer) hinein; `ALDI_PASS` muss
+das für alle drei Logins gültige Testpasswort enthalten. Die Nutzernamen werden unter
+**Settings → Secrets and variables → Actions** eingetragen, niemals in Dateien, Issues
+oder Chat. Fehlt ein Secret, wird kein Loginversuch für das betroffene Profil gestartet. Automatische ALDI-Prüfungen laufen stündlich, seriell
 und strikt read-only. `AUTO_BOOK_ENABLED` bleibt `false`.
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
