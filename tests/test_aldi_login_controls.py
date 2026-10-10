@@ -95,6 +95,45 @@ def test_sso_session_can_be_confirmed_by_one_protected_page_probe(login_page):
     ]
 
 
+def test_protected_content_can_confirm_session_without_visible_logout(monkeypatch):
+    driver = Mock(current_url=watcher.ALDI_OVERVIEW_URL)
+    driver.get_cookies.return_value = [{'name': 'session', 'value': 'PRIVATE'}]
+    monkeypatch.setattr(watcher, 'session_visible', lambda *_: False)
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [])
+    monkeypatch.setattr(
+        watcher,
+        'rendered_text',
+        lambda *_: 'Guthaben 10,00 € Datenvolumen verbleibend 0,8 GB Inland',
+    )
+
+    assert watcher.aldi_session_visible(driver) is True
+
+
+def test_protected_content_fallback_rejects_login_form(monkeypatch):
+    driver = Mock(current_url=watcher.ALDI_OVERVIEW_URL)
+    password = Mock()
+    driver.get_cookies.return_value = [{'name': 'session', 'value': 'PRIVATE'}]
+    monkeypatch.setattr(watcher, 'session_visible', lambda *_: False)
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [password])
+    monkeypatch.setattr(
+        watcher,
+        'rendered_text',
+        lambda *_: 'Guthaben Datenvolumen Inland',
+    )
+
+    assert watcher.aldi_session_visible(driver) is False
+
+
+def test_protected_content_fallback_needs_multiple_marker_groups(monkeypatch):
+    driver = Mock(current_url=watcher.ALDI_OVERVIEW_URL)
+    driver.get_cookies.return_value = [{'name': 'session', 'value': 'PRIVATE'}]
+    monkeypatch.setattr(watcher, 'session_visible', lambda *_: False)
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [])
+    monkeypatch.setattr(watcher, 'rendered_text', lambda *_: 'Guthaben')
+
+    assert watcher.aldi_session_visible(driver) is False
+
+
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     driver, user, password, submit, _ = login_page
     monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [user, Mock()])
