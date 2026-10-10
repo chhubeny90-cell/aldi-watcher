@@ -1,2 +1,1 @@
-Retry sanitized ALDI password-reset form inspection after duplicate-control handling.
-No personal data is typed and no reset request is submitted.
+Probe ALDI password/new-password navigation wording without entering or submitting account data.
