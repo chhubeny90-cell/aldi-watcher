@@ -94,7 +94,7 @@ def login_choice(options):
     choices = []
     for index, label in enumerate(options):
         text = str(label).casefold().rsplit('.', 1)[-1]
-        if any(word in text for word in ('sms', 'otp', 'tan', 'reset', 'forgot', 'vergessen', 'passwordless', 'cancel', 'abbrechen')):
+        if any(word in text for word in ('sms', 'otp', 'tan', 'reset', 'forgot', 'forget', 'vergessen', 'passwordless', 'withoutpassword', 'cancel', 'abbrechen')):
             continue
         if 'login' in text or 'anmelden' in text or 'einloggen' in text:
             choices.append(index)
