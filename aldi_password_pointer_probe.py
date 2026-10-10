@@ -2,12 +2,12 @@
 
 The browser first obtains ALDI's own stage-loginPage callback object. The probe
 keeps authId and every callback in memory, fills only values required by those
-callbacks, and POSTs that object once to the exact same validated ALDI
-/authenticate URL. Name/password come from configured secrets; hidden inputs
-come only from ALDI's corresponding output values; the confirmation choice uses
-ALDI's own valid default option. No secret, authId, token, cookie value, raw
-body or URL query is written to logs/artifacts. No booking control is inspected
-or activated.
+callbacks, then POSTs the continuation once to the same validated ALDI
+/authenticate path with the initial auth-start query removed. Name/password come
+from configured secrets; hidden inputs come only from ALDI's corresponding
+output values; the confirmation choice uses ALDI's own valid default option.
+No secret, authId, token, cookie value, raw body or URL query is written to
+logs/artifacts. No booking control is inspected or activated.
 """
 
 import copy
@@ -16,7 +16,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from browser_dom import find_visible_elements
 from monitoring import navigate, require_origin
@@ -100,6 +100,17 @@ def _validated_auth_url(url):
                 and parsed.path.rstrip("/").endswith("/authenticate"))
     except Exception:
         return False
+
+
+def _continuation_url(exact_url):
+    """Use the authenticated tree path without replaying auth-start parameters."""
+    if not _validated_auth_url(exact_url):
+        raise PermissionError("untrusted_auth_url")
+    parsed = urlsplit(exact_url)
+    continuation = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    if not _validated_auth_url(continuation):
+        raise PermissionError("untrusted_continuation_url")
+    return continuation
 
 
 def _capture_login_challenge(driver, timeout=15):
@@ -205,6 +216,7 @@ def _prepare_payload(challenge):
         "hidden_values_copied_from_aldi_output": 0,
         "confirmation_set": False,
         "confirmation_selection_basis": None,
+        "continuation_query_stripped": True,
     }
     payload_callbacks = copy.deepcopy(callbacks)
     for callback in payload_callbacks:
@@ -239,9 +251,8 @@ def _prepare_payload(challenge):
 
 
 def _submit_callback(driver, exact_url, payload):
-    """POST once from the already-open same-origin ALDI browser context."""
-    if not _validated_auth_url(exact_url):
-        raise PermissionError("untrusted_auth_url")
+    """POST once to the same ALDI auth path, without the tree-start query."""
+    continuation = _continuation_url(exact_url)
     result = driver.execute_async_script(r"""
         const url = arguments[0];
         const payload = arguments[1];
@@ -261,7 +272,7 @@ def _submit_callback(driver, exact_url, payload):
           try { body = await response.json(); } catch (_) {}
           done({status: response.status, body: body});
         }).catch(() => done({status: 0, body: null}));
-    """, exact_url, payload)
+    """, continuation, payload)
     if not isinstance(result, dict):
         return 0, None
     return int(result.get("status") or 0), result.get("body")
