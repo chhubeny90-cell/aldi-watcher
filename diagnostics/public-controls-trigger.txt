@@ -1,0 +1,1 @@
+Trigger public ALDI login-control inspection only. No credentials are loaded, typed, or submitted.
