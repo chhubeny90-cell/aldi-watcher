@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
-    NoSuchElementException,
+    NoSuchElementException, TimeoutException,
     ElementClickInterceptedException, ElementNotInteractableException
 )
 
@@ -104,10 +104,12 @@ def aldi_login(driver) -> bool:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     dismiss_cookie_banner(driver)
     phase('username_field')
+
     def unique_enabled(selector):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         elements = find_visible_elements(driver, selector)
         return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
+
     user_field = wait.until(
         lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
     )
@@ -127,23 +129,44 @@ def aldi_login(driver) -> bool:
     pass_field.send_keys(Keys.BACKSPACE)
     pass_field.send_keys(ALDI_PASS)
     pass_field.send_keys(Keys.TAB)
+
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
         buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
                    if element_label(driver, e).strip().casefold() == 'anmelden'
                    and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
         return buttons[0] if len(buttons) == 1 else False
+
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # One trusted keyboard submission; never retry an uncertain login submit.
+    # Exactly one trusted login submission. Never retry an uncertain submit.
     button.send_keys(Keys.ENTER)
-    phase('sso_redirect')
-    portal_host = urlsplit(ALDI_OVERVIEW_URL).hostname
-    wait.until(lambda _: urlsplit(driver.current_url).hostname == portal_host)
-    require_origin(driver, ALDI_OVERVIEW_URL)
+
+    def confirmed_portal_session(_):
+        # Authentication is confirmed by session evidence on the protected portal,
+        # not merely by seeing a redirect host.
+        try:
+            require_origin(driver, ALDI_OVERVIEW_URL)
+        except PermissionError:
+            return False
+        return session_visible(driver)
+
     phase('session_validation')
-    wait.until(session_visible)
+    try:
+        # Give the normal SSO redirect a short chance to finish naturally.
+        WebDriverWait(driver, min(WAIT_TIMEOUT, 8)).until(confirmed_portal_session)
+        return True
+    except TimeoutException:
+        pass
+
+    # A valid SSO session can exist even if the browser remains on the SSO host.
+    # Probe the protected overview exactly once. Navigation is idempotent and does
+    # not resubmit credentials or trigger any booking action.
+    phase('protected_page_probe')
+    navigate(driver, ALDI_OVERVIEW_URL, attempts=1)
+    require_origin(driver, ALDI_OVERVIEW_URL, login_hosts=ALDI_LOGIN_HOSTS)
+    wait.until(confirmed_portal_session)
     return True
 
 
