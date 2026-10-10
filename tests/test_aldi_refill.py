@@ -22,6 +22,18 @@ def test_free_tarif_s_one_gb_is_eligible():
     assert result['tariff_evidence'] == 'TARIF_S'
 
 
+def test_tarif_m_is_supported():
+    result = eligible(page_text='ALDI TALK Tarif M Datenvolumen')
+    assert result['refill_eligible'] is True
+    assert result['tariff_evidence'] == 'TARIF_M'
+
+
+def test_tarif_l_is_supported():
+    result = eligible(page_text='ALDI TALK Tarif L Datenvolumen')
+    assert result['refill_eligible'] is True
+    assert result['tariff_evidence'] == 'TARIF_L'
+
+
 def test_exactly_one_gb_is_still_eligible():
     result = eligible(remaining_gb=1.0)
     assert result['refill_eligible'] is True
