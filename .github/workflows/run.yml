@@ -170,10 +170,10 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          ALDI_SSO_OBSERVE_SECONDS: '120'
-          ALDI_SSO_SAMPLE_SECONDS: '5'
+          ALDI_SSO_OBSERVE_SECONDS: '30'
+          ALDI_SSO_SAMPLE_SECONDS: '2'
           ALDI_SSO_REPORT: aldi-sso-diagnostic.json
-        run: python aldi_sso_diagnostic.py
+        run: python aldi_sso_dom_diagnostic.py
       - name: Preserve sanitized SSO diagnosis
         if: always()
         uses: actions/upload-artifact@v4
