@@ -16,8 +16,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
-from browser_dom import element_label, find_visible_elements
-from monitoring import navigate, require_origin, session_visible
+from browser_dom import element_label, find_visible_elements, rendered_text
+from monitoring import navigate, require_origin
 import watcher
 
 
@@ -63,6 +63,94 @@ def _count_visible(driver, selector):
         return None
 
 
+def _visible_input_shapes(driver):
+    """Return form structure only; never values, names, ids or placeholders."""
+    rows = []
+    try:
+        for element in find_visible_elements(driver, "input,select,textarea")[:12]:
+            rows.append({
+                "tag": (element.tag_name or "").lower(),
+                "type": (element.get_attribute("type") or "").lower()[:24],
+                "autocomplete": (element.get_attribute("autocomplete") or "").lower()[:32],
+                "inputmode": (element.get_attribute("inputmode") or "").lower()[:24],
+                "required": bool(element.get_attribute("required")),
+                "enabled": bool(element.is_enabled()),
+            })
+    except Exception:
+        pass
+    return rows
+
+
+def _iframe_shapes(driver):
+    rows = []
+    try:
+        for frame in driver.find_elements(By.CSS_SELECTOR, "iframe")[:8]:
+            rows.append({
+                "src": safe_url(frame.get_attribute("src") or ""),
+                "visible": bool(frame.is_displayed()),
+            })
+    except Exception:
+        pass
+    return rows
+
+
+def _control_categories(driver):
+    """Classify visible controls using an allowlist; never persist raw labels."""
+    categories = {}
+    rules = {
+        "login": ("anmelden", "einloggen", "login"),
+        "continue": ("weiter", "fortfahren", "continue", "nächste", "naechste"),
+        "confirm": ("bestätigen", "bestaetigen", "confirm", "verifizieren"),
+        "consent": ("zustimmen", "erlauben", "akzeptieren", "accept"),
+        "cancel": ("abbrechen", "zurück", "zurueck", "cancel"),
+        "code": ("code", "otp", "tan", "sms"),
+        "retry": ("erneut", "noch einmal", "wiederholen", "retry"),
+    }
+    try:
+        controls = find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")[:30]
+        for control in controls:
+            try:
+                label = element_label(driver, control).strip().casefold()
+                enabled = bool(control.is_enabled()) and control.get_attribute("aria-disabled") != "true"
+                for category, markers in rules.items():
+                    if any(marker in label for marker in markers):
+                        row = categories.setdefault(category, {"count": 0, "enabled_count": 0})
+                        row["count"] += 1
+                        if enabled:
+                            row["enabled_count"] += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return categories
+
+
+def _page_flags(driver):
+    flags = {
+        "error_text": False,
+        "captcha_text": False,
+        "mfa_text": False,
+        "sms_text": False,
+        "code_text": False,
+        "continue_text": False,
+        "consent_text": False,
+    }
+    try:
+        text = rendered_text(driver).casefold()
+        flags["error_text"] = any(marker in text for marker in (
+            "fehler", "fehlgeschlagen", "ungültig", "ungueltig", "gesperrt", "nicht möglich", "nicht moeglich"
+        ))
+        flags["captcha_text"] = any(marker in text for marker in ("captcha", "ich bin kein roboter", "robot"))
+        flags["mfa_text"] = any(marker in text for marker in ("zwei-faktor", "2-faktor", "2fa", "verifizierung", "sicherheitscode"))
+        flags["sms_text"] = "sms" in text
+        flags["code_text"] = any(marker in text for marker in ("code", "tan", "otp"))
+        flags["continue_text"] = any(marker in text for marker in ("weiter", "fortfahren", "continue"))
+        flags["consent_text"] = any(marker in text for marker in ("zustimmen", "erlauben", "akzeptieren"))
+    except Exception:
+        pass
+    return flags
+
+
 def refill_evidence(driver):
     """Return booleans/counts only; never copy tariff or control text to logs."""
     result = {
@@ -100,6 +188,10 @@ def snapshot(driver, elapsed):
         "password_fields": _count_visible(driver, "input[type='password']"),
         "alert_like_elements": _count_visible(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"),
         "buttons": _count_visible(driver, "button,[role='button'],input[type='submit']"),
+        "input_shapes": _visible_input_shapes(driver),
+        "iframe_shapes": _iframe_shapes(driver),
+        "control_categories": _control_categories(driver),
+        "page_flags": _page_flags(driver),
     }
     snap.update(refill_evidence(driver))
     try:
@@ -163,11 +255,7 @@ def network_summary(driver):
 
 
 def confirmed_portal_session(driver):
-    try:
-        require_origin(driver, watcher.ALDI_OVERVIEW_URL)
-    except PermissionError:
-        return False
-    return session_visible(driver)
+    return watcher.aldi_session_visible(driver)
 
 
 def main():
