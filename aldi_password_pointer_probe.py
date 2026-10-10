@@ -1,16 +1,19 @@
 """Sanitized one-shot ALDI login through the authentication callback ALDI serves.
 
 The browser first obtains ALDI's own stage-loginPage callback object. The probe
-keeps authId and every callback in memory, changes only the NameCallback and
-PasswordCallback input values to the configured secrets, and POSTs that object
-once to the exact same validated ALDI /authenticate URL. No secret, authId,
-token, cookie value, raw body or URL query is written to logs or artifacts.
+keeps authId and every callback in memory, fills only values required by those
+callbacks, and POSTs that object once to the exact same validated ALDI
+/authenticate URL. Name/password come from configured secrets; hidden inputs
+come only from ALDI's corresponding output values; the confirmation choice is
+accepted only when ALDI exposes one unambiguous login/submit option. No secret,
+authId, token, cookie value, raw body or URL query is written to logs/artifacts.
 No booking control is inspected or activated.
 """
 
 import copy
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -128,7 +131,6 @@ def _capture_login_challenge(driver, timeout=15):
             except Exception:
                 continue
 
-        # getResponseBody may become available shortly after responseReceived.
         for request_id, url in list(pending.items()):
             try:
                 body = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id}).get("body", "")
@@ -146,14 +148,44 @@ def _capture_login_challenge(driver, timeout=15):
     return None, None
 
 
-def _set_callback_secret(callback, secret):
+def _single_input(callback):
     inputs = callback.get("input")
     if not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(inputs[0], dict):
         raise RuntimeError("unexpected_callback_input_shape")
     name = inputs[0].get("name")
     if not isinstance(name, str) or not name or len(name) > 80:
         raise RuntimeError("unexpected_callback_input_name")
-    inputs[0]["value"] = secret
+    return inputs[0]
+
+
+def _output_value(callback, name):
+    matches = [
+        item.get("value")
+        for item in callback.get("output", [])
+        if isinstance(item, dict) and item.get("name") == name
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("expected_callback_output_missing")
+    return matches[0]
+
+
+def _confirmation_index(callback):
+    options = _output_value(callback, "options")
+    default = _output_value(callback, "defaultOption")
+    if not isinstance(options, list) or not options or len(options) > 10:
+        raise RuntimeError("confirmation_options_unexpected")
+    candidates = []
+    for index, option in enumerate(options):
+        if not isinstance(option, str):
+            continue
+        normalized = option.strip().casefold()
+        if re.search(r"\b(?:anmelden|login|submit|weiter|bestätigen|bestaetigen)\b", normalized):
+            candidates.append(index)
+    if len(candidates) == 1:
+        return candidates[0], "unique_login_option"
+    if len(options) == 1 and isinstance(default, int) and not isinstance(default, bool) and default == 0:
+        return 0, "single_default_option"
+    raise RuntimeError("confirmation_choice_ambiguous")
 
 
 def _prepare_payload(challenge):
@@ -166,7 +198,13 @@ def _prepare_payload(challenge):
         "NameCallback", "PasswordCallback", "ConfirmationCallback",
         "HiddenValueCallback", "TextOutputCallback",
     }
-    counts = {"NameCallback": 0, "PasswordCallback": 0}
+    counts = {"NameCallback": 0, "PasswordCallback": 0, "ConfirmationCallback": 0}
+    normalization = {
+        "hidden_callbacks": 0,
+        "hidden_values_copied_from_aldi_output": 0,
+        "confirmation_set": False,
+        "confirmation_selection_basis": None,
+    }
     payload_callbacks = copy.deepcopy(callbacks)
     for callback in payload_callbacks:
         if not isinstance(callback, dict):
@@ -176,16 +214,27 @@ def _prepare_payload(challenge):
             raise RuntimeError("unexpected_callback_type")
         if kind == "NameCallback":
             counts[kind] += 1
-            _set_callback_secret(callback, watcher.ALDI_USER)
+            _single_input(callback)["value"] = watcher.ALDI_USER
         elif kind == "PasswordCallback":
             counts[kind] += 1
-            _set_callback_secret(callback, watcher.ALDI_PASS)
-    if counts != {"NameCallback": 1, "PasswordCallback": 1}:
-        raise RuntimeError("credential_callback_count_unexpected")
+            _single_input(callback)["value"] = watcher.ALDI_PASS
+        elif kind == "HiddenValueCallback":
+            normalization["hidden_callbacks"] += 1
+            hidden = _output_value(callback, "value")
+            _single_input(callback)["value"] = hidden
+            normalization["hidden_values_copied_from_aldi_output"] += 1
+        elif kind == "ConfirmationCallback":
+            counts[kind] += 1
+            index, basis = _confirmation_index(callback)
+            _single_input(callback)["value"] = index
+            normalization["confirmation_set"] = True
+            normalization["confirmation_selection_basis"] = basis
+    if counts != {"NameCallback": 1, "PasswordCallback": 1, "ConfirmationCallback": 1}:
+        raise RuntimeError("required_callback_count_unexpected")
     return {
         "authId": challenge["authId"],
         "callbacks": payload_callbacks,
-    }
+    }, normalization
 
 
 def _submit_callback(driver, exact_url, payload):
@@ -223,6 +272,7 @@ def main():
         "outcome": "unknown", "booking_executed": False,
         "challenge_captured": False,
         "challenge_shape": None,
+        "callback_normalization": None,
         "credential_callback_submit_count": 0,
         "credential_response_shape": None,
         "portal_session": False,
@@ -242,8 +292,6 @@ def main():
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
         watcher.dismiss_cookie_banner(driver)
 
-        # Waiting for the rendered login fields also gives ALDI's initial
-        # /authenticate challenge time to finish; no credential is typed here.
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if (find_visible_elements(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']")
@@ -258,7 +306,8 @@ def main():
         report["challenge_captured"] = True
         report["challenge_shape"] = _shape(challenge, 200)
 
-        payload = _prepare_payload(challenge)
+        payload, normalization = _prepare_payload(challenge)
+        report["callback_normalization"] = normalization
         report["credential_callback_submit_count"] = 1
         status, response_obj = _submit_callback(driver, exact_url, payload)
         response_shape = _shape(response_obj, status)
@@ -272,8 +321,6 @@ def main():
             return 2
 
         if response_shape.get("has_token_id"):
-            # Never retain or print the token. Probe the official protected page
-            # once to verify that ALDI set an authenticated browser session.
             navigate(driver, watcher.ALDI_OVERVIEW_URL, attempts=1)
             require_origin(driver, watcher.ALDI_OVERVIEW_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
             session_deadline = time.monotonic() + 15
@@ -303,6 +350,7 @@ def main():
             "outcome": report["outcome"],
             "challenge_captured": report["challenge_captured"],
             "challenge_shape": report["challenge_shape"],
+            "callback_normalization": report["callback_normalization"],
             "credential_callback_submit_count": report["credential_callback_submit_count"],
             "credential_response_shape": report["credential_response_shape"],
             "portal_session": report["portal_session"],
