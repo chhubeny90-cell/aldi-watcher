@@ -12,7 +12,6 @@ import time
 from datetime import datetime, timezone
 from urllib.parse import unquote_plus, urlsplit
 
-from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -52,39 +51,55 @@ def _count(driver, selector):
         return None
 
 
-def _alert_category(driver):
+def _classify_text(text):
+    value = (text or "").casefold()
     result = {
         "invalid_credentials": False,
         "account_locked": False,
         "technical_error": False,
         "required_fields": False,
         "session_error": False,
-        "unknown_alert": False,
+        "unknown_error_text": False,
     }
-    pieces = []
-    try:
-        for element in find_visible_elements(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']")[:8]:
-            text = rendered_text(driver, element).strip().casefold()
-            if text:
-                pieces.append(text)
-    except Exception:
+    if not value:
         return result
-    text = " ".join(pieces)
-    if not text:
-        return result
-    result["invalid_credentials"] = any(x in text for x in (
+    result["invalid_credentials"] = any(x in value for x in (
+        "invalid credential", "incorrect credential", "authentication failed",
+        "username or password", "user name or password", "password incorrect",
         "rufnummer oder passwort", "benutzername oder passwort", "passwort falsch",
         "anmeldedaten", "zugangsdaten", "nicht korrekt", "nicht erkannt",
     ))
-    result["account_locked"] = any(x in text for x in ("gesperrt", "zu viele versuche"))
-    result["technical_error"] = any(x in text for x in (
+    result["account_locked"] = any(x in value for x in (
+        "account locked", "locked account", "too many attempts", "gesperrt", "zu viele versuche",
+    ))
+    result["technical_error"] = any(x in value for x in (
+        "technical error", "temporarily unavailable", "try again later",
         "technischer fehler", "technische störung", "technische stoerung",
         "später erneut", "spaeter erneut", "momentan nicht verfügbar", "momentan nicht verfuegbar",
     ))
-    result["required_fields"] = any(x in text for x in ("pflichtfeld", "erforderlich", "ausfüllen", "ausfuellen"))
-    result["session_error"] = "session" in text and any(x in text for x in ("abgelaufen", "ungültig", "ungueltig"))
-    result["unknown_alert"] = not any(result.values())
+    result["required_fields"] = any(x in value for x in (
+        "required field", "field is required", "pflichtfeld", "erforderlich", "ausfüllen", "ausfuellen",
+    ))
+    result["session_error"] = "session" in value and any(x in value for x in (
+        "expired", "invalid", "abgelaufen", "ungültig", "ungueltig",
+    ))
+    errorish = any(x in value for x in (
+        "error", "failed", "invalid", "incorrect", "fehler", "fehlgeschlagen", "ungültig", "ungueltig",
+    ))
+    result["unknown_error_text"] = errorish and not any(v for k, v in result.items() if k != "unknown_error_text")
     return result
+
+
+def _alert_category(driver):
+    parts = []
+    try:
+        for element in find_visible_elements(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']")[:8]:
+            text = rendered_text(driver, element).strip()
+            if text:
+                parts.append(text)
+    except Exception:
+        return _classify_text("")
+    return _classify_text(" ".join(parts))
 
 
 def snapshot(driver, elapsed):
@@ -92,24 +107,26 @@ def snapshot(driver, elapsed):
         text = rendered_text(driver).casefold()
     except Exception:
         text = ""
+    try:
+        controls = find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
+        login_controls = sum(1 for e in controls if element_label(driver, e).strip().casefold() in {"anmelden", "einloggen", "login"})
+    except Exception:
+        login_controls = None
     return {
         "elapsed_s": round(elapsed, 1),
         "url": safe_url(getattr(driver, "current_url", "")),
         "username_fields": _count(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"),
         "password_fields": _count(driver, "input[type='password']"),
         "alerts": _count(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"),
-        "login_controls": sum(
-            1 for e in (find_visible_elements(driver, "button,a,[role='button'],input[type='submit']") if driver else [])
-            if element_label(driver, e).strip().casefold() in {"anmelden", "einloggen", "login"}
-        ),
-        "error_text": any(x in text for x in ("fehler", "fehlgeschlagen", "ungültig", "ungueltig", "nicht möglich", "nicht moeglich")),
+        "login_controls": login_controls,
+        "error_text": any(x in text for x in ("error", "failed", "invalid", "fehler", "fehlgeschlagen", "ungültig", "ungueltig")),
         "captcha_text": any(x in text for x in ("captcha", "ich bin kein roboter")),
         "mfa_text": any(x in text for x in ("zwei-faktor", "2fa", "sicherheitscode", "verifizierung")),
         "alert_category": _alert_category(driver),
     }
 
 
-def _secret_present(post_data, secret):
+def _contains_secret(post_data, secret):
     if not secret or not post_data:
         return False
     try:
@@ -131,6 +148,42 @@ def _secret_present(post_data, secret):
         return False
 
 
+def _post_data(driver, request_id, request):
+    value = request.get("postData", "") or ""
+    if value:
+        return value
+    try:
+        return driver.execute_cdp_cmd("Network.getRequestPostData", {"requestId": request_id}).get("postData", "") or ""
+    except Exception:
+        return ""
+
+
+def _request_shape(driver, request_id, request):
+    post_data = _post_data(driver, request_id, request)
+    shape = {
+        "post_data_present": bool(post_data),
+        "username_secret_present": _contains_secret(post_data, watcher.ALDI_USER),
+        "password_secret_present": _contains_secret(post_data, watcher.ALDI_PASS),
+        "json_object": False,
+        "top_keys": [],
+        "callback_types": [],
+    }
+    try:
+        obj = json.loads(post_data)
+        if isinstance(obj, dict):
+            shape["json_object"] = True
+            shape["top_keys"] = sorted(str(k)[:64] for k in obj.keys())[:30]
+            callbacks = obj.get("callbacks")
+            if isinstance(callbacks, list):
+                shape["callback_types"] = sorted({
+                    str(cb.get("type"))[:80] for cb in callbacks
+                    if isinstance(cb, dict) and cb.get("type")
+                })[:30]
+    except Exception:
+        pass
+    return shape
+
+
 def _response_shape(driver, request_id, status):
     shape = {
         "status": status,
@@ -141,15 +194,14 @@ def _response_shape(driver, request_id, status):
         "has_token_id": False,
         "has_callbacks": False,
         "callback_types": [],
+        "text_output_category": _classify_text(""),
+        "stage_identifier": None,
         "has_success_url": False,
         "has_failure_url": False,
-        "has_stage": False,
-        "has_message": False,
     }
     try:
-        body_info = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
-        body = body_info.get("body", "")
-        obj = json.loads(body)
+        info = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
+        obj = json.loads(info.get("body", ""))
         shape["body_available"] = True
         shape["json_object"] = isinstance(obj, dict)
         if not isinstance(obj, dict):
@@ -160,22 +212,30 @@ def _response_shape(driver, request_id, status):
         shape["has_callbacks"] = isinstance(obj.get("callbacks"), list)
         shape["has_success_url"] = "successUrl" in obj
         shape["has_failure_url"] = "failureUrl" in obj
-        shape["has_stage"] = "stage" in obj
-        shape["has_message"] = "message" in obj
+        stage = obj.get("stage")
+        if isinstance(stage, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", stage):
+            shape["stage_identifier"] = stage
+        text_outputs = []
         if isinstance(obj.get("callbacks"), list):
-            types = {
-                str(cb.get("type"))[:80]
-                for cb in obj["callbacks"]
-                if isinstance(cb, dict) and cb.get("type")
-            }
-            shape["callback_types"] = sorted(types)[:30]
+            callback_types = set()
+            for cb in obj["callbacks"]:
+                if not isinstance(cb, dict):
+                    continue
+                if cb.get("type"):
+                    callback_types.add(str(cb.get("type"))[:80])
+                if cb.get("type") == "TextOutputCallback":
+                    for output in cb.get("output", []):
+                        if isinstance(output, dict) and isinstance(output.get("value"), str):
+                            text_outputs.append(output["value"])
+            shape["callback_types"] = sorted(callback_types)[:30]
+        shape["text_output_category"] = _classify_text(" ".join(text_outputs))
     except Exception:
         pass
     return shape
 
 
 def drain_network(driver, report, seen):
-    allowed_suffixes = ("alditalk-kundenportal.de", "alditalk-kundenbetreuung.de", "alditalk.de")
+    allowed = ("alditalk-kundenportal.de", "alditalk-kundenbetreuung.de", "alditalk.de")
     try:
         logs = driver.get_log("performance")
     except Exception:
@@ -185,58 +245,49 @@ def drain_network(driver, report, seen):
             msg = json.loads(item.get("message", "{}"))["message"]
             method = msg.get("method")
             params = msg.get("params", {})
+            request_id = params.get("requestId")
             if method == "Network.requestWillBeSent":
                 req = params.get("request", {})
                 safe = safe_url(req.get("url"))
                 host = safe.get("host") or ""
-                if not host.endswith(allowed_suffixes):
+                if not host.endswith(allowed):
                     continue
-                key = ("q", req.get("method"), host, safe.get("path"))
+                key = ("q", request_id)
                 if key not in seen:
                     seen.add(key)
                     report["network"].append({"event": "request", "method": req.get("method"), "url": safe, "resource_type": params.get("type")})
                 if safe.get("path", "").endswith("/authenticate") and req.get("method") == "POST":
-                    post_data = req.get("postData", "")
-                    report["auth_request_shape"] = {
-                        "post_data_present": bool(post_data),
-                        "username_secret_present": _secret_present(post_data, watcher.ALDI_USER),
-                        "password_secret_present": _secret_present(post_data, watcher.ALDI_PASS),
-                    }
+                    report["auth_request_shapes"].append(_request_shape(driver, request_id, req))
             elif method == "Network.responseReceived":
                 resp = params.get("response", {})
                 safe = safe_url(resp.get("url"))
                 host = safe.get("host") or ""
-                if not host.endswith(allowed_suffixes):
+                if not host.endswith(allowed):
                     continue
                 status = resp.get("status")
-                key = ("r", status, host, safe.get("path"))
+                key = ("r", request_id)
                 if key not in seen:
                     seen.add(key)
                     report["network"].append({"event": "response", "status": status, "url": safe, "resource_type": params.get("type")})
                 if safe.get("path", "").endswith("/authenticate"):
-                    report["auth_response_shapes"].append(_response_shape(driver, params.get("requestId"), status))
+                    report["auth_response_shapes"].append(_response_shape(driver, request_id, status))
         except Exception:
             continue
     report["network"] = report["network"][-120:]
+    report["auth_request_shapes"] = report["auth_request_shapes"][-12:]
     report["auth_response_shapes"] = report["auth_response_shapes"][-12:]
 
 
 def main():
     report_path = os.getenv("ALDI_SSO_REPORT", "aldi-sso-diagnostic.json")
     report = {
-        "started_at": utcnow(),
-        "finished_at": None,
-        "booking_executed": False,
-        "login_submit_count": 0,
+        "started_at": utcnow(), "finished_at": None,
+        "booking_executed": False, "login_submit_count": 0,
         "submit_method": "validated_login_control_enter",
         "credential_field_state": None,
-        "auth_request_shape": None,
-        "auth_response_shapes": [],
-        "protected_probe_count": 0,
-        "outcome": "unknown",
-        "samples": [],
-        "network": [],
-        "exception_type": None,
+        "auth_request_shapes": [], "auth_response_shapes": [],
+        "protected_probe_count": 0, "outcome": "unknown",
+        "samples": [], "network": [], "exception_type": None,
     }
     if not watcher.configure_credentials("ALDI"):
         report["outcome"] = "credentials_unavailable"
@@ -260,23 +311,14 @@ def main():
             return items[0] if len(items) == 1 and items[0].is_enabled() else False
 
         user = wait.until(lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']"))
-        user.send_keys(Keys.CONTROL, "a")
-        user.send_keys(Keys.BACKSPACE)
-        user.send_keys(watcher.ALDI_USER)
-        user.send_keys(Keys.TAB)
-
+        user.send_keys(Keys.CONTROL, "a"); user.send_keys(Keys.BACKSPACE); user.send_keys(watcher.ALDI_USER); user.send_keys(Keys.TAB)
         password = wait.until(lambda _: unique_enabled("input[type='password']"))
-        password.send_keys(Keys.CONTROL, "a")
-        password.send_keys(Keys.BACKSPACE)
-        password.send_keys(watcher.ALDI_PASS)
-        password.send_keys(Keys.TAB)
+        password.send_keys(Keys.CONTROL, "a"); password.send_keys(Keys.BACKSPACE); password.send_keys(watcher.ALDI_PASS); password.send_keys(Keys.TAB)
 
         def trusted_submit(_):
-            controls = [
-                e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
-                if element_label(driver, e).strip().casefold() == "anmelden"
-                and e.is_enabled() and e.get_attribute("aria-disabled") != "true"
-            ]
+            controls = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
+                        if element_label(driver, e).strip().casefold() == "anmelden"
+                        and e.is_enabled() and e.get_attribute("aria-disabled") != "true"]
             return controls[0] if len(controls) == 1 else False
 
         submit = wait.until(trusted_submit)
@@ -292,7 +334,6 @@ def main():
         report["login_submit_count"] = 1
         start = time.monotonic()
         protected_probe_done = False
-
         while True:
             elapsed = time.monotonic() - start
             drain_network(driver, report, seen)
@@ -326,16 +367,14 @@ def main():
         print(json.dumps({
             "outcome": report["outcome"],
             "credential_field_state": report["credential_field_state"],
-            "auth_request_shape": report["auth_request_shape"],
+            "auth_request_shapes": report["auth_request_shapes"],
             "auth_response_shapes": report["auth_response_shapes"],
             "last_alert_category": latest.get("alert_category", {}),
             "booking_executed": False,
         }, ensure_ascii=False), flush=True)
         if driver is not None:
-            try:
-                driver.quit()
-            except Exception:
-                pass
+            try: driver.quit()
+            except Exception: pass
     return 0 if report["outcome"] == "portal_session_confirmed" else 2
 
 
