@@ -2,6 +2,7 @@
 aiohttp>=3.9.0
 python-dotenv>=1.0.0
 cryptography>=42.0.0
+requests>=2.32,<3
 
 # Playwright für Lidl Connect
 playwright>=1.40.0

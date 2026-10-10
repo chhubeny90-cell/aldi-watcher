@@ -4,6 +4,10 @@
 
 ## Aktiver Betrieb und Full Run
 
+Ein alternativer browserfreier Login mit Rufnummer und Passwort wird über den
+Workflow **ALDI HTTP Login** geprüft. Details: [HTTP-Login](docs/aldi-http-login.md).
+
+
 Der GitHub-Stundenplan startet stündlich direkt `aldi_live_refill.py` für
 **Profil 1 (Main-Profil)**: einmal anmelden, das aktuelle kostenlose 1-GB-Angebot
 prüfen, einmal nachbuchen und das zusätzliche Volumen kontrollieren. Ein separater
