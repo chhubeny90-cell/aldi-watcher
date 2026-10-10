@@ -9,8 +9,8 @@ den separaten `aldi_live_refill.py` für **nur Profil 1 (Main-Profil)** aus. Der
 Live-Job läuft nur, wenn Tests und Read-only-Vorprüfung erfolgreich waren.
 `AUTO_BOOK_ENABLED=true` gilt ausschließlich in diesem Live-Job. Gebucht wird nur,
 wenn Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
-vorliegt und genau ein aktiviertes Angebot exakt 1 GB sowie ausdrücklich 0 Euro
-ausweist. Bei einem positiven, unklaren oder fehlenden Preis wird nicht geklickt.
+vorliegt (Unlimited oder Tarif S) und genau ein aktiviertes Angebot exakt 1 GB
+sowie ausdrücklich 0 Euro ausweist. Bei einem positiven, unklaren oder fehlenden Preis wird nicht geklickt.
 Der Lauf kann bis zu zwei Gratis-Nachbuchungen je Profil und Durchlauf ausführen.
 Ein manueller `live-refill`-Start nutzt dieselbe Vorprüfung. Es gibt derzeit keinen
 Gmail-Auslöser; der Zeitplan prüft unabhängig von einer E-Mail stündlich. GitHub
@@ -33,6 +33,8 @@ nicht verarbeitet. `LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetr
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
 Der stündliche Read-only- und Live-Refill-Ablauf ist auf Main-Profil 1 begrenzt.
+Tarif S ist nur bei einem explizit kostenlosen 1-GB-Angebot buchbar; der Preis
+der Tarifverlängerung zählt nicht als Preisnachweis für dieses Zusatzangebot.
 
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
