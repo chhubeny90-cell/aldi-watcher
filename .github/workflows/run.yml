@@ -20,7 +20,7 @@ on:
           - live-refill
   schedule:
     # Keep CI alive while live ALDI authentication is paused during credential diagnosis.
-    - cron: '*/10 * * * *'
+    - cron: '0 * * * *'
 
 permissions:
   contents: read
