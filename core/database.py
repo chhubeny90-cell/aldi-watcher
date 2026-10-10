@@ -3,6 +3,8 @@
 import sqlite3
 import os
 import uuid
+import hashlib
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
 from dataclasses import dataclass
@@ -60,6 +62,29 @@ class RechargeLockedError(RuntimeError):
 
 
 class Database:
+    @contextmanager
+    def account_lock(self, provider: str, username: str):
+        """Exclude recovery while a process can still issue a provider request.
+
+        Nonblocking kernel locks are released even by os._exit/SIGKILL. All
+        participating processes must use the same local journal and lock files.
+        Never delete the lock file: doing so would create separate lock inodes.
+        """
+        if os.name != 'posix':
+            raise RuntimeError('Live account locking requires POSIX')
+        import fcntl
+        digest = hashlib.sha256(f'{provider}\0{username}'.encode()).hexdigest()
+        path = self.db_path.with_name(self.db_path.name + '.' + digest + '.lock')
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RechargeLockedError('account_operation_in_progress') from None
+            yield
+        finally:
+            os.close(fd)
+
     def __init__(self, db_path: str = "aldi_watcher.db", timeout: float = 10.0):
         self.db_path = Path(db_path)
         self.timeout = timeout

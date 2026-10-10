@@ -1,3 +1,8 @@
+> **V3.3 safety update:** ALDI live booking is blocked in code until verified
+> per-operation provider reconciliation exists. Scheduled workflow runs perform
+> regression tests only. The proposed durable-journal deployment and remaining
+> activation requirements are documented in `docs/monitoring-recovery.md`.
+
 # aldi-watcher
 
 Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem streng abgesicherten ALDI-Live-Refill.

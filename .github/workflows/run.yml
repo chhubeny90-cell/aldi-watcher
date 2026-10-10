@@ -19,7 +19,7 @@ on:
           - sso-diagnostic
           - live-refill
   schedule:
-    # One direct free-refill attempt per hour for the main profile.
+    # Hourly regression checks only; live booking requires manual opt-in.
     - cron: '0 * * * *'
 
 permissions:
@@ -38,6 +38,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch' || inputs.mode == 'live-refill'))
     runs-on: ubuntu-latest
@@ -110,18 +111,19 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Login, inspect the free offer and book in a single browser session.
+    # Manual opt-in only; no scheduled provider-changing actions until verified
+    # ALDI reconciliation and a persistent runner have been provisioned.
+    needs: test
     if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-        contains(github.event.head_commit.message, '[live-refill]'))
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill' &&
+      vars.ALDI_V33_LIVE_ENABLED == 'true' && vars.ALDI_JOURNAL_PATH != ''
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
         profile: [1]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, aldi-journal]
     timeout-minutes: 12
     concurrency:
       group: aldi-live-refill-profile-${{ matrix.profile }}
@@ -129,6 +131,7 @@ jobs:
     env:
       AUTO_BOOK_ENABLED: 'true'
       ALDI_MAX_REFILLS_PER_RUN: '1'
+      ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
