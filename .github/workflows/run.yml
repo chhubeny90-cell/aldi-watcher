@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: aldi-watcher-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/feature/') }}
 
 jobs:
   # Tests run independently from the scheduled account check.
@@ -29,6 +29,44 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run full test suite
         run: python -m pytest -q
+
+  # Temporary feature-branch diagnostic: one login, no booking, sanitized output.
+  diagnostic:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/aldi-auto-free-1gb'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run sanitized selector probe
+        env:
+          CHROME_BINARY: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
+          AUTO_BOOK_ENABLED: 'false'
+        run: python aldi_selector_probe.py
+      - name: Preserve sanitized selector probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selector-probe-${{ github.run_id }}
+          path: selector-probe.json
+          retention-days: 2
+          if-no-files-found: warn
 
   watch:
     # Account access runs only on explicit manual checks and the cron schedule.
