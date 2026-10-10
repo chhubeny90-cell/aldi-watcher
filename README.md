@@ -9,28 +9,30 @@
 
 ## Aktiver Betrieb und Full Run
 
-Ein alternativer browserfreier Login mit Rufnummer und Passwort wird über den
-Workflow **ALDI HTTP Login** geprüft. Details: [HTTP-Login](docs/aldi-http-login.md).
+Der aktuelle Workflow führt **stündlich nur Regressionstests** aus. Er startet
+dabei weder einen ALDI-Login noch eine Buchung. Ein Read-only-Watch ist separat
+manuell über `workflow_dispatch` mit `watch` oder `all` startbar; auf einem
+Push wird er nur bei `[live-watch]` im Commit ausgelöst.
 
+Der Modus `live-refill` ist ausschließlich manuell auf `main` vorgesehen und
+verlangt zusätzlich `ALDI_V33_LIVE_ENABLED=true`, einen konfigurierten
+`ALDI_JOURNAL_PATH` sowie einen dauerhaften privaten Self-hosted-Linux-Runner
+mit dem Label `aldi-journal`. Der Workflow begrenzt den Lauf auf höchstens
+eine Nachbuchung.
 
-Der GitHub-Stundenplan startet stündlich direkt `aldi_live_refill.py` für
-**Profil 1 (Main-Profil)**: einmal anmelden, das aktuelle kostenlose 1-GB-Angebot
-prüfen, einmal nachbuchen und das zusätzliche Volumen kontrollieren. Ein separater
-Read-only-Vorlauf und die komplette Testsuite sind keine Laufzeitvoraussetzung.
-Tests laufen weiterhin bei Codeänderungen und Pull Requests.
+**Der ALDI-Buchungscode ist trotzdem gesperrt:** `aldi_live_refill.py` setzt
+`ALDI_RECONCILIATION_VERIFIED = False` und beendet den Lauf vor dem Login mit
+`provider_reconciliation_unverified`. Ein echter Buchungserfolg und eine
+eindeutige ALDI-Belegabfrage sind nicht nachgewiesen. Ein manueller Start,
+`AUTO_BOOK_ENABLED=true` oder die interne Zustimmung des Kontoinhabers heben
+diese Sperre nicht auf. Zusätzlich muss EPS den automatisierten Portalzugriff
+ausdrücklich autorisieren; siehe [ALDI-TALK-AGB](https://www.alditalk.de/leistungsbeschreibung),
+Ziffer 10.3 g. Einen Einmal-Lauf kann man dort anfragen, aber er ist nicht
+automatisch von der Autorisierungspflicht ausgenommen.
 
-`AUTO_BOOK_ENABLED=true` gilt ausschließlich im Live-Job. Die Prüfungen im
-Buchungslauf bleiben erhalten: erkannte Sitzung und Restvolumen bis 1 GB,
-Unlimited oder Tarif S, genau ein aktiviertes Angebot für exakt 1 GB mit
-explizitem Preis von 0 Euro beziehungsweise „kostenlos“. Kostenpflichtige oder
-unklare Angebote werden nicht gebucht. Pro Lauf erfolgt höchstens eine Buchung;
-ein unklarer Ausgang wird innerhalb desselben Laufs nicht erneut geklickt.
-
-Ein manueller `live-refill`-Start verwendet denselben direkten Ablauf. Ein
-Main-Commit mit `[live-refill]` startet ebenfalls einen Versuch. Read-only-
-Diagnosen sind separat über `watch` verfügbar. Es gibt derzeit keinen
-Gmail-Auslöser. GitHub kann die stündlichen Starts verzögern; eine erfolgreiche
-Nachbuchung ist erst durch den Live-Bericht belegt.
+Der frühere README-Hinweis auf einen stündlichen Live-Refill und einen
+`[live-refill]`-Push-Auslöser war falsch. Die aktuelle Workflow-Definition ist
+maßgeblich. Details zu offenen Gates: [Monitoring-Recovery](docs/monitoring-recovery.md).
 ```bash
 # Tests: ohne echte Providerzugriffe
 python -m pytest -q
