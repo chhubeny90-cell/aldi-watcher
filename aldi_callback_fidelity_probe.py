@@ -8,27 +8,198 @@ headers from ALDI's own request, and submits exactly one continuation request.
 
 import copy
 import json
+import os
+import re
 import time
-from urllib.parse import urlsplit
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 import watcher
 from browser_dom import find_visible_elements
 from monitoring import navigate, require_origin
-from aldi_password_pointer_probe import (
-    REPORT_PATH,
-    _continuation_url,
-    _has_auth_error,
-    _prepare_payload,
-    _shape,
-    utcnow,
-)
+from aldi_sso_diagnostic import _classify_text
 
+REPORT_PATH = os.getenv("ALDI_PASSWORD_POINTER_REPORT", "aldi-password-pointer.json")
+ALLOWED_AUTH_HOSTS = {"login.alditalk-kundenbetreuung.de"}
 SAFE_HEADER_NAMES = {
     "accept": "Accept",
     "accept-api-version": "Accept-API-Version",
     "content-type": "Content-Type",
     "x-requested-with": "X-Requested-With",
 }
+
+
+def utcnow():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _callback_schema(obj):
+    rows = []
+    for callback in obj.get("callbacks", []) if isinstance(obj, dict) else []:
+        if not isinstance(callback, dict):
+            continue
+        rows.append({
+            "type": str(callback.get("type") or "")[:80],
+            "input_names": [
+                str(item.get("name") or "")[:80]
+                for item in callback.get("input", [])
+                if isinstance(item, dict)
+            ][:12],
+            "output_names": [
+                str(item.get("name") or "")[:80]
+                for item in callback.get("output", [])
+                if isinstance(item, dict)
+            ][:20],
+        })
+    return rows[:30]
+
+
+def _text_output_category(obj):
+    parts = []
+    if isinstance(obj, dict):
+        for callback in obj.get("callbacks", []):
+            if not isinstance(callback, dict) or callback.get("type") != "TextOutputCallback":
+                continue
+            for item in callback.get("output", []):
+                if isinstance(item, dict) and isinstance(item.get("value"), str):
+                    parts.append(item["value"])
+    return _classify_text(" ".join(parts))
+
+
+def _shape(obj, status=None):
+    return {
+        "http_status": status,
+        "json_object": isinstance(obj, dict),
+        "top_keys": sorted(str(k)[:64] for k in obj.keys())[:30] if isinstance(obj, dict) else [],
+        "stage_identifier": (
+            obj.get("stage") if isinstance(obj, dict)
+            and isinstance(obj.get("stage"), str)
+            and len(obj.get("stage")) <= 80 else None
+        ),
+        "has_auth_id": isinstance(obj, dict) and isinstance(obj.get("authId"), str) and bool(obj.get("authId")),
+        "has_token_id": isinstance(obj, dict) and isinstance(obj.get("tokenId"), str) and bool(obj.get("tokenId")),
+        "has_callbacks": isinstance(obj, dict) and isinstance(obj.get("callbacks"), list),
+        "callback_schema": _callback_schema(obj),
+        "text_output_category": _text_output_category(obj),
+        "has_success_url": isinstance(obj, dict) and isinstance(obj.get("successUrl"), str),
+        "has_failure_url": isinstance(obj, dict) and isinstance(obj.get("failureUrl"), str),
+    }
+
+
+def _has_auth_error(shape):
+    category = (shape or {}).get("text_output_category") or {}
+    return any(category.get(key) for key in (
+        "invalid_credentials", "account_locked", "account_deactivated",
+        "technical_error", "required_fields", "session_error", "unknown_error_text",
+    ))
+
+
+def _validated_auth_url(url):
+    try:
+        parsed = urlsplit(url or "")
+        return (parsed.scheme == "https"
+                and parsed.hostname in ALLOWED_AUTH_HOSTS
+                and parsed.path.rstrip("/").endswith("/authenticate"))
+    except Exception:
+        return False
+
+
+def _continuation_url(exact_url):
+    if not _validated_auth_url(exact_url):
+        raise PermissionError("untrusted_auth_url")
+    parsed = urlsplit(exact_url)
+    continuation = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    if not _validated_auth_url(continuation):
+        raise PermissionError("untrusted_continuation_url")
+    return continuation
+
+
+def _single_input(callback):
+    inputs = callback.get("input")
+    if not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(inputs[0], dict):
+        raise RuntimeError("unexpected_callback_input_shape")
+    name = inputs[0].get("name")
+    if not isinstance(name, str) or not name or len(name) > 80:
+        raise RuntimeError("unexpected_callback_input_name")
+    return inputs[0]
+
+
+def _output_value(callback, name):
+    matches = [
+        item.get("value")
+        for item in callback.get("output", [])
+        if isinstance(item, dict) and item.get("name") == name
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("expected_callback_output_missing")
+    return matches[0]
+
+
+def _confirmation_index(callback):
+    options = _output_value(callback, "options")
+    default = _output_value(callback, "defaultOption")
+    if not isinstance(options, list) or not options or len(options) > 10:
+        raise RuntimeError("confirmation_options_unexpected")
+    if (isinstance(default, int) and not isinstance(default, bool)
+            and 0 <= default < len(options)):
+        return default, "aldi_default_option"
+    candidates = []
+    for index, option in enumerate(options):
+        if not isinstance(option, str):
+            continue
+        normalized = option.strip().casefold()
+        if re.search(r"\b(?:anmelden|login|submit|weiter|bestätigen|bestaetigen)\b", normalized):
+            candidates.append(index)
+    if len(candidates) == 1:
+        return candidates[0], "unique_login_option"
+    raise RuntimeError("confirmation_choice_ambiguous")
+
+
+def _prepare_payload(challenge):
+    if not isinstance(challenge, dict) or not isinstance(challenge.get("authId"), str):
+        raise RuntimeError("challenge_missing_auth_id")
+    callbacks = challenge.get("callbacks")
+    if not isinstance(callbacks, list):
+        raise RuntimeError("challenge_missing_callbacks")
+    allowed = {
+        "NameCallback", "PasswordCallback", "ConfirmationCallback",
+        "HiddenValueCallback", "TextOutputCallback",
+    }
+    counts = {"NameCallback": 0, "PasswordCallback": 0, "ConfirmationCallback": 0}
+    normalization = {
+        "hidden_callbacks": 0,
+        "hidden_values_copied_from_aldi_output": 0,
+        "confirmation_set": False,
+        "confirmation_selection_basis": None,
+        "continuation_query_stripped": True,
+        "full_challenge_object_sent": True,
+    }
+    payload_callbacks = copy.deepcopy(callbacks)
+    for callback in payload_callbacks:
+        if not isinstance(callback, dict):
+            raise RuntimeError("unexpected_callback_shape")
+        kind = callback.get("type")
+        if kind not in allowed:
+            raise RuntimeError("unexpected_callback_type")
+        if kind == "NameCallback":
+            counts[kind] += 1
+            _single_input(callback)["value"] = watcher.ALDI_USER
+        elif kind == "PasswordCallback":
+            counts[kind] += 1
+            _single_input(callback)["value"] = watcher.ALDI_PASS
+        elif kind == "HiddenValueCallback":
+            normalization["hidden_callbacks"] += 1
+            _single_input(callback)["value"] = _output_value(callback, "value")
+            normalization["hidden_values_copied_from_aldi_output"] += 1
+        elif kind == "ConfirmationCallback":
+            counts[kind] += 1
+            index, basis = _confirmation_index(callback)
+            _single_input(callback)["value"] = index
+            normalization["confirmation_set"] = True
+            normalization["confirmation_selection_basis"] = basis
+    if counts != {"NameCallback": 1, "PasswordCallback": 1, "ConfirmationCallback": 1}:
+        raise RuntimeError("required_callback_count_unexpected")
+    return payload_callbacks, normalization
 
 
 def _safe_request_headers(headers):
@@ -81,7 +252,6 @@ def _hidden_meta(challenge):
         }
         identifier = outputs.get("id")
         value = outputs.get("value")
-        # Never persist arbitrary values. IDs are reduced to harmless shape only.
         rows.append({
             "id_present": isinstance(identifier, str) and bool(identifier),
             "id_length": len(identifier) if isinstance(identifier, str) else None,
@@ -135,7 +305,7 @@ def _capture_initial(driver, timeout=15):
                     parsed = urlsplit(url)
                     if (request.get("method") == "POST"
                             and parsed.scheme == "https"
-                            and parsed.hostname == "login.alditalk-kundenbetreuung.de"
+                            and parsed.hostname in ALLOWED_AUTH_HOSTS
                             and parsed.path.rstrip("/").endswith("/authenticate")):
                         pending[request_id] = {
                             "url": url,
@@ -248,11 +418,11 @@ def main():
         report["confirmation_meta"] = _confirmation_meta(challenge)
         report["hidden_meta"] = _hidden_meta(challenge)
 
-        prepared, normalization = _prepare_payload(challenge)
+        prepared_callbacks, normalization = _prepare_payload(challenge)
         report["callback_normalization"] = normalization
         report["credential_callback_submit_count"] = 1
         status, response_obj = _submit_full_challenge(
-            driver, initial_info, challenge, prepared["callbacks"]
+            driver, initial_info, challenge, prepared_callbacks
         )
         report["credential_response_shape"] = _shape(response_obj, status)
         report["response_callback_echo"] = _callback_echo(response_obj)
