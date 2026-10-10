@@ -1,0 +1,2 @@
+One controlled read-only SSO diagnostic after adding fixed response categories.
+No booking is enabled by this trigger.
