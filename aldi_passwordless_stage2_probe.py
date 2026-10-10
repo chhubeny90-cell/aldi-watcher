@@ -155,7 +155,7 @@ def main():
         "variant_checks": [],
         "code_requested": False,
         "code_typed": False,
-        "submit_method": "dom_click_after_explicit_enablement",
+        "submit_method": "native_click_after_explicit_enablement",
         "submit_state_before_click": None,
         "field_shapes": [],
         "control_labels": [],
@@ -224,12 +224,12 @@ def main():
             "tag": (submit.tag_name or "")[:16],
             "role": (submit.get_attribute("role") or "")[:24],
         }
-        # This exact Shadow-DOM action is intentionally invoked only after ALDI
-        # itself has removed aria-disabled. One submission maximum per run.
-        driver.execute_script("arguments[0].click();", submit)
+        # Selenium generates a trusted interaction. This is attempted only after
+        # ALDI itself has enabled the exact send-code control; never retry inside
+        # this run if the resulting state is uncertain.
+        submit.click()
         report["code_requested"] = True
 
-        # Observe only the resulting code-entry form. Never enter a code here.
         time.sleep(3)
         WebDriverWait(driver, 10).until(lambda _: len(find_visible_elements(driver, "input")) >= 1)
         report["field_shapes"] = _field_shapes(driver)
@@ -243,6 +243,8 @@ def main():
             "code": any(word in text for word in ("code", "tan", "einmalcode", "bestätigungscode")),
             "resend": any(word in text for word in ("erneut", "noch einmal", "nochmal", "neuen code")),
             "expired": "abgelaufen" in text,
+            "enter_code": any(word in text for word in ("code eingeben", "bestätigungscode eingeben", "bestaetigungscode eingeben")),
+            "code_sent": any(word in text for word in ("code gesendet", "bestätigungscode wurde", "bestaetigungscode wurde", "per sms gesendet")),
         }
         try:
             from urllib.parse import urlsplit
