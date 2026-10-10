@@ -1,2 +1,3 @@
-Trigger precise ALDI auth-shape diagnostic after improving repeated auth event capture.
-Run: 2026-10-10T02:56Z
+Trigger one read-only ALDI live smoke after switching production login to one native click.
+Run: 2026-10-10T03:02Z
+No booking is enabled by this trigger.
