@@ -1,1 +1,2 @@
-One-shot sanitized SSO diagnostic trigger. No credentials or account data stored here.
+Trigger precise ALDI auth-shape diagnostic after improving repeated auth event capture.
+Run: 2026-10-10T02:56Z
