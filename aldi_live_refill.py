@@ -63,9 +63,41 @@ def _action_kind(driver, control):
 
 
 def _trusted_click(driver, control):
+    """Activate exactly one already-validated control with a trusted pointer."""
     require_origin(driver, watcher.ALDI_OVERVIEW_URL)
-    # One DOM click on the exact control returned by the free-offer detector.
-    driver.execute_script("arguments[0].click();", control)
+    if (not control.is_enabled()
+            or control.get_attribute("aria-disabled") == "true"
+            or control.get_attribute("disabled") is not None):
+        raise RuntimeError("validated_control_became_disabled")
+
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block:'center',inline:'center'});", control
+    )
+    time.sleep(0.2)
+    rect = driver.execute_script(
+        "const r=arguments[0].getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};",
+        control,
+    )
+    if not rect or rect.get("w", 0) <= 1 or rect.get("h", 0) <= 1:
+        raise RuntimeError("validated_control_not_rendered")
+    x = float(rect["x"]) + float(rect["w"]) / 2.0
+    y = float(rect["y"]) + float(rect["h"]) / 2.0
+    if x < 0 or y < 0:
+        raise RuntimeError("validated_control_outside_viewport")
+
+    # CDP input events are real browser pointer input. Never fall back to a DOM
+    # click if this fails: an uncertain provider-changing action stays fail-closed.
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mouseMoved", "x": x, "y": y, "button": "none"
+    })
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mousePressed", "x": x, "y": y,
+        "button": "left", "clickCount": 1
+    })
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
+        "type": "mouseReleased", "x": x, "y": y,
+        "button": "left", "clickCount": 1
+    })
 
 
 def main():
