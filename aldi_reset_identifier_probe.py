@@ -1,9 +1,10 @@
 """Validate the configured ALDI login identifier in the password-reset form.
 
 This probe performs no account change. It opens the public password-reset form,
-types only the configured ALDI login identifier, blurs the field, records
-sanitized validity/submit-state booleans and exits without submitting.
-No phone number, password, cookie value, token or reset code is written.
+types only the configured ALDI login identifier into the unique required field,
+blurs it, records sanitized validity/submit-state booleans and exits without
+submitting. No phone number, password, cookie value, token or reset code is
+written.
 """
 
 import json
@@ -47,6 +48,17 @@ def _reset_link(driver):
     return matches[0] if len(matches) == 1 else None
 
 
+def _required_fields(driver):
+    rows = []
+    for field in find_visible_elements(driver, "input,textarea,select"):
+        try:
+            if field.get_attribute("required") is not None:
+                rows.append(field)
+        except Exception:
+            continue
+    return rows
+
+
 def _submit_state(driver):
     rows = []
     for control in find_visible_elements(driver, "button,[role='button'],input[type='submit'],a")[:30]:
@@ -70,7 +82,8 @@ def main():
         "outcome": "unknown",
         "typed_identifier": False,
         "submitted": False,
-        "field_count": 0,
+        "visible_field_count": 0,
+        "required_field_count": 0,
         "field_valid": None,
         "aria_invalid": None,
         "submit_state": None,
@@ -101,15 +114,17 @@ def main():
         link = WebDriverWait(driver, 10).until(lambda _: _reset_link(driver) or False)
         driver.execute_script("arguments[0].click();", link)
 
-        fields = WebDriverWait(driver, 15).until(
-            lambda _: find_visible_elements(driver, "input,textarea,select") or False
+        # During client-side transition both old and new fields can briefly be
+        # visible. The settled reset form has one unique required input.
+        field = WebDriverWait(driver, 15).until(
+            lambda _: (_required_fields(driver)[0]
+                       if len(_required_fields(driver)) == 1 else False)
         )
-        report["field_count"] = len(fields)
-        if len(fields) != 1:
-            report["outcome"] = "reset_field_ambiguous"
-            return 2
+        visible_fields = find_visible_elements(driver, "input,textarea,select")
+        required_fields = _required_fields(driver)
+        report["visible_field_count"] = len(visible_fields)
+        report["required_field_count"] = len(required_fields)
 
-        field = fields[0]
         field.send_keys(Keys.CONTROL, "a")
         field.send_keys(Keys.BACKSPACE)
         field.send_keys(identifier)
@@ -118,7 +133,11 @@ def main():
         time.sleep(1)
 
         try:
-            report["field_valid"] = bool(driver.execute_script("return arguments[0].checkValidity ? arguments[0].checkValidity() : null;", field))
+            validity = driver.execute_script(
+                "return arguments[0].checkValidity ? arguments[0].checkValidity() : null;",
+                field,
+            )
+            report["field_valid"] = None if validity is None else bool(validity)
         except Exception:
             report["field_valid"] = None
         aria_invalid = field.get_attribute("aria-invalid")
