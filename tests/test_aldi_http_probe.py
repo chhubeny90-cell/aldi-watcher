@@ -14,6 +14,8 @@ PASSWORD = 'test-only-password'
 def test_password_login_choice_excludes_sms_and_reset():
     assert login_choice(['custom.resetPassword', 'custom.passwordlessLogin', 'custom.loginButton']) == 2
     assert login_choice(['Anmelden', 'Passwort vergessen', 'Login mit SMS']) == 0
+    assert login_choice(['custom.alditalk.login.cancelButton', 'custom.alditalk.login.sendSms',
+                         'custom.alditalk.login.loginButton']) == 2
 
 
 def test_ambiguous_login_choices_are_not_submitted():

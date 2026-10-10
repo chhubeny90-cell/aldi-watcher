@@ -93,8 +93,8 @@ def login_choice(options):
         return 2
     choices = []
     for index, label in enumerate(options):
-        text = str(label).casefold()
-        if any(word in text for word in ('sms', 'otp', 'tan', 'reset', 'forgot', 'vergessen', 'passwordless')):
+        text = str(label).casefold().rsplit('.', 1)[-1]
+        if any(word in text for word in ('sms', 'otp', 'tan', 'reset', 'forgot', 'vergessen', 'passwordless', 'cancel', 'abbrechen')):
             continue
         if 'login' in text or 'anmelden' in text or 'einloggen' in text:
             choices.append(index)
@@ -205,6 +205,12 @@ class HttpProbe:
         self.report['callback_types'] = sorted({
             cb.get('type') if cb.get('type') in CALLBACKS else 'unsupported'
             for cb in payload.get('callbacks', [])})
+        self.report['confirmation_option_keys'] = [
+            label if isinstance(label, str) and re.fullmatch(r'custom\.[A-Za-z._-]{1,120}', label)
+            else 'public_label_unclassified'
+            for cb in payload.get('callbacks', []) if cb.get('type') == 'ConfirmationCallback'
+            for out in cb.get('output', []) if out.get('name') == 'options'
+            for label in out.get('value', [])]
         payload = fill_callbacks(payload, username, password)
         self.report['phase'] = 'password_submission'
         self.report['credential_submissions'] = 1
