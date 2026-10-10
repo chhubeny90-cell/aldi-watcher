@@ -1,12 +1,17 @@
-"""Fail-closed detection for ALDI TALK's free Unlimited 1-GB refill.
+"""Fail-closed detection for ALDI TALK's repeated free 1-GB refill.
 
 The detector works only inside an already authenticated ALDI customer-area
 session. It never clicks by itself. A live caller receives a control only when
 all of these are simultaneously proven from the rendered page:
-- remaining high-speed volume is below 1 GB,
-- the authenticated page identifies an Unlimited tariff/context,
+- remaining high-speed volume is at most 1 GB,
+- the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
+
+Verified product evidence as of 2026-09-05: ALDI TALK Tarif S states that once
+the initially included data volume is <= 1 GB, 1 GB may be added repeatedly
+and free of charge during the option term. Literal "Unlimited" portal wording
+is retained as an accepted legacy/portal marker, but is no longer required.
 """
 
 import math
@@ -27,6 +32,15 @@ def unavailable(reason):
 
 def _normalise(value):
     return " ".join((value or "").split())
+
+
+def _eligible_tariff(page_text):
+    """Return a sanitized tariff marker only for explicitly verified contexts."""
+    if re.search(r"\bTarif\s*S\b", page_text, re.I):
+        return "TARIF_S"
+    if re.search(r"\bUnlimited\b", page_text, re.I):
+        return "UNLIMITED"
+    return None
 
 
 def _exact_one_gb(text):
@@ -52,10 +66,14 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("remaining_volume_unverified")
     if not math.isfinite(remaining_gb) or remaining_gb < 0:
         return unavailable("remaining_volume_unverified")
-    if remaining_gb >= 1.0:
-        return unavailable("remaining_volume_not_below_one_gb")
-    if not re.search(r"\bUnlimited\b", page_text, re.I):
+    # Verified Tarif S terms use <= 1 GB as the refill threshold.
+    if remaining_gb > 1.0:
+        return unavailable("remaining_volume_above_one_gb")
+
+    tariff = _eligible_tariff(page_text)
+    if tariff is None:
         return unavailable("active_tariff_unverified")
+
     if candidate_count != 1:
         result = unavailable("refill_control_ambiguous")
         result["refill_candidate_count"] = int(candidate_count)
@@ -72,11 +90,15 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("button_unverified")
     if enabled is not True:
         return unavailable("button_disabled")
+
     return {
         "refill_eligible": True,
+        # Keep the existing stable type for compatibility with the old provider
+        # guard; tariff_evidence distinguishes the verified portal context.
         "refill_type": "FREE_UNLIMITED",
         "refill_reason": "free_one_gb_button_available",
         "refill_candidate_count": 1,
+        "tariff_evidence": tariff,
     }
 
 
