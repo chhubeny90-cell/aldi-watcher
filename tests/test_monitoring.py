@@ -83,6 +83,20 @@ def test_click_failure_category_does_not_expose_exception_text():
     assert 'PRIVATE' not in json.dumps(result)
 
 
+@pytest.mark.parametrize('message,expected', [
+    ('unknown error: element is not clickable at point PRIVATE_DOM', 'click_intercepted'),
+    ('unknown error: execution context was destroyed PRIVATE_TOKEN', 'context_detached'),
+    ('unknown error: element has zero size PRIVATE_TOKEN', 'element_not_interactable'),
+    ('disconnected: not connected to DevTools PRIVATE_TOKEN', 'browser_disconnected'),
+])
+def test_plain_webdriver_failure_is_safely_classified(message, expected):
+    result = m.execute_provider('aldi_talk', driver,
+                                Mock(side_effect=WebDriverException(message)), Mock(), 'test')
+    assert result['status'] == 'browser_error'
+    assert result['browser_error_kind'] == expected
+    assert 'PRIVATE' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('explicit_paths', [True, False])
 def test_browser_uses_configured_paths_or_local_discovery(monkeypatch, explicit_paths):
     for name, value in [('CHROME_BINARY', '/opt/chrome/chrome'),
