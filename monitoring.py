@@ -142,6 +142,41 @@ def diagnostics(driver):
     return result
 
 
+def _browser_error_kind(error):
+    """Classify Selenium failures without ever returning raw exception text."""
+    by_class = {
+        'ElementClickInterceptedException': 'click_intercepted',
+        'ElementNotInteractableException': 'element_not_interactable',
+        'StaleElementReferenceException': 'stale_element',
+        'InvalidSessionIdException': 'invalid_browser_session',
+        'JavascriptException': 'javascript_error',
+        'NoSuchWindowException': 'window_unavailable',
+        'NoSuchFrameException': 'frame_unavailable',
+        'UnexpectedAlertPresentException': 'unexpected_alert',
+    }
+    class_name = type(error).__name__
+    if class_name in by_class:
+        return by_class[class_name]
+
+    # Some ChromeDriver conditions arrive as plain WebDriverException. Inspect the
+    # message only to choose a fixed enum; never copy any source text to reports.
+    message = str(error).casefold()
+    signatures = (
+        ('click_intercepted', ('not clickable at point', 'other element would receive the click')),
+        ('element_not_interactable', ('element not interactable', 'element has zero size')),
+        ('stale_element', ('stale element', 'element is not attached')),
+        ('context_detached', ('execution context was destroyed', 'cannot find context with specified id',
+                              'target frame detached', 'frame was detached')),
+        ('window_unavailable', ('no such window', 'web view not found')),
+        ('browser_disconnected', ('not connected to devtools', 'disconnected:', 'tab crashed')),
+        ('javascript_error', ('javascript error', 'runtime.callfunctionon threw')),
+    )
+    for category, markers in signatures:
+        if any(marker in message for marker in markers):
+            return category
+    return 'webdriver_error'
+
+
 def execute_provider(name, factory, login, read, run_id):
     from selenium.common.exceptions import TimeoutException, WebDriverException
     started = time.monotonic()
@@ -186,15 +221,8 @@ def execute_provider(name, factory, login, read, run_id):
     except TimeoutException:
         result.update(status='timeout', message='Zeitlimit in protokollierter Phase erreicht')
     except WebDriverException as error:
-        # Fixed categories only: exception messages can contain private DOM data.
-        categories = {
-            'ElementClickInterceptedException': 'click_intercepted',
-            'ElementNotInteractableException': 'element_not_interactable',
-            'StaleElementReferenceException': 'stale_element',
-            'InvalidSessionIdException': 'invalid_browser_session',
-        }
         result.update(status='browser_error', message='Browser- oder Navigationsfehler',
-                      browser_error_kind=categories.get(type(error).__name__, 'webdriver_error'))
+                      browser_error_kind=_browser_error_kind(error))
     except PermissionError:
         result.update(login_ok=False, status='auth_failed', message='Session oder Portal-Domain nicht validiert')
     except ValueError:
