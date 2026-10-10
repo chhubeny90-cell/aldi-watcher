@@ -94,11 +94,45 @@ def test_conflicting_terms_are_rejected_even_with_zero_price():
     assert result['refill_reason'] == 'conflicting_terms'
 
 
-def test_ordinary_tarif_names_do_not_authorize_refill():
-    for size in ('S', 'M', 'L'):
+def test_ordinary_tarif_m_and_l_do_not_authorize_refill():
+    for size in ('M', 'L'):
         result = eligible(page_text=f'ALDI TALK Tarif {size}')
         assert result['refill_eligible'] is False
         assert result['refill_reason'] == 'active_tariff_unverified'
+
+
+def test_tarif_s_with_explicit_free_one_gb_offer_is_eligible():
+    result = eligible(
+        page_text='Übersicht Tarif S',
+        active_tariff_text='Tarif S',
+        offer_text='1 GB Highspeed-Datenvolumen kostenlos nachbuchen 0,00 €',
+        button_text='+1 GB',
+    )
+    assert result['refill_eligible'] is True
+    assert result['refill_type'] == 'FREE_TARIF_S'
+    assert result['tariff_evidence'] == 'TARIF_S'
+
+
+def test_tarif_s_without_explicit_free_price_is_rejected():
+    result = eligible(
+        page_text='Tarif S',
+        active_tariff_text='Tarif S',
+        offer_text='+1 GB Highspeed-Datenvolumen nachbuchen',
+        button_text='+1 GB',
+    )
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_tarif_s_paid_one_gb_offer_is_rejected():
+    result = eligible(
+        page_text='Tarif S',
+        active_tariff_text='Tarif S',
+        offer_text='1 GB Highspeed-Datenvolumen nachbuchen 0,99 €',
+        button_text='+1 GB',
+    )
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
 def test_annual_tariff_and_generic_unlimited_hint_are_rejected():
@@ -139,8 +173,8 @@ def test_multiple_unlimited_tariff_headings_are_ambiguous():
     result = eligible(active_tariff_text='Tarif S Unlimited\nTarif M Unlimited')
     assert result['refill_eligible'] is False
 
-def test_refill_heading_is_not_active_tariff_evidence():
-    result = eligible(active_tariff_text="Tarif S\nUnlimited GB nachbuchen")
+def test_refill_heading_alone_is_not_active_tariff_evidence():
+    result = eligible(active_tariff_text="Unlimited GB nachbuchen")
     assert result["refill_eligible"] is False
     assert result["refill_reason"] == "active_tariff_unverified"
 
