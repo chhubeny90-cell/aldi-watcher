@@ -18,11 +18,8 @@ on:
           - public-probe
           - sso-diagnostic
   schedule:
-    # Main read-only watcher cadence.
+    # Keep CI alive while live ALDI authentication is paused during credential diagnosis.
     - cron: '*/10 * * * *'
-    # Temporary SSO observation cadence. The job itself stops attempting
-    # logins after the bounded diagnostic window below.
-    - cron: '7,37 * * * *'
 
 permissions:
   contents: read
@@ -32,8 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Workflow-level hard guard. Production booking is still separately guarded
-  # in provider code until the free 1-GB flow is verified end-to-end.
+  # Production booking remains disabled until authenticated free-1GB flow is verified end-to-end.
   AUTO_BOOK_ENABLED: 'false'
 
 jobs:
@@ -43,7 +39,7 @@ jobs:
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch')) ||
-      (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *')
+      github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -58,8 +54,9 @@ jobs:
         run: python -m pytest -q
 
   watch:
+    # Live authentication is intentionally manual/tag-triggered while the current
+    # ALDI login identifier is being diagnosed. This prevents repeated lockouts.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'watch')) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
@@ -142,7 +139,6 @@ jobs:
 
   sso_diagnostic:
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'sso-diagnostic')) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
@@ -150,37 +146,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Check bounded diagnostic window
-        id: window
-        shell: bash
-        run: |
-          now="$(date -u +%s)"
-          end="$(date -u -d '2026-10-11T01:45:00Z' +%s)"
-          if [ "$now" -le "$end" ]; then
-            echo "active=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "active=false" >> "$GITHUB_OUTPUT"
-            echo "24-hour SSO diagnostic window finished; no login attempted."
-          fi
       - uses: actions/checkout@v4
-        if: steps.window.outputs.active == 'true'
       - uses: actions/setup-python@v5
-        if: steps.window.outputs.active == 'true'
         with:
           python-version: '3.11'
           cache: pip
       - name: Install Chrome
-        if: steps.window.outputs.active == 'true'
         id: chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
           install-chromedriver: true
       - name: Install dependencies
-        if: steps.window.outputs.active == 'true'
         run: pip install -r requirements.txt
       - name: Run one sanitized SSO observation
-        if: steps.window.outputs.active == 'true'
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
@@ -194,7 +173,7 @@ jobs:
           ALDI_SSO_REPORT: aldi-sso-diagnostic.json
         run: python aldi_sso_diagnostic.py
       - name: Preserve sanitized SSO diagnosis
-        if: steps.window.outputs.active == 'true' && always()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aldi-sso-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
