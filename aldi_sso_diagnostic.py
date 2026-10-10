@@ -1,9 +1,8 @@
-"""Collect sanitized ALDI SSO diagnostics without booking anything.
+"""Sanitized ALDI SSO diagnostic.
 
-The probe performs exactly one login submission and then observes the browser
-state for a bounded period. It never clicks or activates any refill control.
-Secrets, field values, cookie values, query strings and fragments are never
-written to the report.
+Exactly one login submission is performed. No refill control is activated.
+The report stores structure/booleans only: never credentials, field values,
+cookie values, query strings, tokens, or raw response bodies.
 """
 
 import json
@@ -11,6 +10,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from urllib.parse import unquote_plus, urlsplit
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -21,8 +21,8 @@ from monitoring import navigate, require_origin
 import watcher
 
 
-OBSERVE_SECONDS = int(os.getenv("ALDI_SSO_OBSERVE_SECONDS", "120"))
-SAMPLE_SECONDS = max(2, int(os.getenv("ALDI_SSO_SAMPLE_SECONDS", "5")))
+OBSERVE_SECONDS = int(os.getenv("ALDI_SSO_OBSERVE_SECONDS", "45"))
+SAMPLE_SECONDS = max(2, int(os.getenv("ALDI_SSO_SAMPLE_SECONDS", "3")))
 PROBE_AFTER_SECONDS = max(5, int(os.getenv("ALDI_SSO_PROBE_AFTER_SECONDS", "15")))
 
 
@@ -30,126 +30,29 @@ def utcnow():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _scrub_path(path):
-    parts = []
-    for part in (path or "/").split("/"):
-        if not part:
-            parts.append("")
-            continue
-        if len(part) > 40 or re.fullmatch(r"[A-Fa-f0-9]{24,}", part) or re.fullmatch(r"[A-Za-z0-9_-]{48,}", part):
-            parts.append(":opaque")
-        else:
-            parts.append(part[:80])
-    return "/".join(parts) or "/"
-
-
 def safe_url(url):
     try:
-        from urllib.parse import urlsplit
         parsed = urlsplit(url or "")
-        return {
-            "scheme": parsed.scheme,
-            "host": parsed.hostname,
-            "path": _scrub_path(parsed.path),
-        }
+        path = parsed.path or "/"
+        clean = []
+        for part in path.split("/"):
+            if len(part) > 40 or re.fullmatch(r"[A-Fa-f0-9]{24,}", part or "") or re.fullmatch(r"[A-Za-z0-9_-]{48,}", part or ""):
+                clean.append(":opaque")
+            else:
+                clean.append(part[:80])
+        return {"scheme": parsed.scheme, "host": parsed.hostname, "path": "/".join(clean) or "/"}
     except Exception:
         return {"scheme": None, "host": None, "path": None}
 
 
-def _count_visible(driver, selector):
+def _count(driver, selector):
     try:
         return len(find_visible_elements(driver, selector))
     except Exception:
         return None
 
 
-def _visible_input_shapes(driver):
-    rows = []
-    try:
-        for element in find_visible_elements(driver, "input,select,textarea")[:12]:
-            rows.append({
-                "tag": (element.tag_name or "").lower(),
-                "type": (element.get_attribute("type") or "").lower()[:24],
-                "autocomplete": (element.get_attribute("autocomplete") or "").lower()[:32],
-                "inputmode": (element.get_attribute("inputmode") or "").lower()[:24],
-                "required": bool(element.get_attribute("required")),
-                "enabled": bool(element.is_enabled()),
-            })
-    except Exception:
-        pass
-    return rows
-
-
-def _iframe_shapes(driver):
-    rows = []
-    try:
-        for frame in driver.find_elements(By.CSS_SELECTOR, "iframe")[:8]:
-            rows.append({
-                "src": safe_url(frame.get_attribute("src") or ""),
-                "visible": bool(frame.is_displayed()),
-            })
-    except Exception:
-        pass
-    return rows
-
-
-def _control_categories(driver):
-    categories = {}
-    rules = {
-        "login": ("anmelden", "einloggen", "login"),
-        "continue": ("weiter", "fortfahren", "continue", "nächste", "naechste"),
-        "confirm": ("bestätigen", "bestaetigen", "confirm", "verifizieren"),
-        "consent": ("zustimmen", "erlauben", "akzeptieren", "accept"),
-        "cancel": ("abbrechen", "zurück", "zurueck", "cancel"),
-        "code": ("code", "otp", "tan", "sms"),
-        "retry": ("erneut", "noch einmal", "wiederholen", "retry"),
-    }
-    try:
-        controls = find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")[:30]
-        for control in controls:
-            try:
-                label = element_label(driver, control).strip().casefold()
-                enabled = bool(control.is_enabled()) and control.get_attribute("aria-disabled") != "true"
-                for category, markers in rules.items():
-                    if any(marker in label for marker in markers):
-                        row = categories.setdefault(category, {"count": 0, "enabled_count": 0})
-                        row["count"] += 1
-                        if enabled:
-                            row["enabled_count"] += 1
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return categories
-
-
-def _page_flags(driver):
-    flags = {
-        "error_text": False,
-        "captcha_text": False,
-        "mfa_text": False,
-        "sms_text": False,
-        "code_text": False,
-        "continue_text": False,
-        "consent_text": False,
-    }
-    try:
-        text = rendered_text(driver).casefold()
-        flags["error_text"] = any(marker in text for marker in (
-            "fehler", "fehlgeschlagen", "ungültig", "ungueltig", "gesperrt", "nicht möglich", "nicht moeglich"
-        ))
-        flags["captcha_text"] = any(marker in text for marker in ("captcha", "ich bin kein roboter", "robot"))
-        flags["mfa_text"] = any(marker in text for marker in ("zwei-faktor", "2-faktor", "2fa", "verifizierung", "sicherheitscode"))
-        flags["sms_text"] = "sms" in text
-        flags["code_text"] = any(marker in text for marker in ("code", "tan", "otp"))
-        flags["continue_text"] = any(marker in text for marker in ("weiter", "fortfahren", "continue"))
-        flags["consent_text"] = any(marker in text for marker in ("zustimmen", "erlauben", "akzeptieren"))
-    except Exception:
-        pass
-    return flags
-
-
-def _alert_categories(driver):
+def _alert_category(driver):
     result = {
         "invalid_credentials": False,
         "account_locked": False,
@@ -158,139 +61,164 @@ def _alert_categories(driver):
         "session_error": False,
         "unknown_alert": False,
     }
-    parts = []
+    pieces = []
     try:
         for element in find_visible_elements(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']")[:8]:
             text = rendered_text(driver, element).strip().casefold()
             if text:
-                parts.append(text)
+                pieces.append(text)
     except Exception:
         return result
-    text = " ".join(parts)
+    text = " ".join(pieces)
     if not text:
         return result
-
-    result["invalid_credentials"] = any(marker in text for marker in (
+    result["invalid_credentials"] = any(x in text for x in (
         "rufnummer oder passwort", "benutzername oder passwort", "passwort falsch",
-        "passwort ist falsch", "anmeldedaten", "nicht korrekt", "ungültige zugangsdaten",
-        "ungueltige zugangsdaten"
+        "anmeldedaten", "zugangsdaten", "nicht korrekt", "nicht erkannt",
     ))
-    result["account_locked"] = any(marker in text for marker in ("gesperrt", "zu viele versuche"))
-    result["technical_error"] = any(marker in text for marker in (
-        "technischer fehler", "technische störung", "technische stoerung", "später erneut",
-        "spaeter erneut", "momentan nicht verfügbar", "momentan nicht verfuegbar"
+    result["account_locked"] = any(x in text for x in ("gesperrt", "zu viele versuche"))
+    result["technical_error"] = any(x in text for x in (
+        "technischer fehler", "technische störung", "technische stoerung",
+        "später erneut", "spaeter erneut", "momentan nicht verfügbar", "momentan nicht verfuegbar",
     ))
-    result["required_fields"] = any(marker in text for marker in ("pflichtfeld", "erforderlich", "ausfüllen", "ausfuellen"))
-    result["session_error"] = "session" in text and any(marker in text for marker in ("abgelaufen", "ungültig", "ungueltig"))
+    result["required_fields"] = any(x in text for x in ("pflichtfeld", "erforderlich", "ausfüllen", "ausfuellen"))
+    result["session_error"] = "session" in text and any(x in text for x in ("abgelaufen", "ungültig", "ungueltig"))
     result["unknown_alert"] = not any(result.values())
     return result
 
 
-def refill_evidence(driver):
-    result = {
-        "unlimited_detected": False,
-        "free_one_gb_control_count": 0,
-    }
-    try:
-        body_text = driver.find_element(By.TAG_NAME, "body").text.casefold()
-        result["unlimited_detected"] = "unlimited" in body_text
-
-        matches = []
-        for control in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']"):
-            try:
-                label = element_label(driver, control).strip().casefold()
-                exactly_one_gb = bool(re.search(r"(?<![\d.,])1(?:[.,]0+)?\s*gb\b", label))
-                free_price = any(marker in label for marker in (
-                    "kostenlos", "0 €", "0,00 €", "0.00 €", "0,- €", "0,-"
-                ))
-                enabled = control.is_enabled() and control.get_attribute("aria-disabled") != "true"
-                if exactly_one_gb and free_price and enabled:
-                    matches.append(control)
-            except Exception:
-                continue
-        result["free_one_gb_control_count"] = len(matches)
-    except Exception:
-        pass
-    return result
-
-
 def snapshot(driver, elapsed):
-    snap = {
+    try:
+        text = rendered_text(driver).casefold()
+    except Exception:
+        text = ""
+    return {
         "elapsed_s": round(elapsed, 1),
         "url": safe_url(getattr(driver, "current_url", "")),
-        "username_fields": _count_visible(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"),
-        "password_fields": _count_visible(driver, "input[type='password']"),
-        "alert_like_elements": _count_visible(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"),
-        "buttons": _count_visible(driver, "button,[role='button'],input[type='submit']"),
-        "input_shapes": _visible_input_shapes(driver),
-        "iframe_shapes": _iframe_shapes(driver),
-        "control_categories": _control_categories(driver),
-        "page_flags": _page_flags(driver),
-        "alert_categories": _alert_categories(driver),
+        "username_fields": _count(driver, "input[autocomplete='username'],input[type='tel'],input[type='text']"),
+        "password_fields": _count(driver, "input[type='password']"),
+        "alerts": _count(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']"),
+        "login_controls": sum(
+            1 for e in (find_visible_elements(driver, "button,a,[role='button'],input[type='submit']") if driver else [])
+            if element_label(driver, e).strip().casefold() in {"anmelden", "einloggen", "login"}
+        ),
+        "error_text": any(x in text for x in ("fehler", "fehlgeschlagen", "ungültig", "ungueltig", "nicht möglich", "nicht moeglich")),
+        "captcha_text": any(x in text for x in ("captcha", "ich bin kein roboter")),
+        "mfa_text": any(x in text for x in ("zwei-faktor", "2fa", "sicherheitscode", "verifizierung")),
+        "alert_category": _alert_category(driver),
     }
-    snap.update(refill_evidence(driver))
+
+
+def _secret_present(post_data, secret):
+    if not secret or not post_data:
+        return False
     try:
-        snap["ready_state"] = driver.execute_script("return document.readyState")
+        obj = json.loads(post_data)
+        stack = [obj]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                stack.extend(item.values())
+            elif isinstance(item, list):
+                stack.extend(item)
+            elif isinstance(item, str) and item == secret:
+                return True
     except Exception:
-        snap["ready_state"] = None
-    return snap
+        pass
+    try:
+        return secret in post_data or secret in unquote_plus(post_data)
+    except Exception:
+        return False
 
 
-def network_summary(driver):
-    rows = []
-    seen = set()
+def _response_shape(driver, request_id, status):
+    shape = {
+        "status": status,
+        "body_available": False,
+        "json_object": False,
+        "top_keys": [],
+        "has_auth_id": False,
+        "has_token_id": False,
+        "has_callbacks": False,
+        "callback_types": [],
+        "has_success_url": False,
+        "has_failure_url": False,
+        "has_stage": False,
+        "has_message": False,
+    }
+    try:
+        body_info = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
+        body = body_info.get("body", "")
+        obj = json.loads(body)
+        shape["body_available"] = True
+        shape["json_object"] = isinstance(obj, dict)
+        if not isinstance(obj, dict):
+            return shape
+        shape["top_keys"] = sorted(str(k)[:64] for k in obj.keys())[:40]
+        shape["has_auth_id"] = "authId" in obj
+        shape["has_token_id"] = "tokenId" in obj
+        shape["has_callbacks"] = isinstance(obj.get("callbacks"), list)
+        shape["has_success_url"] = "successUrl" in obj
+        shape["has_failure_url"] = "failureUrl" in obj
+        shape["has_stage"] = "stage" in obj
+        shape["has_message"] = "message" in obj
+        if isinstance(obj.get("callbacks"), list):
+            types = {
+                str(cb.get("type"))[:80]
+                for cb in obj["callbacks"]
+                if isinstance(cb, dict) and cb.get("type")
+            }
+            shape["callback_types"] = sorted(types)[:30]
+    except Exception:
+        pass
+    return shape
+
+
+def drain_network(driver, report, seen):
+    allowed_suffixes = ("alditalk-kundenportal.de", "alditalk-kundenbetreuung.de", "alditalk.de")
     try:
         logs = driver.get_log("performance")
     except Exception:
-        return rows
-
-    allowed_suffixes = (
-        "alditalk-kundenportal.de",
-        "alditalk-kundenbetreuung.de",
-        "alditalk.de",
-    )
+        return
     for item in logs:
         try:
-            message = json.loads(item.get("message", "{}"))["message"]
-            method = message.get("method")
-            params = message.get("params", {})
+            msg = json.loads(item.get("message", "{}"))["message"]
+            method = msg.get("method")
+            params = msg.get("params", {})
             if method == "Network.requestWillBeSent":
                 req = params.get("request", {})
                 safe = safe_url(req.get("url"))
                 host = safe.get("host") or ""
                 if not host.endswith(allowed_suffixes):
                     continue
-                row = {
-                    "event": "request",
-                    "method": req.get("method"),
-                    "url": safe,
-                    "resource_type": params.get("type"),
-                }
+                key = ("q", req.get("method"), host, safe.get("path"))
+                if key not in seen:
+                    seen.add(key)
+                    report["network"].append({"event": "request", "method": req.get("method"), "url": safe, "resource_type": params.get("type")})
+                if safe.get("path", "").endswith("/authenticate") and req.get("method") == "POST":
+                    post_data = req.get("postData", "")
+                    report["auth_request_shape"] = {
+                        "post_data_present": bool(post_data),
+                        "username_secret_present": _secret_present(post_data, watcher.ALDI_USER),
+                        "password_secret_present": _secret_present(post_data, watcher.ALDI_PASS),
+                    }
             elif method == "Network.responseReceived":
                 resp = params.get("response", {})
                 safe = safe_url(resp.get("url"))
                 host = safe.get("host") or ""
                 if not host.endswith(allowed_suffixes):
                     continue
-                row = {
-                    "event": "response",
-                    "status": resp.get("status"),
-                    "url": safe,
-                    "resource_type": params.get("type"),
-                }
-            else:
-                continue
-            key = json.dumps(row, sort_keys=True)
-            if key not in seen:
-                seen.add(key)
-                rows.append(row)
+                status = resp.get("status")
+                key = ("r", status, host, safe.get("path"))
+                if key not in seen:
+                    seen.add(key)
+                    report["network"].append({"event": "response", "status": status, "url": safe, "resource_type": params.get("type")})
+                if safe.get("path", "").endswith("/authenticate"):
+                    report["auth_response_shapes"].append(_response_shape(driver, params.get("requestId"), status))
         except Exception:
             continue
-    return rows[-120:]
-
-
-def confirmed_portal_session(driver):
-    return watcher.aldi_session_visible(driver)
+    report["network"] = report["network"][-120:]
+    report["auth_response_shapes"] = report["auth_response_shapes"][-12:]
 
 
 def main():
@@ -302,13 +230,14 @@ def main():
         "login_submit_count": 0,
         "submit_method": "validated_login_control_enter",
         "credential_field_state": None,
+        "auth_request_shape": None,
+        "auth_response_shapes": [],
         "protected_probe_count": 0,
         "outcome": "unknown",
         "samples": [],
         "network": [],
         "exception_type": None,
     }
-
     if not watcher.configure_credentials("ALDI"):
         report["outcome"] = "credentials_unavailable"
         report["finished_at"] = utcnow()
@@ -317,9 +246,9 @@ def main():
         return 3
 
     driver = None
+    seen = set()
     try:
         driver = watcher.build_driver()
-        watcher.WAIT_TIMEOUT = max(watcher.WAIT_TIMEOUT, 30)
         navigate(driver, watcher.ALDI_LOGIN_URL)
         require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
         watcher.dismiss_cookie_banner(driver)
@@ -327,8 +256,8 @@ def main():
 
         def unique_enabled(selector):
             require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
-            elements = find_visible_elements(driver, selector)
-            return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
+            items = find_visible_elements(driver, selector)
+            return items[0] if len(items) == 1 and items[0].is_enabled() else False
 
         user = wait.until(lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']"))
         user.send_keys(Keys.CONTROL, "a")
@@ -343,7 +272,6 @@ def main():
         password.send_keys(Keys.TAB)
 
         def trusted_submit(_):
-            require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
             controls = [
                 e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
                 if element_label(driver, e).strip().casefold() == "anmelden"
@@ -352,52 +280,44 @@ def main():
             return controls[0] if len(controls) == 1 else False
 
         submit = wait.until(trusted_submit)
-        password = wait.until(lambda _: unique_enabled("input[type='password']"))
         user = wait.until(lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']"))
+        password = wait.until(lambda _: unique_enabled("input[type='password']"))
         report["credential_field_state"] = {
             "username_matches_secret": user.get_attribute("value") == watcher.ALDI_USER,
             "password_matches_secret": password.get_attribute("value") == watcher.ALDI_PASS,
             "submit_enabled": bool(submit.is_enabled()) and submit.get_attribute("aria-disabled") != "true",
         }
 
-        # Match the production watcher: exactly one trusted login-control submit.
         submit.send_keys(Keys.ENTER)
         report["login_submit_count"] = 1
-
         start = time.monotonic()
         protected_probe_done = False
+
         while True:
             elapsed = time.monotonic() - start
+            drain_network(driver, report, seen)
             report["samples"].append(snapshot(driver, elapsed))
-
-            if confirmed_portal_session(driver):
+            if watcher.aldi_session_visible(driver):
                 report["outcome"] = "portal_session_confirmed"
                 break
-
             if not protected_probe_done and elapsed >= PROBE_AFTER_SECONDS:
                 protected_probe_done = True
                 report["protected_probe_count"] = 1
                 navigate(driver, watcher.ALDI_OVERVIEW_URL, attempts=1)
-                report["samples"].append(snapshot(driver, time.monotonic() - start))
-                if confirmed_portal_session(driver):
+                drain_network(driver, report, seen)
+                if watcher.aldi_session_visible(driver):
                     report["outcome"] = "portal_session_confirmed"
                     break
-
             if elapsed >= OBSERVE_SECONDS:
                 report["outcome"] = "sso_timeout"
                 break
             time.sleep(SAMPLE_SECONDS)
-
-        report["network"] = network_summary(driver)
+        drain_network(driver, report, seen)
     except Exception as exc:
         report["outcome"] = "exception"
         report["exception_type"] = type(exc).__name__
         if driver is not None:
-            try:
-                report["samples"].append(snapshot(driver, -1))
-                report["network"] = network_summary(driver)
-            except Exception:
-                pass
+            drain_network(driver, report, seen)
     finally:
         report["finished_at"] = utcnow()
         with open(report_path, "w", encoding="utf-8") as fh:
@@ -405,14 +325,10 @@ def main():
         latest = report["samples"][-1] if report["samples"] else {}
         print(json.dumps({
             "outcome": report["outcome"],
-            "login_submit_count": report["login_submit_count"],
-            "protected_probe_count": report["protected_probe_count"],
-            "sample_count": len(report["samples"]),
-            "network_event_count": len(report["network"]),
             "credential_field_state": report["credential_field_state"],
-            "alert_categories": latest.get("alert_categories", {}),
-            "unlimited_detected": bool(latest.get("unlimited_detected")),
-            "free_one_gb_control_count": int(latest.get("free_one_gb_control_count") or 0),
+            "auth_request_shape": report["auth_request_shape"],
+            "auth_response_shapes": report["auth_response_shapes"],
+            "last_alert_category": latest.get("alert_category", {}),
             "booking_executed": False,
         }, ensure_ascii=False), flush=True)
         if driver is not None:
@@ -420,7 +336,6 @@ def main():
                 driver.quit()
             except Exception:
                 pass
-
     return 0 if report["outcome"] == "portal_session_confirmed" else 2
 
 
