@@ -171,8 +171,10 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # Exactly one trusted login submission. Never retry an uncertain submit.
-    button.send_keys(Keys.ENTER)
+    # Exactly one native click on the trusted ALDI login control. Do not retry an
+    # uncertain click; the client-side app needs a real click event to advance its
+    # authentication callback chain.
+    button.click()
 
     def confirmed_portal_session(_):
         return aldi_session_visible(driver)
