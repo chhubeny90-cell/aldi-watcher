@@ -4,17 +4,24 @@
 
 ## Aktiver Betrieb und Full Run
 
-Der GitHub-Stundenplan führt stündlich zuerst den Read-only-Watcher und danach
-den separaten `aldi_live_refill.py` für **nur Profil 1 (Main-Profil)** aus. Der
-Live-Job läuft nur, wenn Tests und Read-only-Vorprüfung erfolgreich waren.
-`AUTO_BOOK_ENABLED=true` gilt ausschließlich in diesem Live-Job. Gebucht wird nur,
-wenn Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
-vorliegt (Unlimited oder Tarif S) und genau ein aktiviertes Angebot exakt 1 GB
-sowie ausdrücklich 0 Euro ausweist. Bei einem positiven, unklaren oder fehlenden Preis wird nicht geklickt.
-Der Lauf kann bis zu zwei Gratis-Nachbuchungen je Profil und Durchlauf ausführen.
-Ein manueller `live-refill`-Start nutzt dieselbe Vorprüfung. Es gibt derzeit keinen
-Gmail-Auslöser; der Zeitplan prüft unabhängig von einer E-Mail stündlich. GitHub
-kann Starts verzögern; ein grüner Testlauf ist kein Live-Nachweis.
+Der GitHub-Stundenplan startet stündlich direkt `aldi_live_refill.py` für
+**Profil 1 (Main-Profil)**: einmal anmelden, das aktuelle kostenlose 1-GB-Angebot
+prüfen, einmal nachbuchen und das zusätzliche Volumen kontrollieren. Ein separater
+Read-only-Vorlauf und die komplette Testsuite sind keine Laufzeitvoraussetzung.
+Tests laufen weiterhin bei Codeänderungen und Pull Requests.
+
+`AUTO_BOOK_ENABLED=true` gilt ausschließlich im Live-Job. Die Prüfungen im
+Buchungslauf bleiben erhalten: erkannte Sitzung und Restvolumen bis 1 GB,
+Unlimited oder Tarif S, genau ein aktiviertes Angebot für exakt 1 GB mit
+explizitem Preis von 0 Euro beziehungsweise „kostenlos“. Kostenpflichtige oder
+unklare Angebote werden nicht gebucht. Pro Lauf erfolgt höchstens eine Buchung;
+ein unklarer Ausgang wird innerhalb desselben Laufs nicht erneut geklickt.
+
+Ein manueller `live-refill`-Start verwendet denselben direkten Ablauf. Ein
+Main-Commit mit `[live-refill]` startet ebenfalls einen Versuch. Read-only-
+Diagnosen sind separat über `watch` verfügbar. Es gibt derzeit keinen
+Gmail-Auslöser. GitHub kann die stündlichen Starts verzögern; eine erfolgreiche
+Nachbuchung ist erst durch den Live-Bericht belegt.
 ```bash
 # Tests: ohne echte Providerzugriffe
 python -m pytest -q
@@ -24,15 +31,17 @@ AUTO_BOOK_ENABLED=false python watcher.py --run-once
 AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
 ```
 
-Für GitHub Actions wird für das Main-Profil `ALDI_PROFILE_1_USER` (oder als
-Fallback `ALDI_USER`) sowie `ALDI_PASS` als Repository Secret verwendet. Hinterlege
-Werte unter **Settings → Secrets and variables → Actions**, niemals in Dateien,
-Issues oder Chat. Fehlt ein Secret, scheitert die Read-only-Vorprüfung und der
-abhängige Live-Job startet nicht. Andere ALDI-Profile werden vom Actions-Workflow
-nicht verarbeitet. `LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
+Für GitHub Actions identifiziert `ALDI_PROFILE_1_USER` (Fallback `ALDI_USER`)
+das Main-Profil. Falls der Loginname abweicht, verwende
+`ALDI_PROFILE_1_LOGIN_USER` (Fallback `ALDI_LOGIN_USER`); ohne separaten
+Loginnamen verwendet der Code die Profilkennung. `ALDI_PASS` liefert das Passwort.
+Die vorhandenen verschlüsselten Alternativen `ALDI_LOGIN_USER_ENC`,
+`ALDI_USER_ENC`, `ALDI_PASS_ENC` und `CREDENTIAL_ENCRYPTION_KEY` werden ebenfalls
+an den Lauf übergeben. Hinterlege Werte unter **Settings → Secrets and variables
+→ Actions**. Andere Profile werden vom Workflow nicht verarbeitet.
+`LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
-Der stündliche Read-only- und Live-Refill-Ablauf ist auf Main-Profil 1 begrenzt.
 Tarif S ist nur bei einem explizit kostenlosen 1-GB-Angebot buchbar; der Preis
 der Tarifverlängerung zählt nicht als Preisnachweis für dieses Zusatzangebot.
 

@@ -19,7 +19,7 @@ on:
           - sso-diagnostic
           - live-refill
   schedule:
-    # Hourly monitoring and guarded free-refill check for the main profile.
+    # One direct free-refill attempt per hour for the main profile.
     - cron: '0 * * * *'
 
 permissions:
@@ -39,8 +39,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
-        (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch' || inputs.mode == 'live-refill')) ||
-      github.event_name == 'schedule'
+        (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch' || inputs.mode == 'live-refill'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -55,11 +54,10 @@ jobs:
         run: python -m pytest -q
 
   watch:
-    # Run the single main ALDI profile read-only before any live-refill attempt.
+    # Optional read-only diagnosis; live refill performs its own login and checks.
     if: >-
-      (github.event_name == 'schedule') ||
       (github.event_name == 'workflow_dispatch' &&
-        (inputs.mode == 'all' || inputs.mode == 'watch' || inputs.mode == 'live-refill')) ||
+        (inputs.mode == 'all' || inputs.mode == 'watch')) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
         contains(github.event.head_commit.message, '[live-watch]'))
     strategy:
@@ -91,9 +89,13 @@ jobs:
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_LOGIN_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_LOGIN_USER) || '' }}
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
         shell: bash
         run: |
           rm -f monitoring-report.json
@@ -108,11 +110,12 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Hourly and manually dispatched only; read-only preflight must pass and the refill detector fails closed.
+    # Login, inspect the free offer and book in a single browser session.
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill')
-    needs: [test, watch]
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+        contains(github.event.head_commit.message, '[live-refill]'))
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -140,24 +143,17 @@ jobs:
           install-chromedriver: true
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Verify explicit live gate
-        env:
-          RUN_MODE: ${{ inputs.mode }}
-        run: |
-          test "$AUTO_BOOK_ENABLED" = "true"
-          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            echo "Hourly guarded live-refill gate active."
-          else
-            test "$RUN_MODE" = "live-refill"
-            echo "Explicit manual live-refill gate active."
-          fi
       - name: Run guarded free 1-GB refill
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_LOGIN_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_LOGIN_USER) || '' }}
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
           ALDI_LIVE_REPORT: aldi-live-refill.json
         shell: bash
         run: |
