@@ -190,6 +190,45 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  password_pointer:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[password-pointer]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Try one trusted-pointer password login
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_LOGIN_USER: ${{ secrets.ALDI_LOGIN_USER }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          ALDI_PASSWORD_POINTER_REPORT: aldi-password-pointer.json
+          ALDI_PASSWORD_POINTER_SECONDS: '35'
+        run: python aldi_password_pointer_probe.py
+      - name: Preserve sanitized password-pointer report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-password-pointer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-password-pointer.json
+          retention-days: 1
+          if-no-files-found: warn
+
   public_controls:
     if: >-
       github.event_name == 'workflow_dispatch' ||
