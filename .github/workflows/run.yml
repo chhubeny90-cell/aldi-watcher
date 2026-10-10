@@ -91,8 +91,8 @@ jobs:
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
-          ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
+          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
         shell: bash
         run: |
@@ -155,8 +155,8 @@ jobs:
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
-          ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] }}
+          ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           ALDI_LIVE_REPORT: aldi-live-refill.json
         shell: bash
