@@ -1,1 +1,1 @@
-Probe ALDI password/new-password navigation wording without entering or submitting account data.
+Probe ALDI password reset navigation across top document and visible iframe without entering or submitting account data.
