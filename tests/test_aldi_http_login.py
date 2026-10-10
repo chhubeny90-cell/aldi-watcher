@@ -9,6 +9,7 @@ import requests
 from core.aldi_http_login import (
     AldiHttpLogin, LoginError, LOGIN_LABEL, OVERVIEW, NAVIGATION, AUTH_BASE,
     phone_identifier, prepare_callbacks,
+    result_diagnostics,
 )
 
 PHONE = "01520000000"
@@ -134,3 +135,17 @@ def test_incomplete_auth_is_not_retried_or_printed():
     assert transport.post.call_count == 2
     assert client.report["credential_submissions"] == 1
     assert PASSWORD not in json.dumps(client.report)
+
+
+def test_provider_error_indications_never_return_raw_message():
+    result = {"callbacks": [{"type": "TextOutputCallback", "output": [
+        {"name": "message", "value": "custom.alditalk.accountLock: PRIVATE_ACCOUNT gesperrt"}]}]}
+    diagnostics = result_diagnostics(result)
+    assert diagnostics["provider_indications"]["account_locked"] is True
+    assert "PRIVATE_ACCOUNT" not in json.dumps(diagnostics)
+
+
+def test_additional_verification_is_identified_without_selecting_it():
+    diagnostics = result_diagnostics({"message": "Bitte SMS-Code PRIVATE_CODE eingeben"})
+    assert diagnostics["provider_indications"]["additional_verification"] is True
+    assert "PRIVATE_CODE" not in json.dumps(diagnostics)

@@ -53,6 +53,31 @@ def _output(callback, name):
     return matches[0] if len(matches) == 1 else None
 
 
+def result_diagnostics(result):
+    """Reduce provider messages to indications, never persist their contents."""
+    callbacks = result.get("callbacks")
+    callbacks = callbacks if isinstance(callbacks, list) else []
+    messages = [result.get("message"), result.get("detail")]
+    messages.extend(_output(c, "message") for c in callbacks
+                    if isinstance(c, dict) and c.get("type") == "TextOutputCallback")
+    text = " ".join(m.casefold() for m in messages if isinstance(m, str))
+    known_types = {"NameCallback", "PasswordCallback", "HiddenValueCallback",
+                   "TextOutputCallback", "ConfirmationCallback", "ChoiceCallback"}
+    return {
+        "returned_callback_count": len(callbacks),
+        "returned_callback_types": sorted({c.get("type") if c.get("type") in known_types
+                                           else "OtherCallback" for c in callbacks if isinstance(c, dict)}),
+        "provider_indications": {
+            "account_locked": any(s in text for s in ("accountlock", "account locked", "gesperrt", "zu viele versuche")),
+            "credential_problem": any(s in text for s in ("invalid credential", "incorrect credential", "wrong credential", "invalidlogin", "passwort falsch", "falsches passwort", "stimmen nicht überein")),
+            "required_fields": any(s in text for s in ("required field", "pflichtfeld", "ausfüllen", "ausfuellen", "field is required")),
+            "technical_error": any(s in text for s in ("technical error", "technischer fehler", "temporarily unavailable", "service unavailable")),
+            "additional_verification": any(s in text for s in ("sms-code", "sms code", "sms-tan", "einmalpasswort", "one-time password", "bestätigungscode")),
+            "error_message": any(s in text for s in ("error", "failed", "invalid", "fehler", "fehlgeschlagen")),
+        },
+    }
+
+
 def _proof_of_work(callbacks):
     messages = [_output(c, "message") for c in callbacks
                 if c.get("type") == "TextOutputCallback"]
@@ -178,6 +203,7 @@ class AldiHttpLogin:
         self.report["phase"] = "credential_submit"
         self.report["credential_submissions"] += 1
         result = self._authenticate(payload)
+        self.report.update(result_diagnostics(result))
         self.report["auth_token_received"] = bool(result.get("tokenId"))
         success_url = result.get("successUrl")
         self.report["success_url_received"] = bool(success_url)
