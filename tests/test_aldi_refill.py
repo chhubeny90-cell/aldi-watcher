@@ -138,4 +138,14 @@ def test_explicit_unlimited_heading_with_verified_free_offer_is_eligible():
 def test_multiple_unlimited_tariff_headings_are_ambiguous():
     result = eligible(active_tariff_text='Tarif S Unlimited\nTarif M Unlimited')
     assert result['refill_eligible'] is False
-\n\ndef test_refill_heading_is_not_active_tariff_evidence():\n    result = eligible(active_tariff_text="Tarif S\\nUnlimited GB nachbuchen")\n    assert result["refill_eligible"] is False\n    assert result["refill_reason"] == "active_tariff_unverified"\n\n\ndef test_refill_heading_alone_is_not_active_tariff_evidence():\n    result = eligible(active_tariff_text="Unlimited GB nachbuchen")\n    assert result["refill_eligible"] is False\n    assert result["refill_reason"] == "active_tariff_unverified"\n
+
+def test_refill_heading_is_not_active_tariff_evidence():
+    result = eligible(active_tariff_text="Tarif S\nUnlimited GB nachbuchen")
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "active_tariff_unverified"
+
+
+def test_refill_heading_alone_is_not_active_tariff_evidence():
+    result = eligible(active_tariff_text="Unlimited GB nachbuchen")
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "active_tariff_unverified"
