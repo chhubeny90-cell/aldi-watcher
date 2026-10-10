@@ -153,6 +153,43 @@ jobs:
           retention-days: 2
           if-no-files-found: warn
 
+  passwordless_stage2:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[passwordless-stage2]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Request one SMS code and inspect code-entry form
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_LOGIN_USER: ${{ secrets.ALDI_LOGIN_USER }}
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASSWORDLESS_STAGE2_REPORT: aldi-passwordless-stage2.json
+        run: python aldi_passwordless_stage2_probe.py
+      - name: Preserve sanitized stage-2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-passwordless-stage2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-passwordless-stage2.json
+          retention-days: 1
+          if-no-files-found: warn
+
   public_controls:
     if: >-
       github.event_name == 'workflow_dispatch' ||
