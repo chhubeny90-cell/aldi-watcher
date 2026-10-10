@@ -51,12 +51,14 @@ def _eligible_tariff(active_tariff_text):
             r"|Unlimited(?:\s+(?:Tarif\s+)?[SML])?"
             r"|Tarif\s+Unlimited(?:\s+[SML])?"
             r"|Tarif\s+[SML]\s*[-–:]?\s+Unlimited"
-            r"|Unlimited\s+GB\s+nachbuchen(?:\s*[-–:]?\s+Tarif\s+[SML])?)",
+            r")",
             line, re.I,
         )
         if match:
             identities.append(line)
-    # Refill-section headings (for example, "Unlimited GB nachbuchen") are\n    # offers, not tariff identities, and are deliberately not accepted here.\n    # A single active identity is required. Multiple products are ambiguous.
+    # Refill-section headings (for example, "Unlimited GB nachbuchen") are
+    # offers, not tariff identities, and are deliberately not accepted here.
+    # A single active identity is required. Multiple products are ambiguous.
     return "UNLIMITED" if len(identities) == 1 else None
 
 
