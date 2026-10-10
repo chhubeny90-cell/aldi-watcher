@@ -88,6 +88,21 @@ def proof_of_work(callbacks):
     return None
 
 
+def login_choice(options):
+    if not options:
+        return 2
+    choices = []
+    for index, label in enumerate(options):
+        text = str(label).casefold()
+        if any(word in text for word in ('sms', 'otp', 'tan', 'reset', 'forgot', 'vergessen', 'passwordless')):
+            continue
+        if 'login' in text or 'anmelden' in text or 'einloggen' in text:
+            choices.append(index)
+    if len(choices) != 1:
+        raise ProbeError('login_choice_unrecognized')
+    return choices[0]
+
+
 def fill_callbacks(payload, username, password):
     result = copy.deepcopy(payload)
     callbacks = result.get('callbacks')
@@ -126,12 +141,9 @@ def fill_callbacks(payload, username, password):
                 if value is None:
                     raise ProbeError('auth_shape_unrecognized')
         else:
-            # Existing HTTP implementations select index 2 for password Login.
-            # Stop if ALDI provides a different list (SMS/reset must not be chosen).
-            options = outputs.get('options')
-            if options:
-                raise ProbeError('login_choice_unrecognized')
-            value = 2
+            # Recognize the password-login choice from the current callback list.
+            # Never choose password reset or the passwordless/SMS route.
+            value = login_choice(outputs.get('options'))
         inputs = cb.get('input', [])
         if len(inputs) != 1:
             raise ProbeError('auth_shape_unrecognized')

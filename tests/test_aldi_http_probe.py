@@ -5,10 +5,20 @@ from unittest.mock import patch
 
 import pytest
 
-from aldi_http_probe import HttpProbe, ProbeError, AUTH_URL, OVERVIEW, MASTER, OFFERS, main, trusted
+from aldi_http_probe import HttpProbe, ProbeError, AUTH_URL, OVERVIEW, MASTER, OFFERS, main, trusted, login_choice
 
 PHONE = '015000000000'
 PASSWORD = 'test-only-password'
+
+
+def test_password_login_choice_excludes_sms_and_reset():
+    assert login_choice(['custom.resetPassword', 'custom.passwordlessLogin', 'custom.loginButton']) == 2
+    assert login_choice(['Anmelden', 'Passwort vergessen', 'Login mit SMS']) == 0
+
+
+def test_ambiguous_login_choices_are_not_submitted():
+    with pytest.raises(ProbeError, match='login_choice_unrecognized'):
+        login_choice(['Login', 'Anmelden'])
 
 
 def login_form():
