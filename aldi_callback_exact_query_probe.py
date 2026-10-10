@@ -1,12 +1,35 @@
 """Run the full-fidelity ALDI callback probe against the exact initial auth URL.
 
 This reuses the sanitized fidelity probe but retains ALDI's initial query string
-for the single continuation POST. The ConfirmationCallback is accepted only
-when exactly one ALDI option is labelled exactly "Anmelden". No raw query,
-credential, authId or token is logged or persisted.
+for the single continuation POST. Public ConfirmationCallback option labels are
+included in the sanitized report so the password-login action can be selected
+without guessing. No raw query, credential, authId or token is logged or
+persisted.
 """
 
 import aldi_callback_fidelity_probe as base
+
+
+_original_confirmation_meta = base._confirmation_meta
+
+
+def _confirmation_meta_with_labels(challenge):
+    result = _original_confirmation_meta(challenge)
+    result["option_labels"] = []
+    for callback in challenge.get("callbacks", []) if isinstance(challenge, dict) else []:
+        if not isinstance(callback, dict) or callback.get("type") != "ConfirmationCallback":
+            continue
+        try:
+            options = base._output_value(callback, "options")
+        except Exception:
+            options = []
+        if isinstance(options, list):
+            result["option_labels"] = [
+                " ".join(option.split())[:120] if isinstance(option, str) else ""
+                for option in options[:10]
+            ]
+        break
+    return result
 
 
 def _exact_login_confirmation(callback):
@@ -22,7 +45,8 @@ def _exact_login_confirmation(callback):
     return matches[0], "unique_exact_anmelden_option"
 
 
-# _prepare_payload resolves this helper from the base module at call time.
+# The base main function resolves these helpers at call time.
+base._confirmation_meta = _confirmation_meta_with_labels
 base._confirmation_index = _exact_login_confirmation
 _original_prepare_payload = base._prepare_payload
 
