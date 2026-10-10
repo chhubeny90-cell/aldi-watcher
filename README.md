@@ -4,15 +4,17 @@
 
 ## Aktiver Betrieb und Full Run
 
-Nach dem Merge in `main` startet der GitHub-Stundenplan den separaten
-`aldi_live_refill.py` für drei Profile, seriell. Der Read-only-Watcher läuft nur
-bei einem manuellen Watch-Aufruf. Der Refill-Runner darf
-`AUTO_BOOK_ENABLED=true` nur in diesem eigenen Job verwenden. Er klickt nur, wenn
-Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
-identifiziert wird und genau ein aktiviertes Angebot mit exakt 1 GB und ausdrücklich
-0 Euro sichtbar ist. Ein unklarer oder kostenpflichtiger Fall wird nicht gebucht.
-GitHub kann Starts verzögern; ein grüner Testlauf ist kein Live-Nachweis.
-Der normale Watcher bleibt read-only und lädt keine `.env`.
+Der GitHub-Stundenplan führt stündlich zuerst den Read-only-Watcher und danach
+den separaten `aldi_live_refill.py` für **nur Profil 1 (Main-Profil)** aus. Der
+Live-Job läuft nur, wenn Tests und Read-only-Vorprüfung erfolgreich waren.
+`AUTO_BOOK_ENABLED=true` gilt ausschließlich in diesem Live-Job. Gebucht wird nur,
+wenn Sitzung und Restvolumen sicher erkannt sind, genau ein aktiver Unlimited-Tarif
+vorliegt und genau ein aktiviertes Angebot exakt 1 GB sowie ausdrücklich 0 Euro
+ausweist. Bei einem positiven, unklaren oder fehlenden Preis wird nicht geklickt.
+Der Lauf kann bis zu zwei Gratis-Nachbuchungen je Profil und Durchlauf ausführen.
+Ein manueller `live-refill`-Start nutzt dieselbe Vorprüfung. Es gibt derzeit keinen
+Gmail-Auslöser; der Zeitplan prüft unabhängig von einer E-Mail stündlich. GitHub
+kann Starts verzögern; ein grüner Testlauf ist kein Live-Nachweis.
 ```bash
 # Tests: ohne echte Providerzugriffe
 python -m pytest -q
@@ -22,16 +24,16 @@ AUTO_BOOK_ENABLED=false python watcher.py --run-once
 AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
 ```
 
-Die Secrets heißen `ALDI_USER`, `ALDI_PASS`, `LIDL_USER` und `LIDL_PASS`.
+Für GitHub Actions wird für das Main-Profil `ALDI_PROFILE_1_USER` (oder als
+Fallback `ALDI_USER`) sowie `ALDI_PASS` als Repository Secret verwendet. Hinterlege
+Werte unter **Settings → Secrets and variables → Actions**, niemals in Dateien,
+Issues oder Chat. Fehlt ein Secret, scheitert die Read-only-Vorprüfung und der
+abhängige Live-Job startet nicht. Andere ALDI-Profile werden vom Actions-Workflow
+nicht verarbeitet. `LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
-Für die drei ALDI-Profile liest der Actions-Workflow die Repository-Secrets
-`ALDI_PROFILE_1_USER` bis `ALDI_PROFILE_3_USER` sowie das gemeinsame `ALDI_PASS`.
-Als `USER` kommt jeweils der Loginname (hier: die Rufnummer) hinein; `ALDI_PASS` muss
-das für alle drei Logins gültige Testpasswort enthalten. Die Nutzernamen werden unter
-**Settings → Secrets and variables → Actions** eingetragen, niemals in Dateien, Issues
-oder Chat. Fehlt ein Secret, wird kein Loginversuch für das betroffene Profil gestartet.
-Der streng gegatete Live-Refill läuft stündlich, seriell; der Read-only-Watcher nicht.
+Der stündliche Read-only- und Live-Refill-Ablauf ist auf Main-Profil 1 begrenzt.
+
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
 3 Konfigurationsfehler. LIDL meldet zusätzlich `refill_eligible`, `refill_type` und `refill_reason`,
