@@ -1,0 +1,2 @@
+Trigger sanitized ALDI login-identifier format inspection.
+No credential is typed or submitted; no provider state is changed.
