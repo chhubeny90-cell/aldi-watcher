@@ -62,6 +62,10 @@ class BaseWatcher(ABC):
     async def recover_pending(self):
         if self.database is None:
             return []
+        with self.database.account_lock(self.provider_name, self.username):
+            return await self._recover_pending_locked()
+
+    async def _recover_pending_locked(self):
         resolved = []
         for record in self.database.get_unresolved_recharges(
             self.provider_name, self.username
@@ -83,6 +87,10 @@ class BaseWatcher(ABC):
     async def _recharge_once(self):
         if self.database is None:
             raise RuntimeError("Live recharge requires persistent Database")
+        with self.database.account_lock(self.provider_name, self.username):
+            return await self._recharge_once_locked()
+
+    async def _recharge_once_locked(self):
         recharge_id = self.database.begin_recharge(
             self.provider_name, self.username, recent_success_guard_seconds=getattr(self, "recharge_guard_seconds", 30)
         )

@@ -65,7 +65,10 @@ def _recovery_worker(db_path, counter_file, status, started, release):
             started.set()
             assert release.wait(10)
             return self.status
-    asyncio.run(DelayedRecoveryWatcher(Database(db_path), counter_file, status=status).recover_pending())
+    try:
+        asyncio.run(DelayedRecoveryWatcher(Database(db_path), counter_file, status=status).recover_pending())
+    except RechargeLockedError:
+        started.set()
 
 
 def test_begin_recharge_blocks_duplicate(tmp_path):
@@ -190,10 +193,12 @@ def test_stale_multiprocess_recovery_cannot_undo_success(tmp_path):
     unknown_release, success_release = ctx.Event(), ctx.Event()
     stale = ctx.Process(target=_recovery_worker, args=(db_path, counter_file, "UNKNOWN", unknown_started, unknown_release))
     success = ctx.Process(target=_recovery_worker, args=(db_path, counter_file, "SUCCESS", success_started, success_release))
-    for process in (stale, success):
-        process.start()
-    assert unknown_started.wait(10)
+    success.start()
     assert success_started.wait(10)
+    stale.start()
+    assert unknown_started.wait(10)
+    stale.join(15)
+    assert stale.exitcode == 0
     success_release.set()
     success.join(15)
     unknown_release.set()
@@ -224,3 +229,36 @@ def test_unknown_cannot_return_to_pending(tmp_path):
     db.set_recharge_status(recharge_id, "UNKNOWN")
     with pytest.raises(ValueError, match="UNKNOWN"):
         db.set_recharge_status(recharge_id, "PENDING")
+
+
+def _active_booking_worker(db_path, counter_file, started, release):
+    class SlowWatcher(FakeWatcher):
+        async def trigger_recharge(self, recharge_id=None):
+            started.set()
+            assert release.wait(10)
+            return await super().trigger_recharge(recharge_id)
+    asyncio.run(SlowWatcher(Database(db_path), counter_file).run())
+
+
+def test_failed_recovery_cannot_release_an_active_booking(tmp_path):
+    db_path = str(tmp_path / 'db.sqlite')
+    calls = str(tmp_path / 'calls.txt')
+    db = Database(db_path)
+    ctx = mp.get_context('spawn')
+    started, release = ctx.Event(), ctx.Event()
+    process = ctx.Process(target=_active_booking_worker, args=(db_path, calls, started, release))
+    process.start()
+    try:
+        assert started.wait(10)
+        recovery = FakeWatcher(db, calls, status='FAILED')
+        with pytest.raises(RechargeLockedError):
+            asyncio.run(recovery.recover_pending())
+        assert db.get_unresolved_recharges('fake', 'user')[0].status == 'PENDING'
+        competing = asyncio.run(FakeWatcher(db, calls).run())
+        assert not competing.recharge_triggered
+        assert not Path(calls).exists()
+    finally:
+        release.set()
+        process.join(15)
+    assert process.exitcode == 0
+    assert len(Path(calls).read_text().splitlines()) == 1

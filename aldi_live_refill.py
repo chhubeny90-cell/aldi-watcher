@@ -11,13 +11,21 @@ import math
 import os
 import re
 import time
+import sqlite3
+from pathlib import Path
+from contextlib import ExitStack
 from datetime import datetime, timezone
 
 from browser_dom import element_label
 from core.aldi_refill import locate_selenium
 from monitoring import require_origin
 import watcher
+from core.database import Database, RechargeLockedError
+from core.aldi_http_login import phone_identifier
 
+
+# Enable only when a real per-operation ALDI receipt lookup is implemented.
+ALDI_RECONCILIATION_VERIFIED = False
 
 REPORT_PATH = os.getenv("ALDI_LIVE_REPORT", "aldi-live-refill.json")
 MAX_REFILLS_PER_RUN = max(1, min(5, int(os.getenv("ALDI_MAX_REFILLS_PER_RUN", "2"))))
@@ -26,6 +34,32 @@ CLICK_SETTLE_SECONDS = max(1, min(15, int(os.getenv("ALDI_CLICK_SETTLE_SECONDS",
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
+
+
+def open_live_journal():
+    """Never silently replace a lost journal with an empty database."""
+    path = Path(os.environ.get('ALDI_JOURNAL_PATH', ''))
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise RuntimeError('persistent_journal_unavailable')
+    if os.name != 'posix' or path.stat().st_mode & 0o077:
+        raise RuntimeError('private_posix_journal_required')
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        if (os.environ.get('RUNNER_ENVIRONMENT') != 'self-hosted'
+                or path.resolve().is_relative_to(workspace)):
+            raise RuntimeError('durable_runner_required')
+    with sqlite3.connect(path.as_uri() + '?mode=rw', uri=True) as conn:
+        conn.execute('SELECT recharge_id, status FROM recharges LIMIT 0')
+    return Database(str(path))
+
+
+def check_recharge_status(driver, recharge_id):
+    """No verified ALDI lookup mapping our operation ID to a receipt exists yet.
+
+    A volume delta, absence of an offer or a generic success notice cannot
+    resolve an operation. Never invent an endpoint or infer FAILED from absence.
+    """
+    return 'UNKNOWN'
 
 
 def _write(report):
@@ -112,14 +146,35 @@ def main():
         "cycles": [],
     }
     driver = None
+    db = None
+    recharge_id = None
+    locks = ExitStack()
 
     try:
         if not report["booking_enabled"]:
             report["outcome"] = "booking_disabled"
             return 3
+        if not ALDI_RECONCILIATION_VERIFIED:
+            report['outcome'] = 'provider_reconciliation_unverified'
+            return 3
         if not watcher.configure_credentials("ALDI"):
             report["outcome"] = "credentials_unavailable"
             return 3
+
+        account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
+        db = open_live_journal()
+        locks.enter_context(db.account_lock('alditalk', account))
+        unresolved = db.get_unresolved_recharges('alditalk', account)
+        if unresolved:
+            # Until authenticated per-operation lookup exists, recovery remains
+            # UNKNOWN and does not need another login attempt.
+            for record in unresolved:
+                status = check_recharge_status(None, record.recharge_id)
+                if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
+                    status = 'UNKNOWN'
+                db.set_recharge_status(record.recharge_id, status)
+            report['outcome'] = 'unresolved_recharge_blocked'
+            return 2
 
         driver = watcher.build_driver()
         if not watcher.aldi_login(driver):
@@ -159,6 +214,10 @@ def main():
                 return 2
 
             cycle["action"] = "book"
+            recharge_id = db.begin_recharge('alditalk', account, recent_success_guard_seconds=30)
+            cycle['recharge_id'] = recharge_id
+            cycle['recharge_status'] = 'PENDING'
+            _write(report)
             _trusted_click(driver, control)
             report["booking_clicks"] += 1
             _write(report)
@@ -187,10 +246,15 @@ def main():
                 return 2
 
             cycle["after_gb"] = round(after, 3)
-            increased = after >= before + 0.5
-            cycle["verified"] = increased
+            cycle['volume_increased'] = after > before
+            # Volume is diagnostic evidence, never an operation receipt.
+            status = check_recharge_status(driver, recharge_id)
+            if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
+                status = 'UNKNOWN'
+            cycle['recharge_status'] = db.set_recharge_status(recharge_id, status)
+            cycle['verified'] = status == 'SUCCESS'
             _write(report)
-            if not increased:
+            if status != 'SUCCESS':
                 report["outcome"] = "unknown_after_click"
                 return 2
 
@@ -206,25 +270,39 @@ def main():
         # refill if ALDI still proves eligibility and remaining volume is <= 1 GB.
         report["outcome"] = "run_limit_reached"
         return 0
+    except RechargeLockedError:
+        report['outcome'] = 'recharge_locked'
+        return 2
     except Exception as exc:
         report["outcome"] = "error"
         report["exception_type"] = type(exc).__name__
         return 2
     finally:
-        report["finished_at"] = utcnow()
-        _write(report)
-        print(json.dumps({
-            "outcome": report["outcome"],
-            "booking_enabled": report["booking_enabled"],
-            "booking_clicks": report["booking_clicks"],
-            "confirmation_clicks": report["confirmation_clicks"],
-            "successful_refills": report["successful_refills"],
-        }, ensure_ascii=False), flush=True)
-        if driver is not None:
+        if db is not None and recharge_id is not None:
+            # Late UNKNOWN cannot overwrite a verified terminal outcome.
             try:
-                driver.quit()
+                db.set_recharge_status(recharge_id, 'UNKNOWN')
+            except Exception:
+                # A failed update leaves durable PENDING blocking the account.
+                report['outcome'] = 'journal_update_failed'
+        report["finished_at"] = utcnow()
+        try:
+            _write(report)
+            print(json.dumps({
+                "outcome": report["outcome"],
+                "booking_enabled": report["booking_enabled"],
+                "booking_clicks": report["booking_clicks"],
+                "confirmation_clicks": report["confirmation_clicks"],
+                "successful_refills": report["successful_refills"],
+            }, ensure_ascii=False), flush=True)
+        finally:
+            try:
+                if driver is not None:
+                    driver.quit()
             except Exception:
                 pass
+            finally:
+                locks.close()
 
 
 if __name__ == "__main__":

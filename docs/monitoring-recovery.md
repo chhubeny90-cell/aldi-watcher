@@ -228,3 +228,41 @@ after redirects for the configured ALDI login URL (about 53 seconds), and HTTP
 401 for the configured LIDL URL (about 14 seconds). This was not a browser login
 and does not prove invalid user credentials or reproduce GitHub runner behavior.
 Both endpoints require further browser-specific diagnosis before declaring a fix.
+
+## V3.3 live journal hardening
+
+The ALDI live runner now reserves a UUID and commits PENDING before any booking
+click. PENDING and UNKNOWN block subsequent runs against the same journal and
+normalized SIM identity. A POSIX account lock covers requests and recovery;
+process death releases the lock, but never the durable PENDING record. Lock files
+must not be deleted while workers may exist. All workers must use the same local
+journal and canonical path; separate hosts or independent journals are unsupported.
+
+No verified ALDI operation receipt lookup is available. Consequently
+`ALDI_RECONCILIATION_VERIFIED` remains false in code, and the runner exits before
+credentials or browser startup. A volume increase is diagnostic only, not SUCCESS.
+Implement authenticated per-operation receipt lookup before changing this gate.
+A provider operation must resolve by its recorded ID and must not be inferred
+FAILED merely because it is absent or still in flight. Recovery runs resolve old
+operations only; they do not immediately start another booking in that same run.
+
+The workflow no longer performs scheduled or push-triggered live bookings.
+Scheduled runs execute regression tests. Manual live dispatch additionally needs
+successful tests, main branch, `ALDI_V33_LIVE_ENABLED=true`, `ALDI_JOURNAL_PATH`,
+and a dedicated self-hosted Linux runner labelled `aldi-journal`. Do not execute
+untrusted PR jobs on that runner. Its persistent journal must live outside the
+checkout on a local durable filesystem, be a private existing SQLite database,
+and retain its history across checkout, restart and upgrades. Runner labels alone
+are not a durability guarantee. No runner has been provisioned by this change.
+
+Provision a new empty journal only during an explicit first deployment, using
+`Database` from `core.database`. Never automatically initialize a missing live
+journal or replace one after a crash; loss or corruption blocks live execution.
+Back up the journal consistently with SQLite facilities. Existing deployments
+with unresolved attempts must migrate their history before any live opt-in.
+
+Acceptance tests exercise four live processes against a shared journal, hard
+crashes after PENDING and after the request, recovery with a persisted fake
+provider receipt (same ID, exactly one request), UNKNOWN across runs, and a FAILED
+recovery competing with a still-active request. These prove internal orchestration
+with simulated providers, not authenticated ALDI credit or provider idempotency.
