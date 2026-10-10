@@ -19,7 +19,7 @@ on:
           - sso-diagnostic
           - live-refill
   schedule:
-    # Keep CI alive while live ALDI authentication is paused during credential diagnosis.
+    # Run the read-only three-profile check hourly.
     - cron: '0 * * * *'
 
 permissions:
