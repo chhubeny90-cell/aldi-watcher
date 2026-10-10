@@ -80,3 +80,38 @@ jobs:
           path: aldi-password-reset-probe.json
           retention-days: 2
           if-no-files-found: warn
+
+  public_controls:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[public-controls]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Inspect public login controls without credentials or submit
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          ALDI_PUBLIC_CONTROLS_REPORT: aldi-public-login-controls.json
+        run: python aldi_public_login_controls.py
+      - name: Preserve public control report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-public-login-controls-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-public-login-controls.json
+          retention-days: 2
+          if-no-files-found: warn
