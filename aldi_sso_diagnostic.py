@@ -64,7 +64,6 @@ def _count_visible(driver, selector):
 
 
 def _visible_input_shapes(driver):
-    """Return form structure only; never values, names, ids or placeholders."""
     rows = []
     try:
         for element in find_visible_elements(driver, "input,select,textarea")[:12]:
@@ -95,7 +94,6 @@ def _iframe_shapes(driver):
 
 
 def _control_categories(driver):
-    """Classify visible controls using an allowlist; never persist raw labels."""
     categories = {}
     rules = {
         "login": ("anmelden", "einloggen", "login"),
@@ -151,8 +149,44 @@ def _page_flags(driver):
     return flags
 
 
+def _alert_categories(driver):
+    result = {
+        "invalid_credentials": False,
+        "account_locked": False,
+        "technical_error": False,
+        "required_fields": False,
+        "session_error": False,
+        "unknown_alert": False,
+    }
+    parts = []
+    try:
+        for element in find_visible_elements(driver, "[role='alert'],[aria-live='assertive'],[aria-live='polite']")[:8]:
+            text = rendered_text(driver, element).strip().casefold()
+            if text:
+                parts.append(text)
+    except Exception:
+        return result
+    text = " ".join(parts)
+    if not text:
+        return result
+
+    result["invalid_credentials"] = any(marker in text for marker in (
+        "rufnummer oder passwort", "benutzername oder passwort", "passwort falsch",
+        "passwort ist falsch", "anmeldedaten", "nicht korrekt", "ungültige zugangsdaten",
+        "ungueltige zugangsdaten"
+    ))
+    result["account_locked"] = any(marker in text for marker in ("gesperrt", "zu viele versuche"))
+    result["technical_error"] = any(marker in text for marker in (
+        "technischer fehler", "technische störung", "technische stoerung", "später erneut",
+        "spaeter erneut", "momentan nicht verfügbar", "momentan nicht verfuegbar"
+    ))
+    result["required_fields"] = any(marker in text for marker in ("pflichtfeld", "erforderlich", "ausfüllen", "ausfuellen"))
+    result["session_error"] = "session" in text and any(marker in text for marker in ("abgelaufen", "ungültig", "ungueltig"))
+    result["unknown_alert"] = not any(result.values())
+    return result
+
+
 def refill_evidence(driver):
-    """Return booleans/counts only; never copy tariff or control text to logs."""
     result = {
         "unlimited_detected": False,
         "free_one_gb_control_count": 0,
@@ -192,6 +226,7 @@ def snapshot(driver, elapsed):
         "iframe_shapes": _iframe_shapes(driver),
         "control_categories": _control_categories(driver),
         "page_flags": _page_flags(driver),
+        "alert_categories": _alert_categories(driver),
     }
     snap.update(refill_evidence(driver))
     try:
@@ -265,6 +300,8 @@ def main():
         "finished_at": None,
         "booking_executed": False,
         "login_submit_count": 0,
+        "submit_method": "validated_login_control_enter",
+        "credential_field_state": None,
         "protected_probe_count": 0,
         "outcome": "unknown",
         "samples": [],
@@ -314,10 +351,17 @@ def main():
             ]
             return controls[0] if len(controls) == 1 else False
 
-        wait.until(trusted_submit)
-        # Exactly one login submission. Never retry an uncertain submit.
+        submit = wait.until(trusted_submit)
         password = wait.until(lambda _: unique_enabled("input[type='password']"))
-        password.send_keys(Keys.ENTER)
+        user = wait.until(lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']"))
+        report["credential_field_state"] = {
+            "username_matches_secret": user.get_attribute("value") == watcher.ALDI_USER,
+            "password_matches_secret": password.get_attribute("value") == watcher.ALDI_PASS,
+            "submit_enabled": bool(submit.is_enabled()) and submit.get_attribute("aria-disabled") != "true",
+        }
+
+        # Match the production watcher: exactly one trusted login-control submit.
+        submit.send_keys(Keys.ENTER)
         report["login_submit_count"] = 1
 
         start = time.monotonic()
@@ -365,6 +409,8 @@ def main():
             "protected_probe_count": report["protected_probe_count"],
             "sample_count": len(report["samples"]),
             "network_event_count": len(report["network"]),
+            "credential_field_state": report["credential_field_state"],
+            "alert_categories": latest.get("alert_categories", {}),
             "unlimited_detected": bool(latest.get("unlimited_detected")),
             "free_one_gb_control_count": int(latest.get("free_one_gb_control_count") or 0),
             "booking_executed": False,
