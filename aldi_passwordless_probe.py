@@ -2,7 +2,7 @@
 
 No secrets are loaded, no personal data is typed and no form is submitted. The
 probe only navigates to the passwordless login screen and records sanitized
-field/control shapes to determine whether the flow could be useful later.
+field/control shapes and submit structure.
 """
 
 import json
@@ -36,6 +36,56 @@ def _passwordless_link(driver):
     return matches[0] if len(matches) == 1 else None
 
 
+def _submit_structure(driver, control):
+    """Return only public structural metadata; never DOM text or field values."""
+    raw = driver.execute_script(r"""
+        const el = arguments[0];
+        const row = {
+          tag: (el.tagName || '').toLowerCase(),
+          type: el.getAttribute('type') || '',
+          role: el.getAttribute('role') || '',
+          disabled: !!el.disabled,
+          aria_disabled: el.getAttribute('aria-disabled') || '',
+          onclick_attribute: el.hasAttribute('onclick'),
+          form_present: !!el.form,
+          form_method: el.form ? (el.form.method || '') : '',
+          form_action_host: '',
+          form_action_path: '',
+          shadow_depth: 0,
+          ancestor_tags: []
+        };
+        if (el.form && el.form.action) {
+          try {
+            const u = new URL(el.form.action, document.baseURI);
+            row.form_action_host = u.hostname;
+            row.form_action_path = u.pathname;
+          } catch (_) {}
+        }
+        let current = el;
+        for (let i = 0; current && i < 8; i++) {
+          const root = current.getRootNode ? current.getRootNode() : null;
+          const parent = current.parentElement || (root && root.host) || null;
+          if (!parent) break;
+          if (root && root.host && !current.parentElement) row.shadow_depth += 1;
+          row.ancestor_tags.push((parent.tagName || '').toLowerCase());
+          current = parent;
+        }
+        const r = el.getBoundingClientRect();
+        row.rect_present = !!(r && r.width > 0 && r.height > 0);
+        row.rect_width_bucket = r.width < 80 ? 'small' : (r.width < 240 ? 'medium' : 'wide');
+        row.rect_height_bucket = r.height < 24 ? 'small' : (r.height < 64 ? 'medium' : 'tall');
+        return row;
+    """, control)
+    # Only allow the two already-trusted ALDI hosts in structural output.
+    if raw.get("form_action_host") not in {
+        "www.alditalk-kundenportal.de", "login.alditalk-kundenbetreuung.de"
+    }:
+        raw["form_action_host"] = "other" if raw.get("form_action_host") else ""
+    raw["form_action_path"] = (raw.get("form_action_path") or "")[:160]
+    raw["ancestor_tags"] = [(x or "")[:40] for x in raw.get("ancestor_tags", [])[:8]]
+    return raw
+
+
 def main():
     report = {
         "started_at": now(),
@@ -46,6 +96,7 @@ def main():
         "submitted": False,
         "field_shapes": [],
         "control_labels": [],
+        "send_control_structure": None,
         "text_flags": {},
         "exception_type": None,
     }
@@ -75,13 +126,18 @@ def main():
                 "required": bool(field.get_attribute("required")),
             })
 
+        send_matches = []
         for control in find_visible_elements(driver, "a,button,[role='button'],input[type='submit']")[:30]:
             try:
                 label = element_label(driver, control).strip()
                 if label:
                     report["control_labels"].append(label[:120])
+                    if label.casefold() == "bestätigungscode senden":
+                        send_matches.append(control)
             except Exception:
                 continue
+        if len(send_matches) == 1:
+            report["send_control_structure"] = _submit_structure(driver, send_matches[0])
 
         try:
             text = rendered_text(driver).casefold()
