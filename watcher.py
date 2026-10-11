@@ -14,7 +14,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
-    NoSuchElementException, TimeoutException,
+    NoSuchElementException, TimeoutException, StaleElementReferenceException,
     ElementClickInterceptedException, ElementNotInteractableException
 )
 
@@ -152,8 +152,15 @@ def aldi_login(driver) -> bool:
 
     def unique_enabled(selector):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-        elements = find_visible_elements(driver, selector)
-        return elements[0] if len(elements) == 1 and elements[0].is_enabled() else False
+        try:
+            elements = [element for element in find_visible_elements(driver, selector)
+                        if element.is_enabled()
+                        and element.get_attribute('aria-disabled') != 'true'
+                        and element.get_attribute('readonly') is None]
+        except StaleElementReferenceException:
+            # Re-query on the next bounded wait poll after a component re-render.
+            return False
+        return elements[0] if len(elements) == 1 else False
 
     user_field = wait.until(
         lambda _: unique_enabled("input[autocomplete='username'],input[type='tel'],input[type='text']")
@@ -177,9 +184,12 @@ def aldi_login(driver) -> bool:
 
     def submit_control(_):
         require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-        buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
-                   if element_label(driver, e).strip().casefold() == 'anmelden'
-                   and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
+        try:
+            buttons = [e for e in find_visible_elements(driver, "button,a,[role='button'],input[type='submit']")
+                       if element_label(driver, e).strip().casefold() == 'anmelden'
+                       and e.is_enabled() and e.get_attribute('aria-disabled') != 'true']
+        except StaleElementReferenceException:
+            return False
         return buttons[0] if len(buttons) == 1 else False
 
     button = wait.until(submit_control)

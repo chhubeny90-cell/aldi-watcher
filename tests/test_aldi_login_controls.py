@@ -1,6 +1,6 @@
 from unittest.mock import Mock, call
 import pytest
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from selenium.webdriver.common.keys import Keys
 import watcher
 
@@ -136,7 +136,10 @@ def test_protected_content_fallback_needs_multiple_marker_groups(monkeypatch):
 
 def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     driver, user, password, submit, _ = login_page
-    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [user, Mock()])
+    other_user = Mock()
+    other_user.is_enabled.return_value = True
+    other_user.get_attribute.return_value = None
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [user, other_user])
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     user.send_keys.assert_not_called()
@@ -159,4 +162,52 @@ def test_uncertain_dom_submit_is_not_repeated(login_page):
     ]
     submit.click.assert_not_called()
     submit.send_keys.assert_not_called()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+
+
+@pytest.mark.parametrize("inactive_kind", ["disabled", "aria_disabled", "readonly"])
+def test_inactive_extra_username_does_not_block_active_field(login_page, monkeypatch, inactive_kind):
+    driver, user, password, submit, _ = login_page
+    inactive = Mock()
+    inactive.is_enabled.return_value = inactive_kind != "disabled"
+    inactive.get_attribute.side_effect = lambda name: (
+        "true" if name == "aria-disabled" and inactive_kind == "aria_disabled"
+        else "" if name == "readonly" and inactive_kind == "readonly" else None
+    )
+    original = watcher.find_visible_elements
+    monkeypatch.setattr(watcher, "find_visible_elements", lambda d, selector:
+                        [inactive, user] if "autocomplete" in selector else original(d, selector))
+    assert watcher.aldi_login(driver)
+    inactive.send_keys.assert_not_called()
+    assert call("PRIVATE_USER") in user.send_keys.call_args_list
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+
+
+@pytest.mark.parametrize("control", ["username", "submit"])
+def test_rerender_during_control_search_is_requeried_before_submission(login_page, monkeypatch, control):
+    driver, user, password, submit, _ = login_page
+    stale = Mock()
+    stale.is_enabled.side_effect = StaleElementReferenceException("PRIVATE DOM")
+    original = watcher.find_visible_elements
+    searches = 0
+    def elements(d, selector):
+        nonlocal searches
+        target = "autocomplete" in selector if control == "username" else "button,a" in selector
+        if target:
+            searches += 1
+            if searches == 1:
+                return [stale]
+        return original(d, selector)
+    monkeypatch.setattr(watcher, "find_visible_elements", elements)
+    assert watcher.aldi_login(driver)
+    assert searches == 2
+    stale.send_keys.assert_not_called()
+    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+
+
+def test_stale_submission_is_not_repeated(login_page):
+    driver, _, _, submit, _ = login_page
+    driver.execute_script.side_effect = StaleElementReferenceException("PRIVATE DOM")
+    with pytest.raises(StaleElementReferenceException):
+        watcher.aldi_login(driver)
     driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
