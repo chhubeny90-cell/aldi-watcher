@@ -3,7 +3,7 @@
 The detector works only inside an already authenticated ALDI customer-area
 session. It never clicks by itself. A live caller receives a control only when
 all of these are simultaneously proven from the rendered page:
-- remaining high-speed volume is at most 1 GB,
+- remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
@@ -93,9 +93,8 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("remaining_volume_unverified")
     if not math.isfinite(remaining_gb) or remaining_gb < 0:
         return unavailable("remaining_volume_unverified")
-    # The exact portal offer remains the final gate. Allow the contract boundary
-    # of 1.00 GB, but no value above it.
-    if remaining_gb > 1.0:
+    # ALDI's eligibility boundary is strict: exactly 1.00 GB is not below 1 GB.
+    if remaining_gb >= 1.0:
         return unavailable("remaining_volume_above_one_gb")
 
     tariff = _eligible_tariff(tariff_text)
