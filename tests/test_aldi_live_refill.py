@@ -143,6 +143,27 @@ def test_reoffered_control_cannot_bypass_unknown(monkeypatch, tmp_path):
     click.assert_called_once_with(driver, first)
 
 
+def test_verified_refills_in_same_run_bypass_only_the_recent_success_cooldown(monkeypatch, tmp_path):
+    first, second = Mock(), Mock()
+    driver = _setup(
+        monkeypatch,
+        tmp_path,
+        [0.2, 1.0, 2.0],
+        [
+            _eligible(first), _unavailable(),
+            _eligible(second), _unavailable(),
+        ],
+    )
+    monkeypatch.setattr(live, 'MAX_REFILLS_PER_RUN', 2)
+    clicks = []
+    monkeypatch.setattr(live, '_trusted_click', lambda session, control: clicks.append((session, control)))
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    monkeypatch.setattr(live, 'check_recharge_status', lambda *_: 'SUCCESS')
+
+    assert live.main() == 0
+    assert clicks == [(driver, first), (driver, second)]
+
+
 def test_visible_plus_one_gb_button_is_recognized_after_offer_gate(monkeypatch):
     monkeypatch.setattr(live, 'element_label', lambda *_: '+1 GB')
     assert live._action_kind(object(), object()) == 'book'
@@ -173,19 +194,27 @@ def test_pending_is_committed_before_click_and_unknown_survives_next_run(monkeyp
     driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
     db = Database(str(tmp_path / 'journal.sqlite'))
     ids = []
+    recovery_sessions = []
 
     def click(*_):
         records = db.get_unresolved_recharges('alditalk', '01500000000')
         assert len(records) == 1 and records[0].status == 'PENDING'
         ids.append(records[0].recharge_id)
+
+    def status_lookup(session, recharge_id):
+        recovery_sessions.append(session)
+        return 'UNKNOWN'
+
+    monkeypatch.setattr(live, 'check_recharge_status', status_lookup)
     monkeypatch.setattr(live, '_trusted_click', click)
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
     assert live.main() == 2
     assert db.get_unresolved_recharges()[0].status == 'UNKNOWN'
-    build = Mock(side_effect=AssertionError('unresolved must block before login'))
+    build = Mock(return_value=driver)
     monkeypatch.setattr(live.watcher, 'build_driver', build)
     assert live.main() == 2
-    build.assert_not_called()
+    build.assert_called_once()
+    assert recovery_sessions == [driver, driver]
     assert len(ids) == 1
     assert db.get_unresolved_recharges()[0].recharge_id == ids[0]
 
@@ -270,17 +299,19 @@ def test_live_crash_after_request_recovers_success_with_same_id_and_one_call(mon
     _setup(monkeypatch, tmp_path, [], [])
     looked_up = []
     def receipt_lookup(driver, recharge_id):
+        assert driver is not None
         looked_up.append(recharge_id)
         return 'SUCCESS' if recharge_id in calls.read_text().splitlines() else 'UNKNOWN'
     monkeypatch.setattr(live, 'check_recharge_status', receipt_lookup)
-    build = Mock(side_effect=AssertionError('recovery must not issue a booking'))
+    driver = Mock()
+    build = Mock(return_value=driver)
     monkeypatch.setattr(live.watcher, 'build_driver', build)
-    assert live.main() == 2  # recovery-only run, no fresh booking
+    assert live.main() == 0  # recovery-only run, no fresh booking
     assert looked_up == [pending.recharge_id]
     assert db.get_unresolved_recharges() == []
     assert db.set_recharge_status(pending.recharge_id, 'UNKNOWN') == 'SUCCESS'
     assert calls.read_text().splitlines() == [pending.recharge_id]
-    build.assert_not_called()
+    build.assert_called_once()
 
 
 def test_live_crash_before_click_recovers_unknown_without_booking(monkeypatch, tmp_path):
