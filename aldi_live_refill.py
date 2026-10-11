@@ -190,8 +190,8 @@ def main():
             return 0
 
         before = _safe_status(driver)
-        # Verified Tarif S terms allow a refill at exactly 1.00 GB (<= 1 GB).
-        if before > 1.0:
+        # ALDI allows the free refill only below 1 GB; exactly 1 GB is not eligible.
+        if before >= 1.0:
             report["outcome"] = "not_needed"
             report["remaining_gb"] = round(before, 3)
             return 0
@@ -274,14 +274,13 @@ def main():
 
             report["successful_refills"] += 1
             before = after
-            # At exactly 1.00 GB the contract still allows another free refill;
-            # only stop automatically once remaining volume is above 1 GB.
-            if before > 1.0:
+            # Stop at 1 GB or more; ALDI permits another free refill only below 1 GB.
+            if before >= 1.0:
                 report["outcome"] = "refill_verified"
                 return 0
 
         # The run limit is not a failure. A later trigger may perform another free
-        # refill if ALDI still proves eligibility and remaining volume is <= 1 GB.
+        # refill if ALDI still proves eligibility and remaining volume is < 1 GB.
         report["outcome"] = "run_limit_reached"
         return 0
     except RechargeLockedError:
