@@ -93,9 +93,8 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("remaining_volume_unverified")
     if not math.isfinite(remaining_gb) or remaining_gb < 0:
         return unavailable("remaining_volume_unverified")
-    # The exact portal offer remains the final gate. Allow the contract boundary
-    # of 1.00 GB, but no value above it.
-    if remaining_gb > 1.0:
+    # ALDI's eligibility boundary is strict: exactly 1.00 GB is not below 1 GB.
+    if remaining_gb >= 1.0:
         return unavailable("remaining_volume_above_one_gb")
 
     tariff = _eligible_tariff(tariff_text)
