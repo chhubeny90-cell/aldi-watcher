@@ -3,7 +3,7 @@
 The detector works only inside an already authenticated ALDI customer-area
 session. It never clicks by itself. A live caller receives a control only when
 all of these are simultaneously proven from the rendered page:
-- remaining high-speed volume is at most 1 GB,
+- remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
 - that local offer is explicitly free/0 EUR and contains no positive price.
