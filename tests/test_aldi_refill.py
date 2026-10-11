@@ -34,9 +34,10 @@ def test_tarif_l_is_supported():
     assert result['tariff_evidence'] == 'UNLIMITED'
 
 
-def test_exactly_one_gb_is_still_eligible():
+def test_exactly_one_gb_is_not_eligible():
     result = eligible(remaining_gb=1.0)
-    assert result['refill_eligible'] is True
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'remaining_volume_above_one_gb'
 
 
 def test_volume_above_one_gb_is_rejected():
@@ -172,11 +173,6 @@ def test_explicit_unlimited_heading_with_verified_free_offer_is_eligible():
 def test_multiple_unlimited_tariff_headings_are_ambiguous():
     result = eligible(active_tariff_text='Tarif S Unlimited\nTarif M Unlimited')
     assert result['refill_eligible'] is False
-
-def test_refill_heading_alone_is_not_active_tariff_evidence():
-    result = eligible(active_tariff_text="Unlimited GB nachbuchen")
-    assert result["refill_eligible"] is False
-    assert result["refill_reason"] == "active_tariff_unverified"
 
 
 def test_refill_heading_alone_is_not_active_tariff_evidence():
