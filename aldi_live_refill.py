@@ -165,21 +165,29 @@ def main():
         db = open_live_journal()
         locks.enter_context(db.account_lock('alditalk', account))
         unresolved = db.get_unresolved_recharges('alditalk', account)
-        if unresolved:
-            # Until authenticated per-operation lookup exists, recovery remains
-            # UNKNOWN and does not need another login attempt.
-            for record in unresolved:
-                status = check_recharge_status(None, record.recharge_id)
-                if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
-                    status = 'UNKNOWN'
-                db.set_recharge_status(record.recharge_id, status)
-            report['outcome'] = 'unresolved_recharge_blocked'
-            return 2
 
+        # Recovery must use the same authenticated portal session as a normal
+        # status check. If login fails, leave every durable operation unresolved.
         driver = watcher.build_driver()
         if not watcher.aldi_login(driver):
             report["outcome"] = "auth_failed"
             return 2
+
+        if unresolved:
+            for record in unresolved:
+                status = check_recharge_status(driver, record.recharge_id)
+                if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
+                    status = 'UNKNOWN'
+                db.set_recharge_status(record.recharge_id, status)
+
+            # Recovery is always a recovery-only run. Even when every old
+            # operation reaches a terminal state, a fresh booking waits for a
+            # separate run and a fresh eligibility check.
+            if db.get_unresolved_recharges('alditalk', account):
+                report['outcome'] = 'unresolved_recharge_blocked'
+                return 2
+            report['outcome'] = 'recovery_complete'
+            return 0
 
         before = _safe_status(driver)
         # Verified Tarif S terms allow a refill at exactly 1.00 GB (<= 1 GB).
@@ -214,7 +222,13 @@ def main():
                 return 2
 
             cycle["action"] = "book"
-            recharge_id = db.begin_recharge('alditalk', account, recent_success_guard_seconds=30)
+            # Keep the cross-run cooldown, but a previously receipt-verified success
+            # in this locked run may be followed by the next eligible refill.
+            same_run_success = report["successful_refills"] > 0
+            recharge_id = db.begin_recharge(
+                'alditalk', account,
+                recent_success_guard_seconds=0 if same_run_success else 30,
+            )
             cycle['recharge_id'] = recharge_id
             cycle['recharge_status'] = 'PENDING'
             _write(report)
