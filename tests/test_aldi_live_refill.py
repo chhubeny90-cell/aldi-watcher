@@ -67,20 +67,14 @@ def test_volume_above_threshold_never_clicks(monkeypatch, tmp_path):
     driver.execute_script.assert_not_called()
 
 
-def test_exactly_one_gb_can_still_refill(monkeypatch, tmp_path):
-    control = Mock()
-    driver = _setup(
-        monkeypatch,
-        tmp_path,
-        [1.0, 2.0],
-        [_eligible(control), _unavailable('offer_unverified')],
-    )
+def test_exactly_one_gb_is_not_eligible_for_free_refill(monkeypatch, tmp_path):
+    driver = _setup(monkeypatch, tmp_path, [1.0], [])
     click = Mock()
     monkeypatch.setattr(live, '_trusted_click', click)
-    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
 
-    assert live.main() == 2
-    click.assert_called_once_with(driver, control)
+    assert live.main() == 0
+    click.assert_not_called()
+    driver.execute_script.assert_not_called()
 
 
 def test_paid_or_ambiguous_offer_never_clicks(monkeypatch, tmp_path):
@@ -148,7 +142,7 @@ def test_verified_refills_in_same_run_bypass_only_the_recent_success_cooldown(mo
     driver = _setup(
         monkeypatch,
         tmp_path,
-        [0.2, 1.0, 2.0],
+        [0.2, 0.8, 1.2],
         [
             _eligible(first), _unavailable(),
             _eligible(second), _unavailable(),
