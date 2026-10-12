@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from selenium.common.exceptions import TimeoutException
+from monitoring import _CONTEXT
 
 import watcher
 from core.aldi_http_login import phone_identifier
@@ -63,11 +64,21 @@ def main():
         driver = watcher.build_driver()
 
         _phase(report, 'login')
+        phase_context = {'phase': 'login_page'}
+        token = _CONTEXT.set(phase_context)
         try:
-            logged_in = watcher.aldi_login(driver)
-        except TimeoutException:
-            report['outcome'] = 'login_timeout'
-            return 2
+            try:
+                logged_in = watcher.aldi_login(driver)
+            except TimeoutException:
+                stage = phase_context['phase']
+                report['failed_phase'] = stage
+                report['outcome'] = (stage + '_timeout') if stage in {
+                    'login_page', 'username_field', 'password_field',
+                    'session_validation', 'protected_page_probe'
+                } else 'login_timeout'
+                return 2
+        finally:
+            _CONTEXT.reset(token)
         if not logged_in:
             report['outcome'] = 'auth_failed'
             return 2
