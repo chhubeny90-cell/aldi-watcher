@@ -1,14 +1,15 @@
 """GitHub-hosted entry point for the guarded ALDI live-refill runner.
 
-The normal live runner requires a persistent POSIX journal. GitHub-hosted
-runners are ephemeral, so this adapter restores an encrypted journal before the
-run and synchronizes every recharge state transition before execution continues.
+GitHub-hosted runners are ephemeral. This adapter rehydrates only unresolved
+operation guards after the configured account is known, then persists each
+PENDING/UNKNOWN transition remotely without writing the account identity.
 """
 
 import os
 from pathlib import Path
 
 import aldi_live_refill as live
+import watcher
 from core.database import Database
 from github_journal_state import restore_journal, sync_journal
 
@@ -34,6 +35,8 @@ def _journal_path():
 
 
 def _syncing_begin(self, *args, **kwargs):
+    # begin_recharge commits PENDING locally. Do not return to the caller (which
+    # may click the provider control) until that unresolved guard is durable.
     recharge_id = _ORIGINAL_BEGIN(self, *args, **kwargs)
     sync_journal(self.db_path)
     return recharge_id
@@ -47,6 +50,9 @@ def _syncing_set(self, *args, **kwargs):
 
 def _open_cloud_journal():
     path = _journal_path()
+    # live.main() configures credentials before opening the journal, so the
+    # account is available here but is never included in remote state.
+    restore_journal(path, watcher.ALDI_ACCOUNT_USER)
     if not path.is_file():
         raise RuntimeError("cloud_journal_unavailable")
     if os.name != "posix" or path.stat().st_mode & 0o077:
@@ -60,9 +66,7 @@ def main():
     if os.environ.get("ALDI_REMOTE_JOURNAL", "").lower() != "true":
         raise RuntimeError("remote_journal_not_enabled")
 
-    path = _journal_path()
-    restore_journal(path)
-
+    _journal_path()
     Database.begin_recharge = _syncing_begin
     Database.set_recharge_status = _syncing_set
     live.open_live_journal = _open_cloud_journal

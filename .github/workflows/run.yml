@@ -2,7 +2,7 @@ name: ALDI Watcher
 
 on:
   push:
-    branches: [main, develop, 'hardening/**', 'feature/**']
+    branches: [main, develop, 'hardening/**', 'feature/**', 'fix/**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -60,7 +60,7 @@ jobs:
           print(json.dumps({
               'live_mode_requested': True,
               'runner': 'github-hosted-linux',
-              'journal_storage': 'encrypted-state-branch',
+              'journal_storage': 'public-safe-state-branch',
               'booking_limit_per_run': 1,
           }))
           PY
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
-      # Only this job may update the AES-GCM encrypted journal state branch.
+      # Only this job may update the non-sensitive refill guard state branch.
       contents: write
     concurrency:
       group: aldi-live-refill-profile-${{ matrix.profile }}
@@ -146,7 +146,7 @@ jobs:
       ALDI_MAX_REFILLS_PER_RUN: '1'
       ALDI_JOURNAL_PATH: /tmp/aldi-watcher-live.db
       ALDI_REMOTE_JOURNAL: 'true'
-      ALDI_JOURNAL_KEY: ${{ secrets.ALDI_JOURNAL_KEY || secrets.CREDENTIAL_ENCRYPTION_KEY }}
+      ALDI_STATE_PATH: .aldi-state/profile-${{ matrix.profile }}.json
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -174,8 +174,6 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          if len(os.environ.get('ALDI_JOURNAL_KEY', '')) < 20:
-              raise SystemExit('Missing ALDI_JOURNAL_KEY or CREDENTIAL_ENCRYPTION_KEY')
           plain = bool(os.environ.get('ALDI_PASS')) and bool(
               os.environ.get('ALDI_LOGIN_USER') or os.environ.get('ALDI_USER'))
           encrypted = bool(os.environ.get('CREDENTIAL_ENCRYPTION_KEY')) and bool(

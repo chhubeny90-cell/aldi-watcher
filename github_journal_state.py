@@ -1,25 +1,30 @@
-"""Encrypted durable journal storage for GitHub-hosted live refill runs.
+"""Public-safe durable state for GitHub-hosted ALDI live refill runs.
 
-Only ciphertext is stored in the public repository. The key is provided through
-an Actions secret and never written to disk or logs.
+The public state branch stores only random recharge operation IDs and the
+non-terminal states PENDING/UNKNOWN. Phone numbers, credentials, tariffs,
+allowances, SQLite bytes and error text never leave the runner.
 """
 
 import base64
-import hashlib
+import json
 import os
-import secrets
+import sqlite3
+import uuid
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
 import requests
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from core.aldi_http_login import phone_identifier
 from core.database import Database
 
 
-MAGIC = b"ALDIJ1\x00"
+STATE_VERSION = 1
+MAX_UNRESOLVED = 16
 DEFAULT_BRANCH = "aldi-watcher-state"
-DEFAULT_PATH = ".aldi-state/journal.enc"
+DEFAULT_PATH = ".aldi-state/profile-1.json"
+_ALLOWED_STATUSES = {"PENDING", "UNKNOWN"}
 
 
 def _repo():
@@ -36,44 +41,12 @@ def _token():
     return value
 
 
-def _secret():
-    value = os.environ.get("ALDI_JOURNAL_KEY", "")
-    if len(value) < 20:
-        raise RuntimeError("journal_key_unavailable")
-    return value.encode("utf-8")
-
-
 def _branch():
     return os.environ.get("ALDI_STATE_BRANCH", DEFAULT_BRANCH).strip() or DEFAULT_BRANCH
 
 
 def _state_path():
     return os.environ.get("ALDI_STATE_PATH", DEFAULT_PATH).strip() or DEFAULT_PATH
-
-
-def _aad():
-    return f"{_repo()}:{_branch()}:{_state_path()}:v1".encode("utf-8")
-
-
-def _key():
-    return hashlib.sha256(b"aldi-journal-v1\x00" + _secret()).digest()
-
-
-def encrypt_bytes(data: bytes) -> bytes:
-    nonce = secrets.token_bytes(12)
-    ciphertext = AESGCM(_key()).encrypt(nonce, data, _aad())
-    return MAGIC + nonce + ciphertext
-
-
-def decrypt_bytes(blob: bytes) -> bytes:
-    if not blob.startswith(MAGIC) or len(blob) <= len(MAGIC) + 12:
-        raise RuntimeError("journal_ciphertext_invalid")
-    nonce = blob[len(MAGIC):len(MAGIC) + 12]
-    ciphertext = blob[len(MAGIC) + 12:]
-    try:
-        return AESGCM(_key()).decrypt(nonce, ciphertext, _aad())
-    except Exception as exc:
-        raise RuntimeError("journal_decryption_failed") from exc
 
 
 def _headers():
@@ -89,9 +62,9 @@ def _url(path: str) -> str:
     return f"{root}/repos/{_repo()}/{path.lstrip('/')}"
 
 
-def _request(method: str, path: str, *, json=None, expected=(200,)):
+def _request(method: str, path: str, *, json_body=None, expected=(200,)):
     response = requests.request(
-        method, _url(path), headers=_headers(), json=json, timeout=20,
+        method, _url(path), headers=_headers(), json=json_body, timeout=20,
     )
     if response.status_code not in expected:
         raise RuntimeError(f"github_state_http_{response.status_code}")
@@ -114,13 +87,55 @@ def _ensure_branch():
     if len(base_sha) < 7:
         raise RuntimeError("github_sha_unavailable")
     create = requests.post(
-        _url("git/refs"),
-        headers=_headers(),
-        json={"ref": f"refs/heads/{branch}", "sha": base_sha},
-        timeout=20,
+        _url("git/refs"), headers=_headers(),
+        json={"ref": f"refs/heads/{branch}", "sha": base_sha}, timeout=20,
     )
     if create.status_code not in {201, 422}:
         raise RuntimeError(f"github_state_ref_create_http_{create.status_code}")
+
+
+def _validate_operation(operation):
+    if not isinstance(operation, dict) or set(operation) != {"recharge_id", "status"}:
+        raise RuntimeError("github_state_schema_invalid")
+    recharge_id = operation.get("recharge_id")
+    status = operation.get("status")
+    if not isinstance(recharge_id, str) or status not in _ALLOWED_STATUSES:
+        raise RuntimeError("github_state_schema_invalid")
+    try:
+        parsed = uuid.UUID(recharge_id)
+    except (ValueError, AttributeError):
+        raise RuntimeError("github_state_schema_invalid") from None
+    if str(parsed) != recharge_id:
+        raise RuntimeError("github_state_schema_invalid")
+    return {"recharge_id": recharge_id, "status": status}
+
+
+def _parse_state(content: bytes):
+    if not isinstance(content, bytes) or len(content) > 65536:
+        raise RuntimeError("github_state_content_invalid")
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise RuntimeError("github_state_content_invalid") from None
+    if (not isinstance(payload, dict)
+            or set(payload) != {"version", "unresolved"}
+            or payload.get("version") != STATE_VERSION
+            or not isinstance(payload.get("unresolved"), list)
+            or len(payload["unresolved"]) > MAX_UNRESOLVED):
+        raise RuntimeError("github_state_schema_invalid")
+    operations = [_validate_operation(item) for item in payload["unresolved"]]
+    ids = [item["recharge_id"] for item in operations]
+    if len(ids) != len(set(ids)):
+        raise RuntimeError("github_state_schema_invalid")
+    return operations
+
+
+def _encode_state(operations):
+    validated = [_validate_operation(item) for item in operations]
+    if len(validated) > MAX_UNRESOLVED:
+        raise RuntimeError("too_many_unresolved_operations")
+    payload = {"version": STATE_VERSION, "unresolved": validated}
+    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 def _get_state():
@@ -141,45 +156,60 @@ def _get_state():
         content = base64.b64decode(payload.get("content", ""), validate=False)
     except Exception as exc:
         raise RuntimeError("github_state_content_invalid") from exc
-    return payload["sha"], content
+    return payload["sha"], _parse_state(content)
 
 
-def sync_journal(journal_path):
+def _snapshot_unresolved(journal_path):
     path = Path(journal_path)
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
         raise RuntimeError("journal_path_invalid")
-    encrypted = encrypt_bytes(path.read_bytes())
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT recharge_id, status FROM recharges "
+            "WHERE status IN ('PENDING','UNKNOWN') ORDER BY created_at"
+        ).fetchall()
+    return [_validate_operation({"recharge_id": row[0], "status": row[1]}) for row in rows]
+
+
+def sync_journal(journal_path):
+    operations = _snapshot_unresolved(journal_path)
     current = _get_state()
     payload = {
-        "message": "Persist encrypted ALDI live journal",
-        "content": base64.b64encode(encrypted).decode("ascii"),
+        "message": "Persist ALDI refill guard state",
+        "content": base64.b64encode(_encode_state(operations)).decode("ascii"),
         "branch": _branch(),
     }
     if current is not None:
         payload["sha"] = current[0]
     state_path = quote(_state_path(), safe="/")
-    _request("PUT", f"contents/{state_path}", json=payload, expected=(200, 201))
+    _request("PUT", f"contents/{state_path}", json_body=payload, expected=(200, 201))
 
 
-def restore_journal(journal_path):
+def restore_journal(journal_path, account):
+    """Rehydrate unresolved guard rows using the account only inside this runner."""
     path = Path(journal_path)
     if not path.is_absolute() or path.is_symlink():
         raise RuntimeError("journal_path_invalid")
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
 
     current = _get_state()
-    if current is None:
-        Database(str(path))
-        path.chmod(0o600)
-        sync_journal(path)
-        return "initialized"
-
-    plaintext = decrypt_bytes(current[1])
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(plaintext)
-    temporary.chmod(0o600)
-    os.replace(temporary, path)
+    operations = [] if current is None else current[1]
+    canonical_account = phone_identifier(account)
+    db = Database(str(path))
+    now = datetime.now().isoformat()
+    with db._connect() as conn:
+        for operation in operations:
+            conn.execute(
+                "INSERT INTO recharges "
+                "(recharge_id, provider, username, status, error_message, created_at, updated_at) "
+                "VALUES (?, 'alditalk', ?, ?, NULL, ?, ?)",
+                (operation["recharge_id"], canonical_account, operation["status"], now, now),
+            )
     path.chmod(0o600)
 
-    Database(str(path))
+    if current is None:
+        sync_journal(path)
+        return "initialized"
     return "restored"
