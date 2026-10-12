@@ -125,7 +125,7 @@ def test_usage_mail_ignores_unrelated_mail():
 def test_main_workflow_has_no_parallel_concurrency_lock():
     text = Path('.github/workflows/run.yml').read_text(encoding='utf-8')
     assert '\nconcurrency:' not in text
-    assert 'aldi-live-refill-profile-' not in text
+    assert '\n    concurrency:' not in text
     assert 'max-parallel:' not in text
     assert 'repository_dispatch:' in text
     assert 'ALDI_MANUAL_AUTH_ONCE:' in text
