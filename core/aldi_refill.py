@@ -6,7 +6,9 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- that local offer is explicitly free/0 EUR and contains no positive price.
+- that local offer is either explicitly free/0 EUR, or is unmistakably the
+  Unlimited 1-GB on-demand refill covered by ALDI's published tariff terms,
+  and contains no positive price.
 
 An explicitly identified active Unlimited tariff or Tarif S may be eligible.
 Tarif S still requires a unique local offer for exactly 1 GB with explicit
@@ -77,7 +79,24 @@ def _free_price(text):
     prices = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d{1,2})?)\s*(?:€|EUR\b)", text, re.I)
     if any(float(price.replace(",", ".")) > 0 for price in prices):
         return False
-    return bool(prices) or bool(re.search(r"\bkostenlos\b", text, re.I))
+    return bool(prices) or bool(re.search(r"\b(?:kostenlos|gratis)\b", text, re.I))
+
+
+# ALDI's official terms for active S/M/L Unlimited-GB-Nachbuchen tariffs:
+# https://www.alditalk.de/tarife-unlimited-gb-nachbuchen
+# This is tariff evidence only. It is NOT permission to automate the portal,
+# and does NOT replace per-operation booking status reconciliation.
+def _free_offer_evidence(offer_text, tariff):
+    if _free_price(offer_text):
+        return "explicit_free_offer"
+    # Do not infer a free refill merely from an active tariff or a generic
+    # 1-GB upsell. The *same local offer* must identify the official
+    # Unlimited/on-demand refill, with exactly one validated control.
+    if tariff in {"UNLIMITED", "TARIF_S"} and re.search(
+        r"\b(?:unlimited|on[\s-]*demand)\b", offer_text, re.I
+    ) and re.search(r"\bnachbuch\w*\b", offer_text, re.I):
+        return "official_tariff_entitlement"
+    return None
 
 
 def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb,
@@ -112,7 +131,10 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
             r"|(?<![\d.,])\+\s*1\s*GB\b",
             offer_text, re.I):
         return unavailable("not_refill_offer")
-    if not _free_price(offer_text):
+    # Reject every paid local offer even when the tariff itself includes
+    # free on-demand refills. A positive price always wins over entitlement.
+    free_evidence = _free_offer_evidence(offer_text, tariff)
+    if free_evidence is None:
         return unavailable("price_unverified_or_paid")
     if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
         return unavailable("conflicting_terms")
@@ -131,6 +153,7 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         "refill_reason": "free_one_gb_button_available",
         "refill_candidate_count": 1,
         "tariff_evidence": tariff,
+        "free_evidence": free_evidence,
     }
 
 
