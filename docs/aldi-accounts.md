@@ -21,13 +21,19 @@ and allowlisted status fields. An ALDI account is declared by the manifest and
 verified against the trusted ALDI portal; the mobile prefix is not used to infer
 the provider. The booked-product view identifies annual/base tariffs.
 
-The new ALDI Accounts workflow runs manually. Its hourly schedule is inactive
-unless repository variable ALDI_ACCOUNTS_MONITOR_ENABLED=true. Set enabled=true
-for individual profiles only after confirming their login identifier/password.
-Do not activate repeated login attempts while credentials are rejected.
+As of 2026-10-12, the ALDI Accounts workflow is activated directly in its source
+for manual runs and the existing hourly schedule (`17 * * * *`). It no longer
+depends on repository variable ALDI_ACCOUNTS_MONITOR_ENABLED. Missing encrypted
+configuration/key still skips account access, and only profiles with enabled=true
+in the private manifest are checked. Source activation does not change that
+manifest or establish valid credentials. Confirm each enabled profile's actual
+login identifier/password; rejected credentials are not a successful check.
 
 All scheduled multi-account runs remain read-only. free_unlimited records the
 requested booking policy, not an authorization or proof of eligibility.
 Recurring live refill remains blocked until authenticated target identity,
 active Unlimited tariff, free 1-GB control, and durable cross-run reconciliation
-are proven. The separate existing manual live workflow is unchanged.
+are proven. The separate manual live-refill workflow also has source activation
+on, without the former ALDI_V33_LIVE_ENABLED variable gate; its main-branch,
+explicit live-refill mode, tests, persistent journal/runner and provider evidence
+requirements remain. Setting a booking permission cannot supply those proofs.

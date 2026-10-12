@@ -110,13 +110,13 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Manual opt-in only; no scheduled provider-changing actions until verified
-    # ALDI reconciliation and a persistent runner have been provisioned.
+    # Source activation is on; explicit manual live-refill selection still
+    # requires the persistent journal/runner and verified provider reconciliation.
     needs: test
     if: >-
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill' &&
-      vars.ALDI_V33_LIVE_ENABLED == 'true' && vars.ALDI_JOURNAL_PATH != ''
+      vars.ALDI_JOURNAL_PATH != ''
     strategy:
       fail-fast: false
       max-parallel: 1

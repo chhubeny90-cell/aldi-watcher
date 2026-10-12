@@ -1,5 +1,28 @@
 # Monitoring recovery: verified scope and remaining rollout
 
+## Workflow activation, 2026-10-12
+
+The existing ALDI Accounts manual/hourly triggers are now activated directly in
+`.github/workflows/accounts.yml`; ALDI_ACCOUNTS_MONITOR_ENABLED is no longer
+required. The encrypted configuration/key presence check, each private profile's
+enabled flag and AUTO_BOOK_ENABLED=false remain in force. This activates the
+configured read-only schedule without creating a new provider polling loop.
+
+The manual live-refill job in `.github/workflows/run.yml` also has source
+activation on and no longer requires ALDI_V33_LIVE_ENABLED. It still requires
+main, explicit workflow_dispatch mode live-refill, successful tests, a real
+ALDI_JOURNAL_PATH and the dedicated persistent self-hosted Linux runner. The
+all mode does not include live-refill. No scheduled or push-triggered booking
+has been added; the ALDI Watcher workflow's hourly schedule still runs regression
+tests.
+
+These are execution permissions, not proof of readiness. The live runner still
+has ALDI_RECONCILIATION_VERIFIED=false because its per-operation receipt lookup
+returns UNKNOWN. It exits before login/booking. Account identity, active tariff,
+explicit zero-euro 1-GB offer and durable PENDING/UNKNOWN protection remain
+required. Missing provider proof or a journal cannot be repaired by switching
+an activation flag on. Older run observations below are historical evidence.
+
 ## Browser startup correction, 2026-10-07
 
 The latest scheduled run's second attempt
@@ -248,7 +271,7 @@ operations only; they do not immediately start another booking in that same run.
 
 The workflow no longer performs scheduled or push-triggered live bookings.
 Scheduled runs execute regression tests. Manual live dispatch additionally needs
-successful tests, main branch, `ALDI_V33_LIVE_ENABLED=true`, `ALDI_JOURNAL_PATH`,
+successful tests, main branch, explicit `live-refill` mode, `ALDI_JOURNAL_PATH`,
 and a dedicated self-hosted Linux runner labelled `aldi-journal`. Do not execute
 untrusted PR jobs on that runner. Its persistent journal must live outside the
 checkout on a local durable filesystem, be a private existing SQLite database,
