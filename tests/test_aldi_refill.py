@@ -179,3 +179,58 @@ def test_refill_heading_alone_is_not_active_tariff_evidence():
     result = eligible(active_tariff_text="Unlimited GB nachbuchen")
     assert result["refill_eligible"] is False
     assert result["refill_reason"] == "active_tariff_unverified"
+
+
+def test_official_unlimited_refill_needs_no_zero_euro_label():
+    from core.aldi_refill import assess_refill
+    result = assess_refill(
+        page_text="Kundenübersicht", active_tariff_text="Tarif S Unlimited",
+        offer_text="Unlimited 1 GB nachbuchen", button_text="+1 GB",
+        enabled=True, candidate_count=1, remaining_gb=0.25,
+    )
+    assert result["refill_eligible"] is True
+    assert result["free_evidence"] == "official_tariff_entitlement"
+
+
+def test_generic_one_gb_offer_without_price_is_not_inferred_free():
+    from core.aldi_refill import assess_refill
+    result = assess_refill(
+        page_text="Kundenübersicht", active_tariff_text="Tarif S Unlimited",
+        offer_text="1 GB Highspeed-Datenvolumen nachbuchen", button_text="+1 GB",
+        enabled=True, candidate_count=1, remaining_gb=0.25,
+    )
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
+
+
+def test_paid_unlimited_offer_is_blocked_despite_official_entitlement():
+    from core.aldi_refill import assess_refill
+    result = assess_refill(
+        page_text="Kundenübersicht", active_tariff_text="Tarif S Unlimited",
+        offer_text="Unlimited 1 GB nachbuchen 1,99 €", button_text="+1 GB",
+        enabled=True, candidate_count=1, remaining_gb=0.25,
+    )
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
+
+
+def test_free_entitlement_requires_verified_active_tariff():
+    from core.aldi_refill import assess_refill
+    result = assess_refill(
+        page_text="Kundenübersicht", active_tariff_text="Jahres-Paket S",
+        offer_text="Unlimited 1 GB nachbuchen", button_text="+1 GB",
+        enabled=True, candidate_count=1, remaining_gb=0.25,
+    )
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "active_tariff_unverified"
+
+
+def test_explicit_gratis_offer_is_recognized():
+    from core.aldi_refill import assess_refill
+    result = assess_refill(
+        page_text="Kundenübersicht", active_tariff_text="Tarif S Unlimited",
+        offer_text="1 GB Highspeed-Datenvolumen gratis nachbuchen",
+        button_text="+1 GB", enabled=True, candidate_count=1, remaining_gb=0.25,
+    )
+    assert result["refill_eligible"] is True
+    assert result["free_evidence"] == "explicit_free_offer"
