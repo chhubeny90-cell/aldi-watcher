@@ -222,13 +222,16 @@ def aldi_login(driver) -> bool:
     return True
 
 
-def aldi_read_status(driver, include_refill=True, attempts=3) -> dict:
+def aldi_read_status(driver, include_refill=None, attempts=3) -> dict:
     """Read protected ALDI usage first; inspect refill controls only when requested.
 
     The usage read intentionally does not depend on a refill button being present.
     This lets callers establish ``>= 1 GB -> not_needed`` without waiting for an
-    offer that ALDI correctly does not show yet.
+    offer that ALDI correctly does not show yet. ``ALDI_STATUS_ONLY=true`` makes
+    legacy callers use the same status-only path without changing their call site.
     """
+    if include_refill is None:
+        include_refill = os.environ.get('ALDI_STATUS_ONLY', 'false').lower() != 'true'
     if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 1 or attempts > 5:
         raise ValueError('invalid_status_attempts')
 
