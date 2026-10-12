@@ -82,3 +82,13 @@ def test_initialize_journal_rejects_broad_permissions(tmp_path):
     path.chmod(0o640)
     with pytest.raises(RuntimeError, match="journal_permissions_must_be_0600"):
         initialize_journal(str(path))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="live journal requires POSIX")
+def test_initialize_journal_rejects_writable_parent(tmp_path):
+    parent = tmp_path / "shared"
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o777)
+    path = parent / "journal.sqlite"
+    with pytest.raises(RuntimeError, match="journal_parent_must_not_be_group_or_world_writable"):
+        initialize_journal(str(path))
