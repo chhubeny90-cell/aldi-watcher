@@ -15,6 +15,8 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
 
+from selenium.common.exceptions import TimeoutException
+
 from browser_dom import element_label
 from core.aldi_refill import (locate_selenium, tariff_identity_selenium,
                               verify_account_selenium)
@@ -71,6 +73,11 @@ def _write(report):
     os.replace(temporary, REPORT_PATH)
 
 
+def _set_phase(report, value):
+    report['phase'] = value
+    _write(report)
+
+
 def _valid_remaining(value):
     return (not isinstance(value, bool)
             and isinstance(value, (int, float))
@@ -79,7 +86,8 @@ def _valid_remaining(value):
 
 
 def _safe_status(driver):
-    status = watcher.aldi_read_status(driver)
+    # Never wait for a refill offer while establishing the current allowance.
+    status = watcher.aldi_read_status(driver, include_refill=False)
     remaining = status.get("inland_frei_gb")
     if not _valid_remaining(remaining):
         raise ValueError("remaining_volume_unverified")
@@ -187,8 +195,11 @@ def main():
     report = {
         "started_at": utcnow(),
         "finished_at": None,
+        "phase": "startup",
         "outcome": "unknown",
         "booking_enabled": os.getenv("AUTO_BOOK_ENABLED", "false").lower() == "true",
+        "login_success": False,
+        "status_success": False,
         "booking_clicks": 0,
         "confirmation_clicks": 0,
         "successful_refills": 0,
@@ -202,6 +213,8 @@ def main():
         if not report["booking_enabled"]:
             report["outcome"] = "booking_disabled"
             return 3
+
+        _set_phase(report, 'credentials')
         if not watcher.configure_credentials("ALDI"):
             report["outcome"] = "credentials_unavailable"
             return 3
@@ -218,8 +231,12 @@ def main():
         # status check. If ALDI returns an account-lock indication, surface that
         # fixed state from cached diagnostics and never retry credentials here.
         driver = watcher.build_driver()
+        _set_phase(report, 'login')
         try:
             logged_in = watcher.aldi_login(driver)
+        except TimeoutException:
+            report['outcome'] = 'login_timeout'
+            return 2
         except Exception:
             outcome = _login_failure_outcome(driver)
             if outcome == 'account_locked':
@@ -229,8 +246,11 @@ def main():
         if not logged_in:
             report["outcome"] = _login_failure_outcome(driver)
             return 2
+        report['login_success'] = True
+        _write(report)
 
         if unresolved:
+            _set_phase(report, 'recovery')
             # An old operation has no trustworthy before/after baseline. A new
             # volume increase or reoffered button never releases its reservation.
             verify_account_selenium(driver, account)
@@ -247,16 +267,27 @@ def main():
                 report['outcome'] = 'unresolved_recharge_blocked'
                 return 2
             report['outcome'] = 'recovery_complete'
+            _set_phase(report, 'complete')
             return 0
 
-        before, binding = _bound_status(driver, account)
+        _set_phase(report, 'status')
+        try:
+            before, binding = _bound_status(driver, account)
+        except TimeoutException:
+            report['outcome'] = 'status_read_timeout'
+            return 2
+        report['status_success'] = True
+        report['remaining_gb'] = round(before, 3)
+        _write(report)
+
         # ALDI allows the free refill only below 1 GB; exactly 1 GB is not eligible.
         if before >= 1.0:
             report["outcome"] = "not_needed"
-            report["remaining_gb"] = round(before, 3)
+            _set_phase(report, 'complete')
             return 0
 
         for cycle_index in range(MAX_REFILLS_PER_RUN):
+            _set_phase(report, 'eligibility')
             evidence, control = locate_selenium(driver, before)
             cycle = {
                 "index": cycle_index + 1,
@@ -313,7 +344,7 @@ def main():
             )
             cycle['recharge_id'] = recharge_id
             cycle['recharge_status'] = 'PENDING'
-            _write(report)
+            _set_phase(report, 'booking')
             _trusted_click(driver, control)
             report["booking_clicks"] += 1
             _write(report)
@@ -345,6 +376,7 @@ def main():
                 # click merely because confirmation inspection was inconclusive.
                 pass
 
+            _set_phase(report, 'verification')
             try:
                 # This navigates afresh to the protected provider overview. Bind
                 # that refreshed allowance to the same SIM/subscription/tariff.
@@ -373,11 +405,13 @@ def main():
             # Stop at 1 GB or more; ALDI permits another free refill only below 1 GB.
             if before >= 1.0:
                 report["outcome"] = "refill_verified"
+                _set_phase(report, 'complete')
                 return 0
 
         # The run limit is not a failure. A later trigger may perform another free
         # refill if ALDI still proves eligibility and remaining volume is < 1 GB.
         report["outcome"] = "run_limit_reached"
+        _set_phase(report, 'complete')
         return 0
     except RechargeLockedError:
         report['outcome'] = 'recharge_locked'
@@ -385,6 +419,7 @@ def main():
     except Exception as exc:
         report["outcome"] = "error"
         report["exception_type"] = type(exc).__name__
+        report['failed_phase'] = report.get('phase')
         return 2
     finally:
         if db is not None and recharge_id is not None:
@@ -399,6 +434,9 @@ def main():
             _write(report)
             print(json.dumps({
                 "outcome": report["outcome"],
+                "phase": report["phase"],
+                "login_success": report["login_success"],
+                "status_success": report["status_success"],
                 "booking_enabled": report["booking_enabled"],
                 "booking_clicks": report["booking_clicks"],
                 "confirmation_clicks": report["confirmation_clicks"],
