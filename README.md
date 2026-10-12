@@ -53,8 +53,7 @@ an den Lauf übergeben. Hinterlege Werte unter **Settings → Secrets and variab
 `LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
-Tarif S ist nur bei einem explizit kostenlosen 1-GB-Angebot buchbar; der Preis
-der Tarifverlängerung zählt nicht als Preisnachweis für dieses Zusatzangebot.
+Bei den aktiven ALDI-Tarifen S/M/L ist das wiederholte kostenlose 1-GB-Nachbuchen durch die offiziellen Tarifbedingungen belegt. Die einzelne Buchungsfläche muss deshalb nicht zwingend „0,00 €“ anzeigen: Ohne Preisanzeige ist jedoch ein eindeutig zugeordneter Unlimited-/On-Demand-Refill erforderlich. Generische 1-GB-Angebote und jede kostenpflichtige Option bleiben gesperrt. Diese Erkennung allein ist **keine Live-Freigabe**. Details: [Kostenfrei-Nachweis und Freigabesperren](docs/aldi-free-entitlement.md).
 
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
 Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
