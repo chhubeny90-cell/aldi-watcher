@@ -4,16 +4,16 @@ import aldi_sanitized_error_probe as probe
 
 
 def test_sanitize_removes_credentials_and_common_identifiers(monkeypatch):
-    monkeypatch.setattr(probe.watcher, "ALDI_USER", "01701234567")
-    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PRIVATE-PASS!42")
+    monkeypatch.setattr(probe.watcher, "ALDI_USER", "USER_SENTINEL")
+    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PASS_SENTINEL")
     raw = (
-        "Login error for 01701234567 / PRIVATE-PASS!42, contact me@example.org, "
-        "open https://example.org/reset?id=secret and reference "
+        "Login error for USER_SENTINEL / PASS_SENTINEL, contact me@example.org, "
+        "open https://example.org/reset and reference "
         "0123456789abcdef0123456789abcdef."
     )
     sanitized = probe._sanitize_text(raw)
-    assert "01701234567" not in sanitized
-    assert "PRIVATE-PASS!42" not in sanitized
+    assert "USER_SENTINEL" not in sanitized
+    assert "PASS_SENTINEL" not in sanitized
     assert "me@example.org" not in sanitized
     assert "https://" not in sanitized
     assert "0123456789abcdef0123456789abcdef" not in sanitized
@@ -24,34 +24,34 @@ def test_sanitize_removes_credentials_and_common_identifiers(monkeypatch):
 
 
 def test_text_output_samples_are_bounded_deduplicated_and_safe(monkeypatch):
-    monkeypatch.setattr(probe.watcher, "ALDI_USER", "01701234567")
-    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PRIVATE-PASS!42")
+    monkeypatch.setattr(probe.watcher, "ALDI_USER", "USER_SENTINEL")
+    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PASS_SENTINEL")
     obj = {"callbacks": [
-        {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Anmeldung fehlgeschlagen für 01701234567"}]},
-        {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Anmeldung fehlgeschlagen für 01701234567"}]},
+        {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Anmeldung fehlgeschlagen für USER_SENTINEL"}]},
+        {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Anmeldung fehlgeschlagen für USER_SENTINEL"}]},
         {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Bitte prüfe deine Eingaben"}]},
-        {"type": "NameCallback", "output": [{"name": "prompt", "value": "01701234567"}]},
+        {"type": "NameCallback", "output": [{"name": "prompt", "value": "USER_SENTINEL"}]},
     ]}
     samples = probe._text_output_samples(obj)
-    assert samples == ["Anmeldung fehlgeschlagen für [PHONE]", "Bitte prüfe deine Eingaben"]
+    assert samples == ["Anmeldung fehlgeschlagen für [REDACTED]", "Bitte prüfe deine Eingaben"]
     serialized = json.dumps(samples, ensure_ascii=False)
-    assert "01701234567" not in serialized
-    assert "PRIVATE-PASS!42" not in serialized
+    assert "USER_SENTINEL" not in serialized
+    assert "PASS_SENTINEL" not in serialized
 
 
 def test_shape_extension_does_not_expose_auth_material(monkeypatch):
-    monkeypatch.setattr(probe.watcher, "ALDI_USER", "01701234567")
-    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PRIVATE-PASS!42")
+    monkeypatch.setattr(probe.watcher, "ALDI_USER", "USER_SENTINEL")
+    monkeypatch.setattr(probe.watcher, "ALDI_PASS", "PASS_SENTINEL")
     obj = {
         "authId": "0123456789abcdef0123456789abcdef",
         "stage": "stage-loginPage",
         "callbacks": [
-            {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Fehler 01701234567"}]},
+            {"type": "TextOutputCallback", "output": [{"name": "message", "value": "Fehler USER_SENTINEL"}]},
         ],
     }
     shape = probe._shape_with_sanitized_text(obj, 200)
     serialized = json.dumps(shape, ensure_ascii=False)
-    assert "01701234567" not in serialized
-    assert "PRIVATE-PASS!42" not in serialized
+    assert "USER_SENTINEL" not in serialized
+    assert "PASS_SENTINEL" not in serialized
     assert "0123456789abcdef0123456789abcdef" not in serialized
-    assert shape["sanitized_text_outputs"] == ["Fehler [PHONE]"]
+    assert shape["sanitized_text_outputs"] == ["Fehler [REDACTED]"]
