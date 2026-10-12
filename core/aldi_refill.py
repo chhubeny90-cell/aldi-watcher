@@ -6,8 +6,8 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- that local offer is either explicitly free/0 EUR, or is unmistakably the
-  Unlimited on-demand 1-GB refill covered by ALDI's published tariff terms,
+- that local offer is either explicitly free/0 EUR, or belongs to a verified
+  active Unlimited tariff and has no conflicting/positive local price,
 - no positive, conflicting, or unparsed local price is present.
 
 An explicitly identified active Unlimited tariff or Tarif S may be eligible.
@@ -70,14 +70,10 @@ def _eligible_tariff(active_tariff_text):
             identities.append("UNLIMITED")
         elif tarif_s:
             identities.append("TARIF_S")
-    # Refill-section headings are offers, not tariff identities. Exactly one
-    # active identity is required; multiple products are ambiguous.
     return identities[0] if len(identities) == 1 else None
 
 
 def _exact_one_gb(text):
-    # '+1 GB' is the observed action label, not a signed allowance. It is accepted
-    # only as that compact label; negative or otherwise malformed quantities fail.
     if re.search(r"[-−]\s*\d[\d.,]*\s*(?:GB|MB|TB|KB|GiB|MiB|TiB|KiB)\b", text, re.I):
         return False
     quantities = re.findall(r"(?<![\w.,+\-−])([+\-]?[\d][\d.,]*)\s*GB\b", text, re.I)
@@ -87,11 +83,7 @@ def _exact_one_gb(text):
 
 
 def _price_state(text):
-    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
-
-    Currency mentions are fail-closed: every € / EUR marker must have one parsed
-    unsigned numeric amount. A positive amount always wins over other wording.
-    """
+    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text."""
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
     prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
@@ -110,18 +102,21 @@ def _free_price(text):
 
 
 def _free_offer_evidence(offer_text, tariff):
-    """Return a fixed evidence code or None; never infer generic 1-GB as free."""
+    """Return a fixed evidence code or None.
+
+    A verified active Unlimited tariff carries ALDI's published repeated 1-GB
+    entitlement. At this point the caller has already proven that this is the
+    unique enabled exact-1-GB refill control and that the local offer text is a
+    refill action. Therefore a missing price label is acceptable for Unlimited,
+    while any positive or malformed currency evidence remains fail-closed.
+    Tarif S still requires an explicit zero/free price.
+    """
     price_state = _price_state(offer_text)
     if price_state in {"PAID", "UNVERIFIED"}:
         return None
     if price_state == "FREE":
         return "explicit_free_offer"
-    # ALDI's published Unlimited-on-Demand terms are tariff evidence only. They
-    # may replace a missing 0-EUR label only when this *same local offer* names
-    # the Unlimited/on-demand refill. Generic 1-GB controls remain blocked.
-    if (tariff == "UNLIMITED"
-            and re.search(r"\b(?:unlimited|on[\s-]*demand)\b", offer_text, re.I)
-            and re.search(r"\bnachbuch\w*\b", offer_text, re.I)):
+    if tariff == "UNLIMITED" and price_state == "ABSENT":
         return "official_unlimited_entitlement"
     return None
 
@@ -156,13 +151,7 @@ def _selected_account(driver, expected_account):
 
 
 def verify_account_selenium(driver, expected_account, timeout_seconds=8):
-    """Read protected account JSON in this browser; expose only a private hash.
-
-    No new login, write request, session export, selector or response field is
-    guessed. The grounded navigation-list contract supplies a nonempty
-    userDetails.subscriptions list. Its complete contents stay in memory; a
-    conservative signature detects any account/subscription change within a run.
-    """
+    """Read protected account JSON in this browser; expose only a private hash."""
     decoded, expected = _selected_account(driver, expected_account)
     url = NAVIGATION + '?' + urlencode({'msisdn': decoded})
     driver.set_script_timeout(timeout_seconds + 2)
@@ -191,7 +180,6 @@ def verify_account_selenium(driver, expected_account, timeout_seconds=8):
             finish({ok: true, subscriptions});
         }).catch(() => finish({ok: false}));
     """, url, int(timeout_seconds * 1000))
-    # Origin/account may have changed while the read-only request was in flight.
     _, current = _selected_account(driver, expected_account)
     if current != expected or not isinstance(result, dict) or result.get('ok') is not True:
         raise RuntimeError('protected_account_response_unverified')
@@ -199,7 +187,6 @@ def verify_account_selenium(driver, expected_account, timeout_seconds=8):
     if (not isinstance(subscriptions, list) or not subscriptions
             or any(not isinstance(item, dict) or not item for item in subscriptions)):
         raise RuntimeError('protected_account_response_unverified')
-    # Do not infer a tariff or select a contract from unobserved JSON fields.
     contents = sorted(json.dumps(item, sort_keys=True, separators=(',', ':')) for item in subscriptions)
     signature = json.dumps([expected, contents], separators=(',', ':')).encode()
     return hashlib.sha256(signature).hexdigest()
@@ -226,8 +213,6 @@ def tariff_identity_selenium(driver):
 
 def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb,
                   active_tariff_text=None):
-    # Pure callers may supply a tariff identity as page_text. Live DOM callers
-    # must pass visible tariff headings separately from the rest of the page.
     tariff_text = page_text if active_tariff_text is None else active_tariff_text
     tariff_text = tariff_text or ""
     offer_text = _normalise(offer_text)
@@ -237,7 +222,6 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         return unavailable("remaining_volume_unverified")
     if not math.isfinite(remaining_gb) or remaining_gb < 0:
         return unavailable("remaining_volume_unverified")
-    # ALDI's eligibility boundary is strict: exactly 1.00 GB is not below 1 GB.
     if remaining_gb >= 1.0:
         return unavailable("remaining_volume_above_one_gb")
 
@@ -271,7 +255,6 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
 
     return {
         "refill_eligible": True,
-        # Preserve the existing Unlimited label; Tarif S gets an explicit type.
         "refill_type": "FREE_TARIF_S" if tariff == "TARIF_S" else "FREE_UNLIMITED",
         "refill_reason": "free_one_gb_button_available",
         "refill_candidate_count": 1,
