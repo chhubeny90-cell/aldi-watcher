@@ -22,9 +22,7 @@ on:
     - cron: '3-59/10 * * * *'
 
 permissions:
-  # The scheduled live job persists only AES-GCM encrypted journal state to a
-  # dedicated state branch. No provider credentials or plaintext state are stored.
-  contents: write
+  contents: read
 
 concurrency:
   group: aldi-watcher-${{ github.ref }}-${{ github.event_name }}-${{ github.event.schedule || 'manual' }}
@@ -137,6 +135,9 @@ jobs:
         profile: [1]
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    permissions:
+      # Only this job may update the AES-GCM encrypted journal state branch.
+      contents: write
     concurrency:
       group: aldi-live-refill-profile-${{ matrix.profile }}
       cancel-in-progress: false
