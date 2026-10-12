@@ -1,18 +1,21 @@
 """GitHub-hosted entry point for the guarded ALDI live-refill runner.
 
-GitHub-hosted runners are ephemeral. This adapter rehydrates only unresolved
-operation guards after the configured account is known, persists each
-PENDING/UNKNOWN transition remotely without writing the account identity, and
-backs off repeated credential submissions after authentication failures.
+The hosted adapter keeps provider-changing actions behind durable remote guards,
+adds one-shot manual auth override, maintenance-aware backoff, target-account
+verification, crash recovery proofs, usage-mail dedupe and heartbeat updates.
 """
 
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import requests
 
 import aldi_live_refill as live
 import watcher
+from core.aldi_http_login import LoginError, phone_identifier
 from core.database import Database
 from github_journal_state import (
     auth_backoff_active,
@@ -20,10 +23,24 @@ from github_journal_state import (
     set_auth_backoff,
     sync_journal,
 )
+from github_hardening_state import (
+    claim_trigger_key,
+    clear_auth_backoff,
+    clear_recovery_proof,
+    get_recovery_proof,
+    recover_before_gb,
+    recovery_binding_matches,
+    set_recovery_proof,
+    touch_heartbeat,
+)
 
 
 _ORIGINAL_BEGIN = Database.begin_recharge
 _ORIGINAL_SET = Database.set_recharge_status
+_ORIGINAL_BOUND_STATUS = live._bound_status
+_ORIGINAL_LOGIN = watcher.aldi_login
+_ORIGINAL_LOGIN_FAILURE = live._login_failure_outcome
+_CURRENT_BASELINE = None
 
 
 def _journal_path():
@@ -42,17 +59,36 @@ def _journal_path():
     return path
 
 
+def _tracking_bound_status(driver, account):
+    global _CURRENT_BASELINE
+    result = _ORIGINAL_BOUND_STATUS(driver, account)
+    _CURRENT_BASELINE = result
+    return result
+
+
 def _syncing_begin(self, *args, **kwargs):
     # begin_recharge commits PENDING locally. Do not return to the caller (which
-    # may click the provider control) until that unresolved guard is durable.
+    # may click the provider control) until the unresolved guard is durable.
     recharge_id = _ORIGINAL_BEGIN(self, *args, **kwargs)
     sync_journal(self.db_path)
+    if _CURRENT_BASELINE is not None:
+        before, binding = _CURRENT_BASELINE
+        # This second CAS-protected state write is still before the click. It
+        # stores HMAC proofs only, never the allowance or account identity.
+        set_recovery_proof(recharge_id, before, binding)
     return recharge_id
 
 
 def _syncing_set(self, *args, **kwargs):
     status = _ORIGINAL_SET(self, *args, **kwargs)
     sync_journal(self.db_path)
+    recharge_id = args[0] if args else kwargs.get("recharge_id")
+    if status in {"SUCCESS", "FAILED"} and recharge_id:
+        try:
+            clear_recovery_proof(recharge_id)
+        except Exception:
+            # A stale proof is non-authoritative and contains no plaintext data.
+            pass
     return status
 
 
@@ -72,18 +108,19 @@ def _report_path():
     return Path(os.environ.get("ALDI_LIVE_REPORT", "aldi-live-refill.json"))
 
 
-def _write_backoff_report():
+def _write_simple_report(outcome, **extra):
     now = datetime.now(timezone.utc).isoformat()
     report = {
         "started_at": now,
         "finished_at": now,
-        "outcome": "auth_backoff_active",
+        "outcome": outcome,
         "booking_enabled": True,
         "booking_clicks": 0,
         "confirmation_clicks": 0,
         "successful_refills": 0,
         "cycles": [],
     }
+    report.update(extra)
     path = _report_path()
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -97,6 +134,10 @@ def _write_backoff_report():
     }), flush=True)
 
 
+def _write_backoff_report():
+    _write_simple_report("auth_backoff_active")
+
+
 def _report_outcome():
     path = _report_path()
     try:
@@ -107,7 +148,98 @@ def _report_outcome():
     return outcome if isinstance(outcome, str) else None
 
 
-def main():
+def _manual_auth_once():
+    return os.environ.get("ALDI_MANUAL_AUTH_ONCE", "").strip().lower() == "true"
+
+
+def _target_guard():
+    expected = os.environ.get("ALDI_EXPECTED_ACCOUNT", "").strip()
+    if not expected:
+        return None
+    if not watcher.configure_credentials("ALDI"):
+        return "credentials_unavailable"
+    try:
+        actual = phone_identifier(watcher.ALDI_ACCOUNT_USER)
+        wanted = phone_identifier(expected)
+    except LoginError:
+        return "target_account_guard_invalid"
+    return None if actual == wanted else "target_account_mismatch"
+
+
+def _provider_login_outcome(driver):
+    try:
+        provider = live.diagnostics(driver).get("provider_indications") or {}
+    except Exception:
+        return "auth_failed"
+    if provider.get("maintenance") is True:
+        return "provider_maintenance"
+    if provider.get("account_locked") is True:
+        return "account_locked"
+    return "auth_failed"
+
+
+def _maintenance_aware_login(driver):
+    try:
+        return _ORIGINAL_LOGIN(driver)
+    except Exception:
+        if _provider_login_outcome(driver) == "provider_maintenance":
+            # Let live.main() use its ordinary false-login branch so the fixed
+            # maintenance outcome is preserved instead of becoming generic error.
+            return False
+        raise
+
+
+def _recover_recharge_status(driver, recharge_id):
+    try:
+        proof = get_recovery_proof(recharge_id)
+        if not proof:
+            return "UNKNOWN"
+        account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
+        remaining, binding = _ORIGINAL_BOUND_STATUS(driver, account)
+        if not recovery_binding_matches(recharge_id, proof, binding):
+            return "UNKNOWN"
+        before = recover_before_gb(recharge_id, proof)
+        if before is None:
+            return "UNKNOWN"
+        delta = remaining - before
+        # Require more than two MiB increase to stay clear of baseline rounding.
+        # Never infer FAILED from absence; only a positive same-binding increase
+        # within one refill can resolve the old operation as SUCCESS.
+        if (2.0 / 1024.0) < delta <= 1.0 + (2.0 / 1024.0):
+            return "SUCCESS"
+    except Exception:
+        pass
+    return "UNKNOWN"
+
+
+def _claim_mail_trigger():
+    message_key = os.environ.get("ALDI_TRIGGER_MESSAGE_KEY", "").strip()
+    if not message_key:
+        return True
+    if os.environ.get("ALDI_TRIGGER_PRECLAIMED", "").strip().lower() == "true":
+        return True
+    return claim_trigger_key(message_key)
+
+
+def _heartbeat():
+    try:
+        touch_heartbeat()
+    except Exception:
+        pass
+    url = os.environ.get("WATCHER_HEARTBEAT_URL", "").strip()
+    if not url:
+        return
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return
+    try:
+        requests.get(url, timeout=10, allow_redirects=False)
+    except requests.RequestException:
+        pass
+
+
+def _main():
+    global _CURRENT_BASELINE
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("github_actions_required")
     if os.environ.get("ALDI_REMOTE_JOURNAL", "").lower() != "true":
@@ -115,38 +247,72 @@ def main():
 
     _journal_path()
 
-    # Do this before live.main() configures/submits provider credentials. Scheduled
-    # runs continue every ten minutes, but a known lock never causes repeated
-    # password submissions during the durable backoff window.
-    if auth_backoff_active():
+    if not _claim_mail_trigger():
+        _write_simple_report("duplicate_trigger")
+        return 0
+
+    manual_once = _manual_auth_once()
+    if auth_backoff_active() and not manual_once:
         _write_backoff_report()
         return 0
+
+    target_outcome = _target_guard()
+    if target_outcome is not None:
+        _write_simple_report(target_outcome)
+        return 2 if target_outcome != "credentials_unavailable" else 3
 
     previous_begin = Database.begin_recharge
     previous_set = Database.set_recharge_status
     previous_open = live.open_live_journal
+    previous_bound = live._bound_status
+    previous_recover = live.check_recharge_status
+    previous_login_failure = live._login_failure_outcome
+    previous_login = watcher.aldi_login
+    _CURRENT_BASELINE = None
     try:
         Database.begin_recharge = _syncing_begin
         Database.set_recharge_status = _syncing_set
         live.open_live_journal = _open_cloud_journal
+        live._bound_status = _tracking_bound_status
+        live.check_recharge_status = _recover_recharge_status
+        live._login_failure_outcome = _provider_login_outcome
+        watcher.aldi_login = _maintenance_aware_login
         result = live.main()
     finally:
-        # Never leak hosted persistence hooks into another watcher/test in the
-        # same interpreter. The GitHub runner normally exits after one call, but
-        # process-local cleanup keeps the adapter composable and test-safe.
         Database.begin_recharge = previous_begin
         Database.set_recharge_status = previous_set
         live.open_live_journal = previous_open
+        live._bound_status = previous_bound
+        live.check_recharge_status = previous_recover
+        live._login_failure_outcome = previous_login_failure
+        watcher.aldi_login = previous_login
+        _CURRENT_BASELINE = None
 
-    # The live runner derives these fixed outcomes from cached sanitized provider
-    # evidence only. Account lock gets a long backoff; an otherwise unknown auth
-    # failure gets a shorter retry interval to avoid password hammering.
     outcome = _report_outcome()
     if outcome == "account_locked":
         set_auth_backoff(hours=6)
+    elif outcome == "provider_maintenance":
+        set_auth_backoff(hours=0.5)
     elif outcome == "auth_failed":
         set_auth_backoff(hours=1)
+    elif outcome in {
+        "not_needed", "free_refill_unavailable", "refill_verified",
+        "run_limit_reached", "recovery_complete", "unresolved_recharge_blocked",
+        "unknown_after_click", "booking_control_unverified",
+        "identity_changed_before_click", "offer_changed_before_click",
+    }:
+        try:
+            clear_auth_backoff()
+        except Exception:
+            pass
     return result
+
+
+def main():
+    try:
+        return _main()
+    finally:
+        _heartbeat()
 
 
 if __name__ == "__main__":
