@@ -21,7 +21,7 @@ Offizielle Quelle:
 
 Ein generisches `1 GB nachbuchen` ohne Preis bleibt gesperrt. Ebenso bleiben Jahrespakete, Basistarife, unklare Tarife, mehrere Kandidaten und deaktivierte Buttons gesperrt. Ein positiver Preis blockiert immer, auch wenn gleichzeitig `gratis`, `kostenlos` oder `0,00 €` im Kontext steht.
 
-`Tarif S` ohne Unlimited-Nachweis erhält keine implizite Kostenfrei-Freigabe und benötigt weiterhin einen expliziten kostenlosen Preis-/Gratis-Nachweis.
+`Tarif S` ohne Unlimited-Nachweis erhält keine implizite Kostenfrei-Freigabe und benötigt weiterhin einen sauber parsebaren lokalen `0 €`-/`0,00 €`-Preisnachweis.
 
 ## Keine Live-Freigabe
 
