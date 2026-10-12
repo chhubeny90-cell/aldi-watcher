@@ -26,6 +26,12 @@ def test_generic_one_gb_without_price_is_not_inferred_free():
     assert result["refill_reason"] == "price_unverified_or_paid"
 
 
+def test_generic_free_word_without_unlimited_context_is_not_enough():
+    result = assess(offer="1 GB Highspeed-Datenvolumen kostenlos nachbuchen")
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
+
+
 def test_positive_price_blocks_unlimited_entitlement():
     result = assess(offer="Unlimited 1 GB nachbuchen 1,99 €")
     assert result["refill_eligible"] is False
@@ -50,10 +56,10 @@ def test_explicit_zero_euro_remains_valid():
     assert result["free_evidence"] == "explicit_free_offer"
 
 
-def test_explicit_gratis_remains_valid_without_currency_marker():
-    result = assess(offer="1 GB Highspeed-Datenvolumen gratis nachbuchen")
+def test_unlimited_gratis_word_is_valid_only_with_same_local_unlimited_context():
+    result = assess(offer="Unlimited 1 GB gratis nachbuchen")
     assert result["refill_eligible"] is True
-    assert result["free_evidence"] == "explicit_free_offer"
+    assert result["free_evidence"] == "official_unlimited_entitlement"
 
 
 def test_plain_tarif_s_does_not_get_unlimited_entitlement():
