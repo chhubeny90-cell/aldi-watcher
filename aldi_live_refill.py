@@ -2,7 +2,7 @@
 
 This module is intentionally separate from monitoring.py. It can perform a
 provider-changing action only when AUTO_BOOK_ENABLED=true and the authenticated
-portal proves a unique enabled 1-GB refill with an explicit free/0-EUR price.
+portal proves a unique enabled 1-GB refill with verified free entitlement.
 Paid or ambiguous offers are never clicked.
 """
 
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from browser_dom import element_label
 from core.aldi_refill import (locate_selenium, tariff_identity_selenium,
                               verify_account_selenium)
-from monitoring import require_origin
+from monitoring import diagnostics, require_origin
 import watcher
 from core.database import Database, RechargeLockedError
 from core.aldi_http_login import LoginError, phone_identifier
@@ -137,6 +137,15 @@ def _action_kind(driver, control):
     return "unknown"
 
 
+def _login_failure_outcome(driver):
+    """Classify only sanitized cached auth evidence; never send a new request."""
+    try:
+        provider = diagnostics(driver).get('provider_indications') or {}
+    except Exception:
+        return 'auth_failed'
+    return 'account_locked' if provider.get('account_locked') is True else 'auth_failed'
+
+
 def _trusted_click(driver, control):
     """Activate exactly one already-validated control with a trusted pointer."""
     require_origin(driver, watcher.ALDI_OVERVIEW_URL)
@@ -212,10 +221,19 @@ def main():
             return 2
 
         # Recovery must use the same authenticated portal session as a normal
-        # status check. If login fails, leave every durable operation unresolved.
+        # status check. If ALDI returns an account-lock indication, surface that
+        # fixed state from cached diagnostics and never retry credentials here.
         driver = watcher.build_driver()
-        if not watcher.aldi_login(driver):
-            report["outcome"] = "auth_failed"
+        try:
+            logged_in = watcher.aldi_login(driver)
+        except Exception:
+            outcome = _login_failure_outcome(driver)
+            if outcome == 'account_locked':
+                report['outcome'] = outcome
+                return 2
+            raise
+        if not logged_in:
+            report["outcome"] = _login_failure_outcome(driver)
             return 2
 
         if unresolved:
