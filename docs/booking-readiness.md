@@ -42,6 +42,20 @@ It timed out at the protected-page probe, and captured authentication-response
 metadata was unavailable. This does not establish a current account lock or an
 incorrect password.
 
+After the native-pointer correction,
+[run 38289810394](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/38289810394)
+captured one real credential POST with the original challenge and both configured
+credential values matching. Its response was not yet available when the old
+observer returned. This demonstrates submission, not successful authentication.
+
+The controlled manual live-mode check,
+[run 38289832213](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/38289832213),
+passed all tests and reported `journal_path_configured=false`. The live-refill
+job was skipped. Runner availability was not established. The connected GitHub
+integration cannot update repository variables or runner administration (HTTP
+403); a configured host and repository administration access are required to
+complete that deployment.
+
 The production login now submits through one native Chrome pointer activation
 instead of JavaScript `element.click()`. The read-only pointer diagnostic uses
 the same protected profile credentials. A fresh successful login and a real free
