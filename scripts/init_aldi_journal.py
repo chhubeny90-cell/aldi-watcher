@@ -9,7 +9,14 @@ import argparse
 import json
 import os
 import sqlite3
+import sys
 from pathlib import Path
+
+# Make the documented direct invocation (`python scripts/...`) resolve project
+# modules exactly like the workflow/tests do from the repository checkout.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from core.database import Database
 
