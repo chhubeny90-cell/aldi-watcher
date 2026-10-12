@@ -11,8 +11,8 @@ all of these are simultaneously proven from the rendered page:
   and contains no positive price.
 
 An explicitly identified active Unlimited tariff or Tarif S may be eligible.
-Tarif S still requires a unique local offer for exactly 1 GB with explicit
-free/0-EUR evidence. Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
+Tarif S requires a unique local 1-GB offer with explicit free-price evidence
+or unmistakable official Unlimited refill context. Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
 Generic refill hints elsewhere on the page do not prove tariff eligibility.
 """
 
@@ -75,10 +75,15 @@ def _exact_one_gb(text):
     return all(q.replace(",", ".") in {"1", "1.0", "1.00"} for q in quantities)
 
 
-def _free_price(text):
+def _has_positive_price(text):
     prices = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d{1,2})?)\s*(?:€|EUR\b)", text, re.I)
-    if any(float(price.replace(",", ".")) > 0 for price in prices):
+    return any(float(price.replace(",", ".")) > 0 for price in prices)
+
+
+def _free_price(text):
+    if _has_positive_price(text):
         return False
+    prices = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d{1,2})?)\s*(?:€|EUR\b)", text, re.I)
     return bool(prices) or bool(re.search(r"\b(?:kostenlos|gratis)\b", text, re.I))
 
 
@@ -87,6 +92,9 @@ def _free_price(text):
 # This is tariff evidence only. It is NOT permission to automate the portal,
 # and does NOT replace per-operation booking status reconciliation.
 def _free_offer_evidence(offer_text, tariff):
+    # A paid offer must never be approved via official tariff entitlement.
+    if _has_positive_price(offer_text):
+        return None
     if _free_price(offer_text):
         return "explicit_free_offer"
     # Do not infer a free refill merely from an active tariff or a generic
