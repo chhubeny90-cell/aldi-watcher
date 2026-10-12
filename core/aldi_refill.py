@@ -6,12 +6,15 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- that local offer displays an explicit 0 EUR and no other or unparsed price.
+- that local offer is either explicitly free/0 EUR, or is unmistakably the
+  Unlimited on-demand 1-GB refill covered by ALDI's published tariff terms,
+- no positive, conflicting, or unparsed local price is present.
 
 An explicitly identified active Unlimited tariff or Tarif S may be eligible.
-Tarif S still requires a unique local offer for exactly 1 GB with explicit
-free/0-EUR evidence. Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
-Generic refill hints elsewhere on the page do not prove tariff eligibility.
+Only an active Unlimited tariff may use the official on-demand entitlement when
+the local refill control itself has no price label. Tarif S still requires
+explicit free/0-EUR evidence. Jahres-Paket/Jahrestarif and Basis-Tarif remain
+blocked. Generic refill hints elsewhere on the page do not prove eligibility.
 """
 
 import base64
@@ -83,13 +86,44 @@ def _exact_one_gb(text):
             and all(re.fullmatch(r"\+?1(?:[.,]0{1,2})?", q) for q in quantities))
 
 
-def _free_price(text):
+def _price_state(text):
+    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
+
+    Currency mentions are fail-closed: every € / EUR marker must have one parsed
+    unsigned numeric amount. A positive amount always wins over other wording.
+    """
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
-        return False
+        return "UNVERIFIED"
     prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
     mentions = re.findall(r"€|(?<![A-Za-z])EUR\b", text, re.I)
-    return (bool(prices) and len(prices) == len(mentions)
-            and all(re.fullmatch(r"0(?:[.,]0{1,2})?", p) for p in prices))
+    if mentions:
+        if not prices or len(prices) != len(mentions):
+            return "UNVERIFIED"
+        if any(not re.fullmatch(r"0(?:[.,]0{1,2})?", p) for p in prices):
+            return "PAID"
+        return "FREE"
+    return "ABSENT"
+
+
+def _free_price(text):
+    return _price_state(text) == "FREE"
+
+
+def _free_offer_evidence(offer_text, tariff):
+    """Return a fixed evidence code or None; never infer generic 1-GB as free."""
+    price_state = _price_state(offer_text)
+    if price_state in {"PAID", "UNVERIFIED"}:
+        return None
+    if price_state == "FREE":
+        return "explicit_free_offer"
+    # ALDI's published Unlimited-on-Demand terms are tariff evidence only. They
+    # may replace a missing 0-EUR label only when this *same local offer* names
+    # the Unlimited/on-demand refill. Generic 1-GB controls remain blocked.
+    if (tariff == "UNLIMITED"
+            and re.search(r"\b(?:unlimited|on[\s-]*demand)\b", offer_text, re.I)
+            and re.search(r"\bnachbuch\w*\b", offer_text, re.I)):
+        return "official_unlimited_entitlement"
+    return None
 
 
 def _portal_origin(driver):
@@ -222,7 +256,8 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
             r"|(?<![\d.,])\+\s*1\s*GB\b",
             offer_text, re.I):
         return unavailable("not_refill_offer")
-    if not _free_price(offer_text):
+    free_evidence = _free_offer_evidence(offer_text, tariff)
+    if free_evidence is None:
         return unavailable("price_unverified_or_paid")
     if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
         return unavailable("conflicting_terms")
@@ -241,6 +276,7 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
         "refill_reason": "free_one_gb_button_available",
         "refill_candidate_count": 1,
         "tariff_evidence": tariff,
+        "free_evidence": free_evidence,
     }
 
 
