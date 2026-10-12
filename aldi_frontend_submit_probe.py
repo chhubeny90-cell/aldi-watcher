@@ -9,6 +9,7 @@ match ALDI's challenge. Raw request/response bodies, authId, token, cookies and
 credential values are never persisted or printed. No booking control is touched.
 """
 
+import base64
 import json
 import os
 import time
@@ -171,9 +172,11 @@ def _safe_headers(headers):
 
 
 def _capture_frontend_submit(driver, challenge, timeout=12):
+    """Await the first credential POST's cached result, without another submit."""
     deadline = time.monotonic() + timeout
-    request_rows = []
-    responses = {}
+    row = None
+    selected_request_id = None
+    response_status = None
     seen_request_ids = set()
 
     while time.monotonic() < deadline:
@@ -191,7 +194,8 @@ def _capture_frontend_submit(driver, challenge, timeout=12):
                     request = params.get("request", {})
                     url = request.get("url") or ""
                     if (request.get("method") != "POST" or not _valid_auth_url(url)
-                            or request_id in seen_request_ids):
+                            or not isinstance(request_id, str) or not request_id
+                            or request_id in seen_request_ids or row is not None):
                         continue
                     seen_request_ids.add(request_id)
                     post_data = None
@@ -211,38 +215,68 @@ def _capture_frontend_submit(driver, challenge, timeout=12):
                             payload = None
                     parsed = urlsplit(url)
                     header_names, api_version = _safe_headers(request.get("headers", {}))
-                    request_rows.append({
-                        "request_id": request_id,
+                    payload_shape = _request_shape(payload, challenge)
+                    # Ignore challenge/init POSTs. Freeze the actual first
+                    # frontend credential submission, not later tree requests.
+                    if not (payload_shape["username_secret_present"]
+                            and payload_shape["password_secret_present"]):
+                        continue
+                    selected_request_id = request_id
+                    row = {
+                        "request_received": True,
+                        "response_received": False,
+                        "response_http_status": None,
+                        "body_available": False,
+                        "request_failed": False,
+                        "observation_timed_out": False,
                         "url_query_present": bool(parsed.query),
                         "safe_header_names": header_names,
                         "accept_api_version": api_version,
                         "post_data_present": isinstance(post_data, str) and bool(post_data),
-                        "payload_shape": _request_shape(payload, challenge),
-                    })
+                        "payload_shape": payload_shape,
+                        "response_shape": None,
+                    }
                 elif method == "Network.responseReceived":
                     response = params.get("response", {})
                     url = response.get("url") or ""
-                    if request_id in seen_request_ids and _valid_auth_url(url):
-                        responses[request_id] = int(response.get("status") or 0)
+                    if row is not None and request_id == selected_request_id and _valid_auth_url(url):
+                        row["response_received"] = True
+                        status = response.get("status")
+                        if type(status) in (int, float) and 100 <= status <= 599 and int(status) == status:
+                            response_status = int(status)
+                            row["response_http_status"] = response_status
+                elif method == "Network.loadingFailed" and row is not None and request_id == selected_request_id:
+                    row["request_failed"] = True
             except Exception:
                 continue
 
-        if request_rows:
-            row = request_rows[-1]
-            request_id = row.pop("request_id")
-            status = responses.get(request_id)
-            response_obj = None
-            if status is not None:
-                try:
-                    raw_body = driver.execute_cdp_cmd(
-                        "Network.getResponseBody", {"requestId": request_id}
-                    ).get("body", "")
-                    response_obj = json.loads(raw_body)
-                except Exception:
-                    response_obj = None
-            row["response_shape"] = _shape(response_obj, status) if status is not None else None
+        if row is not None and row["request_failed"]:
             return row
-        time.sleep(0.35)
+        if row is not None and row["response_received"]:
+            try:
+                cached = driver.execute_cdp_cmd(
+                    "Network.getResponseBody", {"requestId": selected_request_id}
+                )
+                raw_body = cached.get("body") if isinstance(cached, dict) else None
+                if isinstance(raw_body, str) and len(raw_body) <= 1024 * 1024:
+                    row["body_available"] = True
+                    if cached.get("base64Encoded") is True:
+                        raw_body = base64.b64decode(raw_body, validate=True)
+                    response_obj = json.loads(raw_body)
+                    if isinstance(response_obj, dict):
+                        row["response_shape"] = _shape(response_obj, response_status)
+                    return row
+            except Exception:
+                # Body retrieval can precede loading completion. Retry only this
+                # cached DevTools read, never credentials or an ALDI API request.
+                if row["body_available"]:
+                    return row
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.35, remaining))
+    if row is not None:
+        row["observation_timed_out"] = True
+        return row
     return None
 
 
@@ -316,7 +350,16 @@ def main():
         request_row = _capture_frontend_submit(driver, challenge)
         report["frontend_request"] = request_row
         if request_row is None:
-            report["outcome"] = "frontend_click_no_new_auth_request"
+            report["outcome"] = "frontend_click_no_credential_auth_request"
+            return 2
+        if request_row.get("request_failed"):
+            report["outcome"] = "frontend_auth_request_failed"
+            return 2
+        if not request_row.get("response_received"):
+            report["outcome"] = "frontend_auth_response_timeout"
+            return 2
+        if not request_row.get("body_available") or request_row.get("response_shape") is None:
+            report["outcome"] = "frontend_auth_response_unverified"
             return 2
 
         response_shape = request_row.get("response_shape") or {}
