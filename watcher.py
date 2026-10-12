@@ -261,7 +261,7 @@ def aldi_read_status(driver, include_refill=None, attempts=3) -> dict:
                 last_reason = 'remaining_volume_unverified'
                 raise TimeoutException(last_reason)
 
-            if include_refill:
+            if include_refill and status['inland_frei_gb'] < 1.0:
                 phase('refill_availability')
                 status.update(inspect_aldi_refill(driver, status['inland_frei_gb']))
             return status
