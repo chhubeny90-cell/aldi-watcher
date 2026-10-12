@@ -44,9 +44,10 @@ python scripts/init_aldi_journal.py /absolute/private/path/aldi-live.sqlite
 
 The bootstrap creates a missing SQLite journal with mode `0600`, initializes the
 schema, validates an existing journal without replacing it, and rejects relative
-paths, symlinks and broad file permissions. Configure the same absolute path as
-the repository variable `ALDI_JOURNAL_PATH`. The file must remain outside the
-GitHub checkout so a new checkout cannot replace runtime state.
+paths, symlinks, broad file permissions and group/world-writable parent
+directories. Configure the same absolute path as the repository variable
+`ALDI_JOURNAL_PATH`. The file must remain outside the GitHub checkout so a new
+checkout cannot replace runtime state.
 
 ## Historical recovery
 
