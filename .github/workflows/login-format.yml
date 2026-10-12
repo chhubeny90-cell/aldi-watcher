@@ -214,9 +214,13 @@ jobs:
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets.ALDI_LOGIN_USER }}
-          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_LOGIN_USER: ${{ secrets.ALDI_PROFILE_1_LOGIN_USER || secrets.ALDI_LOGIN_USER }}
+          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER || secrets.ALDI_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
+          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
+          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
           ALDI_PASSWORD_POINTER_REPORT: aldi-password-pointer.json
           ALDI_PASSWORD_POINTER_SECONDS: '35'
         run: python aldi_password_pointer_probe.py

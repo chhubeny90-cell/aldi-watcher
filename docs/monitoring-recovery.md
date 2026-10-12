@@ -16,12 +16,19 @@ all mode does not include live-refill. No scheduled or push-triggered booking
 has been added; the ALDI Watcher workflow's hourly schedule still runs regression
 tests.
 
-These are execution permissions, not proof of readiness. The live runner still
-has ALDI_RECONCILIATION_VERIFIED=false because its per-operation receipt lookup
-returns UNKNOWN. It exits before login/booking. Account identity, active tariff,
-explicit zero-euro 1-GB offer and durable PENDING/UNKNOWN protection remain
-required. Missing provider proof or a journal cannot be repaired by switching
-an activation flag on. Older run observations below are historical evidence.
+These are execution permissions, not proof of readiness. NEW operations now
+require a protected account response, the exact selected SIM and eligible tariff,
+an explicit zero-euro 1-GB offer, and durable PENDING/UNKNOWN protection. A fresh
+protected allowance increase of at most 1 GB confirms only that NEW operation
+when account/subscription/tariff identity is unchanged. No price or identity is
+inferred from the activation switch.
+
+ALDI_RECONCILIATION_VERIFIED remains false: historical per-operation receipt
+lookup is unavailable. Old unresolved operations remain blocked and cannot be
+cleared from current volume or a reoffered control. A journal-wide executor lock
+also prevents parallel execution under legacy account/provider spellings.
+See [booking readiness](booking-readiness.md). Older run observations below are
+historical evidence and describe the versions named in those sections.
 
 ## Browser startup correction, 2026-10-07
 
@@ -144,7 +151,7 @@ Remaining gates: real session/usage success; verified tariff/refill evidence;
 provider status reconciliation; enforced branch checks; independent heartbeat
 delivery with an explicitly chosen destination. No live booking is enabled.
 
-## Active deployment
+## Historical deployment baseline
 
 Baseline main commit: `ea482c9a8e868b3ce3ebe63ca74f99e5d55708c3`.
 GitHub Actions `.github/workflows/run.yml` launches `watcher.py` in an ephemeral
@@ -261,13 +268,18 @@ process death releases the lock, but never the durable PENDING record. Lock file
 must not be deleted while workers may exist. All workers must use the same local
 journal and canonical path; separate hosts or independent journals are unsupported.
 
-No verified ALDI operation receipt lookup is available. Consequently
-`ALDI_RECONCILIATION_VERIFIED` remains false in code, and the runner exits before
-credentials or browser startup. A volume increase is diagnostic only, not SUCCESS.
-Implement authenticated per-operation receipt lookup before changing this gate.
-A provider operation must resolve by its recorded ID and must not be inferred
-FAILED merely because it is absent or still in flight. Recovery runs resolve old
-operations only; they do not immediately start another booking in that same run.
+No verified historical ALDI operation receipt lookup is available.
+`ALDI_RECONCILIATION_VERIFIED` remains false in code. Existing unresolved records
+need authoritative reconciliation; current allowance alone cannot resolve them.
+An operation must never be inferred FAILED merely because it is absent or still
+in flight. Recovery runs resolve old operations only and do not immediately start
+another booking in that same run.
+
+For a NEW operation, the updated runner can independently verify a fresh
+protected allowance increase against its within-run before-click baseline and
+unchanged account/subscription/tariff binding. An ambiguous outcome remains
+UNKNOWN. Timeout or process death retains the durable reservation and blocks
+another booking, even when a legacy provider/account spelling was used.
 
 The workflow no longer performs scheduled or push-triggered live bookings.
 Scheduled runs execute regression tests. Manual live dispatch additionally needs

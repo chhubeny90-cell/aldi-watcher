@@ -33,5 +33,6 @@ Nachbuchungen sind nicht eingerichtet: Der Hauptworkflow führt stündlich Tests
 aus, der aktivierte Accounts-Workflow prüft konfigurierte Profile nur lesend.
 Der separate Live-Modus ist ausschließlich manuell mit `live-refill` startbar.
 Seine Aktivierung steht direkt im Workflow auf an; ein dauerhaftes privates
-Buchungsjournal und verifizierte Provider-Reconciliation bleiben erforderlich.
+Buchungsjournal und unabhängige Providerbestätigung bleiben erforderlich. Alte
+ungeklärte Vorgänge benötigen weiterhin eine eindeutige Statusaufklärung.
 Ein erfolgreicher HTTP-Login allein bestätigt keine kostenlose Nachbuchung.

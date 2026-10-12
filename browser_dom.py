@@ -4,6 +4,8 @@ CSS selectors apply within each DOM root; they cannot cross a shadow boundary.
 These helpers return data to the caller and never log page or account content.
 """
 
+import math
+
 
 _DOM_HELPERS = r"""
 function composedParent(element) {
@@ -133,3 +135,39 @@ def element_label(driver, element):
         return ' '.join(accessible.split())
     value = driver.execute_script(_DOM_HELPERS + '\nreturn label(arguments[0]);', element)
     return ' '.join((value or '').split())
+
+
+def trusted_pointer_click(driver, element, check_origin):
+    """One native pointer activation of an already-validated control, no retries.
+
+    The caller supplies its origin guard. A failed pointer-down/release is an
+    uncertain action: this helper never falls back to DOM click or submits again.
+    """
+    check_origin()
+    rect = driver.execute_script(
+        "arguments[0].scrollIntoView({block:'center',inline:'center'});"
+        "const r=arguments[0].getBoundingClientRect();"
+        "return {x:r.left,y:r.top,w:r.width,h:r.height,vw:innerWidth,vh:innerHeight};",
+        element,
+    )
+    fields = ('x', 'y', 'w', 'h', 'vw', 'vh')
+    if (not isinstance(rect, dict)
+            or any(type(rect.get(key)) not in (int, float) or not math.isfinite(rect[key]) for key in fields)
+            or rect['w'] <= 1 or rect['h'] <= 1 or rect['vw'] <= 0 or rect['vh'] <= 0
+            or rect['x'] < 0 or rect['y'] < 0
+            or rect['x'] + rect['w'] > rect['vw'] or rect['y'] + rect['h'] > rect['vh']):
+        raise RuntimeError('pointer_control_not_in_viewport')
+    x, y = rect['x'] + rect['w'] / 2, rect['y'] + rect['h'] / 2
+    driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+        'type': 'mouseMoved', 'x': x, 'y': y, 'button': 'none',
+    })
+    check_origin()  # Recheck immediately before any pointer-down can submit.
+    if (not element.is_enabled() or element.get_attribute('disabled') is not None
+            or element.get_attribute('aria-disabled') == 'true'):
+        raise RuntimeError('pointer_control_became_disabled')
+    driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+        'type': 'mousePressed', 'x': x, 'y': y, 'button': 'left', 'clickCount': 1,
+    })
+    driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+        'type': 'mouseReleased', 'x': x, 'y': y, 'button': 'left', 'clickCount': 1,
+    })

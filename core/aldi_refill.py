@@ -6,7 +6,7 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- that local offer is explicitly free/0 EUR and contains no positive price.
+- that local offer displays an explicit 0 EUR and no other or unparsed price.
 
 An explicitly identified active Unlimited tariff or Tarif S may be eligible.
 Tarif S still requires a unique local offer for exactly 1 GB with explicit
@@ -14,8 +14,14 @@ free/0-EUR evidence. Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
 Generic refill hints elsewhere on the page do not prove tariff eligibility.
 """
 
+import base64
+import hashlib
+import json
 import math
 import re
+from urllib.parse import urlencode, urlsplit
+
+from core.aldi_http_login import NAVIGATION, LoginError, phone_identifier, trusted_url
 
 
 PORTAL_URL = "https://www.alditalk-kundenportal.de/portal/auth/uebersicht/"
@@ -67,17 +73,121 @@ def _eligible_tariff(active_tariff_text):
 
 
 def _exact_one_gb(text):
-    quantities = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d+)?)\s*GB\b", text, re.I)
-    if not quantities:
+    # '+1 GB' is the observed action label, not a signed allowance. It is accepted
+    # only as that compact label; negative or otherwise malformed quantities fail.
+    if re.search(r"[-−]\s*\d[\d.,]*\s*(?:GB|MB|TB|KB|GiB|MiB|TiB|KiB)\b", text, re.I):
         return False
-    return all(q.replace(",", ".") in {"1", "1.0", "1.00"} for q in quantities)
+    quantities = re.findall(r"(?<![\w.,+\-−])([+\-]?[\d][\d.,]*)\s*GB\b", text, re.I)
+    mentions = re.findall(r"(?<![A-Za-z])(?:GB|MB|TB|KB|GiB|MiB|TiB|KiB)\b", text, re.I)
+    return (bool(quantities) and len(quantities) == len(mentions)
+            and all(re.fullmatch(r"\+?1(?:[.,]0{1,2})?", q) for q in quantities))
 
 
 def _free_price(text):
-    prices = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d{1,2})?)\s*(?:€|EUR\b)", text, re.I)
-    if any(float(price.replace(",", ".")) > 0 for price in prices):
+    if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return False
-    return bool(prices) or bool(re.search(r"\bkostenlos\b", text, re.I))
+    prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
+    mentions = re.findall(r"€|(?<![A-Za-z])EUR\b", text, re.I)
+    return (bool(prices) and len(prices) == len(mentions)
+            and all(re.fullmatch(r"0(?:[.,]0{1,2})?", p) for p in prices))
+
+
+def _portal_origin(driver):
+    from monitoring import require_origin
+    trusted_url(driver.current_url)
+    require_origin(driver, PORTAL_URL)
+
+
+def _selected_account(driver, expected_account):
+    """Reuse the current-account cookie contract verified by the HTTP login path."""
+    _portal_origin(driver)
+    expected = phone_identifier(expected_account)
+    host = urlsplit(PORTAL_URL).hostname
+    domains = {host, host.removeprefix('www.')}
+    cookies = [cookie.get('value') for cookie in driver.get_cookies()
+               if cookie.get('name') == 'lgrs_id'
+               and str(cookie.get('domain', '')).lstrip('.') in domains]
+    if not cookies or any(not isinstance(value, str) or len(value) > 256 for value in cookies):
+        raise RuntimeError('account_cookie_unverified')
+    if len(set(cookies)) != 1:
+        raise RuntimeError('account_cookie_unverified')
+    try:
+        encoded = cookies[0] + '=' * (-len(cookies[0]) % 4)
+        decoded = base64.b64decode(encoded, validate=True).decode('utf-8')
+        if phone_identifier(decoded) != expected:
+            raise RuntimeError('account_mismatch')
+    except (ValueError, UnicodeDecodeError, LoginError):
+        raise RuntimeError('account_cookie_unverified') from None
+    return decoded, expected
+
+
+def verify_account_selenium(driver, expected_account, timeout_seconds=8):
+    """Read protected account JSON in this browser; expose only a private hash.
+
+    No new login, write request, session export, selector or response field is
+    guessed. The grounded navigation-list contract supplies a nonempty
+    userDetails.subscriptions list. Its complete contents stay in memory; a
+    conservative signature detects any account/subscription change within a run.
+    """
+    decoded, expected = _selected_account(driver, expected_account)
+    url = NAVIGATION + '?' + urlencode({'msisdn': decoded})
+    driver.set_script_timeout(timeout_seconds + 2)
+    result = driver.execute_async_script(r"""
+        const url = new URL(arguments[0]);
+        const timeout = arguments[1];
+        const callback = arguments[arguments.length - 1];
+        let completed = false;
+        const finish = result => {
+            if (!completed) { completed = true; clearTimeout(timer); callback(result); }
+        };
+        const abort = new AbortController();
+        const timer = setTimeout(() => {
+            abort.abort(); finish({ok: false});
+        }, timeout);
+        if (location.origin !== url.origin) { finish({ok: false}); return; }
+        fetch(url.href, {
+            method: 'GET', credentials: 'same-origin', cache: 'no-store',
+            redirect: 'error', headers: {'Accept': 'application/json'}, signal: abort.signal
+        }).then(async response => {
+            if (!response.ok || response.url !== url.href) { finish({ok: false}); return; }
+            const body = await response.text();
+            if (body.length > 65536) { finish({ok: false}); return; }
+            const payload = JSON.parse(body);
+            const subscriptions = payload && payload.userDetails && payload.userDetails.subscriptions;
+            finish({ok: true, subscriptions});
+        }).catch(() => finish({ok: false}));
+    """, url, int(timeout_seconds * 1000))
+    # Origin/account may have changed while the read-only request was in flight.
+    _, current = _selected_account(driver, expected_account)
+    if current != expected or not isinstance(result, dict) or result.get('ok') is not True:
+        raise RuntimeError('protected_account_response_unverified')
+    subscriptions = result.get('subscriptions')
+    if (not isinstance(subscriptions, list) or not subscriptions
+            or any(not isinstance(item, dict) or not item for item in subscriptions)):
+        raise RuntimeError('protected_account_response_unverified')
+    # Do not infer a tariff or select a contract from unobserved JSON fields.
+    contents = sorted(json.dumps(item, sort_keys=True, separators=(',', ':')) for item in subscriptions)
+    signature = json.dumps([expected, contents], separators=(',', ':')).encode()
+    return hashlib.sha256(signature).hexdigest()
+
+
+def tariff_identity_selenium(driver):
+    """Bind the exact validated visible tariff identity, independent of the offer."""
+    from browser_dom import find_visible_elements, rendered_text
+    import watcher
+    _portal_origin(driver)
+    if not watcher.aldi_session_visible(driver):
+        raise RuntimeError('session_unverified')
+    headings = [rendered_text(driver, element)
+                for element in find_visible_elements(driver, "h1,h2,h3,h4,h5,h6,[role='heading']")]
+    text = '\n'.join(headings)
+    if _eligible_tariff(text) is None:
+        raise RuntimeError('active_tariff_unverified')
+    identities = [_normalise(line).casefold() for line in text.splitlines()
+                  if _eligible_tariff(line) is not None]
+    if len(identities) != 1:
+        raise RuntimeError('active_tariff_unverified')
+    return hashlib.sha256(identities[0].encode()).hexdigest()
 
 
 def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb,

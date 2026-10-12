@@ -52,6 +52,23 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run full test suite
         run: python -m pytest -q
+      - name: Report live execution prerequisites
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill'
+        env:
+          ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          path = os.environ.get('ALDI_JOURNAL_PATH', '')
+          print(json.dumps({
+              'live_mode_requested': True,
+              'journal_path_configured': bool(path),
+              'journal_path_absolute': os.path.isabs(path),
+              'required_runner_labels': ['self-hosted', 'linux', 'aldi-journal'],
+              'runner_availability': 'not_verified',
+          }))
+          PY
 
   watch:
     # Optional read-only diagnosis; live refill performs its own login and checks.
@@ -111,7 +128,7 @@ jobs:
 
   live_refill:
     # Source activation is on; explicit manual live-refill selection still
-    # requires the persistent journal/runner and verified provider reconciliation.
+    # requires the persistent journal/runner and independently verified provider state.
     needs: test
     if: >-
       github.ref == 'refs/heads/main' &&

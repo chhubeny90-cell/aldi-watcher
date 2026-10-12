@@ -19,7 +19,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 
 import watcher
-from browser_dom import element_label, find_visible_elements
+from browser_dom import element_label, find_visible_elements, trusted_pointer_click
 from monitoring import navigate, require_origin
 from aldi_callback_fidelity_probe import _capture_initial, _shape
 
@@ -78,25 +78,9 @@ def _fill_field(field, value):
 
 
 def _trusted_pointer_click(driver, element):
-    driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'center'});", element)
-    time.sleep(0.25)
-    rect = driver.execute_script(
-        "const r=arguments[0].getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};",
-        element,
-    )
-    if not rect or rect.get("w", 0) <= 1 or rect.get("h", 0) <= 1:
-        raise RuntimeError("login_control_not_rendered")
-    x = float(rect["x"]) + float(rect["w"]) / 2.0
-    y = float(rect["y"]) + float(rect["h"]) / 2.0
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
-        "type": "mouseMoved", "x": x, "y": y, "button": "none"
-    })
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
-        "type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1
-    })
-    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {
-        "type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1
-    })
+    trusted_pointer_click(driver, element, lambda: require_origin(
+        driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS,
+    ))
 
 
 def _single_callback_input(callback):

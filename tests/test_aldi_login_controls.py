@@ -1,13 +1,15 @@
 from unittest.mock import Mock, call
 import pytest
-from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.keys import Keys
 import watcher
+from browser_dom import trusted_pointer_click
 
 
 @pytest.fixture
 def login_page(monkeypatch):
     driver = Mock(current_url=watcher.ALDI_LOGIN_URL)
+    driver.execute_script.return_value = {'x': 10, 'y': 20, 'w': 100, 'h': 40, 'vw': 1400, 'vh': 1000}
     user, password, submit = (Mock() for _ in range(3))
     navigate_mock = Mock()
     for control in (user, password, submit):
@@ -32,6 +34,16 @@ def login_page(monkeypatch):
     return driver, user, password, submit, navigate_mock
 
 
+def assert_native_login_once(driver, submit):
+    assert [item.args[1]['type'] for item in driver.execute_cdp_cmd.call_args_list] == [
+        'mouseMoved', 'mousePressed', 'mouseReleased',
+    ]
+    assert all(item.args[0] == 'Input.dispatchMouseEvent' for item in driver.execute_cdp_cmd.call_args_list)
+    assert all('.click(' not in item.args[0] for item in driver.execute_script.call_args_list)
+    submit.click.assert_not_called()
+    submit.send_keys.assert_not_called()
+
+
 def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
     driver, user, password, submit, navigate_mock = login_page
     assert watcher.aldi_login(driver)
@@ -49,7 +61,7 @@ def test_shadow_controls_are_filled_blurred_and_submitted_once(login_page):
     ]
     submit.click.assert_not_called()
     submit.send_keys.assert_not_called()
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert_native_login_once(driver, submit)
     navigate_mock.assert_called_once_with(driver, watcher.ALDI_LOGIN_URL)
 
 
@@ -70,7 +82,7 @@ def test_sso_host_is_not_a_confirmed_portal_session(login_page):
     driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert_native_login_once(driver, submit)
     assert navigate_mock.call_args_list == [
         call(driver, watcher.ALDI_LOGIN_URL),
         call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
@@ -88,7 +100,7 @@ def test_sso_session_can_be_confirmed_by_one_protected_page_probe(login_page):
     navigate_mock.side_effect = navigate_side_effect
 
     assert watcher.aldi_login(driver)
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert_native_login_once(driver, submit)
     assert navigate_mock.call_args_list == [
         call(driver, watcher.ALDI_LOGIN_URL),
         call(driver, watcher.ALDI_OVERVIEW_URL, attempts=1),
@@ -149,9 +161,12 @@ def test_ambiguous_username_never_receives_credentials(login_page, monkeypatch):
     driver.execute_script.assert_not_called()
 
 
-def test_uncertain_dom_submit_is_not_repeated(login_page):
+def test_uncertain_pointer_submit_is_not_repeated(login_page):
     driver, user, password, submit, _ = login_page
-    driver.execute_script.side_effect = TimeoutException('PRIVATE upstream content')
+    def uncertain_press(method, params):
+        if params['type'] == 'mousePressed':
+            raise TimeoutException('PRIVATE upstream content')
+    driver.execute_cdp_cmd.side_effect = uncertain_press
     with pytest.raises(TimeoutException):
         watcher.aldi_login(driver)
     assert user.send_keys.call_args_list == [
@@ -162,7 +177,8 @@ def test_uncertain_dom_submit_is_not_repeated(login_page):
     ]
     submit.click.assert_not_called()
     submit.send_keys.assert_not_called()
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert [item.args[1]['type'] for item in driver.execute_cdp_cmd.call_args_list] == ['mouseMoved', 'mousePressed']
+    assert all('.click(' not in item.args[0] for item in driver.execute_script.call_args_list)
 
 
 @pytest.mark.parametrize("inactive_kind", ["disabled", "aria_disabled", "readonly"])
@@ -180,7 +196,7 @@ def test_inactive_extra_username_does_not_block_active_field(login_page, monkeyp
     assert watcher.aldi_login(driver)
     inactive.send_keys.assert_not_called()
     assert call("PRIVATE_USER") in user.send_keys.call_args_list
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert_native_login_once(driver, submit)
 
 
 @pytest.mark.parametrize("control", ["username", "submit"])
@@ -202,7 +218,7 @@ def test_rerender_during_control_search_is_requeried_before_submission(login_pag
     assert watcher.aldi_login(driver)
     assert searches == 2
     stale.send_keys.assert_not_called()
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert_native_login_once(driver, submit)
 
 
 def test_stale_submission_is_not_repeated(login_page):
@@ -210,4 +226,59 @@ def test_stale_submission_is_not_repeated(login_page):
     driver.execute_script.side_effect = StaleElementReferenceException("PRIVATE DOM")
     with pytest.raises(StaleElementReferenceException):
         watcher.aldi_login(driver)
-    driver.execute_script.assert_called_once_with('arguments[0].click();', submit)
+    assert driver.execute_script.call_count == 1
+    driver.execute_cdp_cmd.assert_not_called()
+
+
+@pytest.mark.parametrize('invalid_rect', [
+    None, {'x': 0},
+    {'x': float('nan')}, {'w': float('inf')}, {'h': 0}, {'w': True},
+    {'x': -1}, {'y': -1}, {'vw': 50}, {'vh': 30},
+])
+def test_native_pointer_rejects_unverified_or_outside_viewport_rect(login_page, invalid_rect):
+    driver, _, _, submit, _ = login_page
+    rect = dict(driver.execute_script.return_value)
+    rect = None if invalid_rect is None else dict(rect, **invalid_rect)
+    if invalid_rect == {'x': 0}:
+        rect.pop('vw')
+    driver.execute_script.return_value = rect
+    with pytest.raises(RuntimeError, match='pointer_control_not_in_viewport'):
+        trusted_pointer_click(driver, submit, lambda: None)
+    driver.execute_cdp_cmd.assert_not_called()
+    submit.click.assert_not_called()
+
+
+def test_origin_change_on_pointer_move_blocks_pointer_down(login_page):
+    driver, _, _, submit, _ = login_page
+    def navigate_on_move(method, params):
+        if params['type'] == 'mouseMoved':
+            driver.current_url = 'https://attacker.invalid/'
+    driver.execute_cdp_cmd.side_effect = navigate_on_move
+    with pytest.raises(PermissionError):
+        trusted_pointer_click(driver, submit, lambda: watcher.require_origin(
+            driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS))
+    assert [item.args[1]['type'] for item in driver.execute_cdp_cmd.call_args_list] == ['mouseMoved']
+    submit.click.assert_not_called()
+
+
+def test_pointer_release_failure_never_repeats_submission_or_falls_back(login_page):
+    driver, _, _, submit, _ = login_page
+    def uncertain_release(method, params):
+        if params['type'] == 'mouseReleased':
+            raise WebDriverException('PRIVATE_PROVIDER_OUTCOME')
+    driver.execute_cdp_cmd.side_effect = uncertain_release
+    with pytest.raises(WebDriverException):
+        watcher.aldi_login(driver)
+    assert_native_login_once(driver, submit)
+
+
+def test_disabled_control_after_pointer_move_cannot_submit(login_page):
+    driver, _, _, submit, _ = login_page
+    def disable_on_move(method, params):
+        if params['type'] == 'mouseMoved':
+            submit.is_enabled.return_value = False
+    driver.execute_cdp_cmd.side_effect = disable_on_move
+    with pytest.raises(RuntimeError, match='pointer_control_became_disabled'):
+        trusted_pointer_click(driver, submit, lambda: None)
+    assert [item.args[1]['type'] for item in driver.execute_cdp_cmd.call_args_list] == ['mouseMoved']
+    submit.click.assert_not_called()
