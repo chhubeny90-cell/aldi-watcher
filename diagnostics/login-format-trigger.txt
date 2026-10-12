@@ -1,2 +1,5 @@
 Trigger sanitized ALDI login-identifier format inspection.
 No credential is typed or submitted; no provider state is changed.
+
+Diagnostic refresh: 2026-10-12T20:39+02:00
+Run modes after merge: login-format + reset-id.
