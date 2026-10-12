@@ -20,16 +20,16 @@ def test_unlimited_on_demand_needs_no_zero_euro_label():
     assert result["free_evidence"] == "official_unlimited_entitlement"
 
 
-def test_generic_one_gb_without_price_is_not_inferred_free():
+def test_generic_one_gb_without_price_is_allowed_for_verified_tariff():
     result = assess(offer="1 GB Highspeed-Datenvolumen nachbuchen")
-    assert result["refill_eligible"] is False
-    assert result["refill_reason"] == "price_unverified_or_paid"
+    assert result["refill_eligible"] is True
+    assert result["free_evidence"] == "official_unlimited_entitlement"
 
 
-def test_generic_free_word_without_unlimited_context_is_not_enough():
+def test_generic_free_word_without_price_is_allowed_for_verified_tariff():
     result = assess(offer="1 GB Highspeed-Datenvolumen kostenlos nachbuchen")
-    assert result["refill_eligible"] is False
-    assert result["refill_reason"] == "price_unverified_or_paid"
+    assert result["refill_eligible"] is True
+    assert result["free_evidence"] == "official_unlimited_entitlement"
 
 
 def test_positive_price_blocks_unlimited_entitlement():
@@ -56,16 +56,12 @@ def test_explicit_zero_euro_remains_valid():
     assert result["free_evidence"] == "explicit_free_offer"
 
 
-def test_unlimited_gratis_word_is_valid_only_with_same_local_unlimited_context():
-    result = assess(offer="Unlimited 1 GB gratis nachbuchen")
-    assert result["refill_eligible"] is True
-    assert result["free_evidence"] == "official_unlimited_entitlement"
-
-
-def test_plain_tarif_s_does_not_get_unlimited_entitlement():
-    result = assess(tariff="Tarif S")
-    assert result["refill_eligible"] is False
-    assert result["refill_reason"] == "price_unverified_or_paid"
+def test_plain_current_tarif_s_m_l_get_published_entitlement():
+    for size in ("S", "M", "L"):
+        result = assess(tariff=f"Tarif {size}", offer="1 GB Highspeed-Datenvolumen nachbuchen")
+        assert result["refill_eligible"] is True
+        assert result["tariff_evidence"] == "CURRENT_SML"
+        assert result["free_evidence"] == "official_unlimited_entitlement"
 
 
 def test_unlimited_at_exactly_one_gb_is_not_eligible():
