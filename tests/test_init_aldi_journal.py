@@ -1,5 +1,9 @@
+import json
 import os
+from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 
 import pytest
 
@@ -34,6 +38,23 @@ def test_initialize_journal_validates_existing_database(tmp_path):
     assert first["created"] is True
     assert second["created"] is False
     assert second["journal_ready"] is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="live journal requires POSIX")
+def test_direct_cli_invocation_works_from_repo_root(tmp_path):
+    path = tmp_path / "journal.sqlite"
+    repo_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "scripts/init_aldi_journal.py", str(path)],
+        cwd=repo_root,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["journal_ready"] is True
+    assert result["created"] is True
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.skipif(os.name != "posix", reason="live journal requires POSIX")
