@@ -234,3 +234,23 @@ def test_explicit_gratis_offer_is_recognized():
     )
     assert result["refill_eligible"] is True
     assert result["free_evidence"] == "explicit_free_offer"
+
+
+def test_official_unlimited_with_free_label_and_positive_price_is_blocked():
+    result = eligible(
+        active_tariff_text="Tarif S Unlimited",
+        offer_text="Unlimited 1 GB gratis nachbuchen, Preis 1,99 EUR",
+        button_text="+1 GB",
+    )
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
+
+
+def test_official_unlimited_with_zero_and_positive_price_is_blocked():
+    result = eligible(
+        active_tariff_text="Tarif S Unlimited",
+        offer_text="Unlimited 1 GB nachbuchen 0,00 € 2,49 €",
+        button_text="+1 GB",
+    )
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
