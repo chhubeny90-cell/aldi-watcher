@@ -122,12 +122,16 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Schedule and explicit live dispatch both use the same guarded free-only flow.
+    # Schedule, explicit dispatch, and an explicit main-branch canary marker all
+    # use the same guarded free-only flow. The canary is useful when GitHub's
+    # scheduled-event delivery is delayed.
     needs: test
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill'))
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill') ||
+       (github.event_name == 'push' &&
+        contains(github.event.head_commit.message, '[live-refill-canary]')))
     strategy:
       fail-fast: false
       max-parallel: 1
