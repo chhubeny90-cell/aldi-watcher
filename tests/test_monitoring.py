@@ -1,3 +1,4 @@
+import base64
 import json
 import subprocess
 import sys
@@ -307,4 +308,108 @@ def test_monitoring_does_not_copy_raw_refill_text(monkeypatch):
         lambda _: {'inland_frei_gb': .1, 'refill_eligible': True,
                    'refill_type': 'FREE_UNLIMITED', 'refill_reason': 'PRIVATE_TOKEN'}, 'test')
     assert not result['refill_eligible']
+    assert 'PRIVATE' not in json.dumps(result)
+
+
+def auth_response(request_id='PRIVATE_REQUEST_ID', timestamp=10, status=200, url=None):
+    from core.aldi_http_login import AUTH_API
+    return {'message': json.dumps({'message': {'method': 'Network.responseReceived', 'params': {
+        'type': 'XHR', 'requestId': request_id, 'timestamp': timestamp,
+        'response': {'status': status, 'url': url or AUTH_API + '?authIndexValue=Login&state=PRIVATE_QUERY'}}}})}
+
+
+def auth_driver(logs, body=None, *, base64_encoded=False):
+    obj = driver()
+    obj.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/?state=PRIVATE_CURRENT'
+    obj.get_log.side_effect = lambda kind: logs if kind == 'performance' else []
+    obj.execute_cdp_cmd.return_value = {'body': body, 'base64Encoded': base64_encoded}
+    return obj
+
+
+@pytest.mark.parametrize('base64_encoded', [False, True])
+def test_cached_auth_body_is_reduced_without_secrets_or_new_requests(base64_encoded):
+    payload = {'authId': 'PRIVATE_AUTH_ID', 'tokenId': 'PRIVATE_TOKEN',
+        'successUrl': 'https://secret.invalid/PRIVATE_SUCCESS',
+        'message': 'Invalid credentials PRIVATE_PASSWORD +49123456789',
+        'callbacks': [
+            {'type': 'NameCallback', 'input': [{'name': 'IDToken1', 'value': 'PRIVATE_PHONE'}]},
+            {'type': 'PRIVATE_CALLBACK_TYPE'},
+            {'type': 'TextOutputCallback', 'output': [{'name': 'message', 'value': 'Account locked PRIVATE_COOKIE'}]},
+        ]}
+    body = json.dumps(payload)
+    if base64_encoded:
+        body = base64.b64encode(body.encode()).decode()
+    obj = auth_driver([auth_response(status=401)], body, base64_encoded=base64_encoded)
+    result = m.diagnostics(obj)
+    assert result['auth_http_status'] == 401
+    assert result['returned_callback_count'] == 3
+    assert result['returned_callback_types'] == ['NameCallback', 'OtherCallback', 'TextOutputCallback']
+    assert result['provider_indications']['account_locked'] is True
+    assert result['provider_indications']['credential_problem'] is True
+    serialized = json.dumps(result)
+    assert 'PRIVATE' not in serialized and '+49123456789' not in serialized
+    assert 'secret.invalid' not in serialized and 'authId' not in serialized
+    obj.execute_cdp_cmd.assert_called_once_with('Network.getResponseBody', {'requestId': 'PRIVATE_REQUEST_ID'})
+    obj.get.assert_not_called()
+    assert sum(call.args == ('performance',) for call in obj.get_log.call_args_list) == 1
+
+
+@pytest.mark.parametrize('body,encoded', [
+    (None, False), ('PRIVATE_NON_JSON', False), ('[]', False),
+    ('not-base64!', True),
+    (json.dumps({'callbacks': [{'type': 'TextOutputCallback', 'output': None}]}), False),
+])
+def test_unknown_cached_auth_body_never_infers_credentials_failure(body, encoded):
+    obj = auth_driver([auth_response(status=200)], body, base64_encoded=encoded)
+    result = m.diagnostics(obj)
+    assert result['auth_http_status'] == 200
+    assert result['provider_indications'] is None
+    assert result['returned_callback_count'] is None
+    assert result['returned_callback_types'] is None
+    assert 'PRIVATE' not in json.dumps(result)
+
+
+def test_last_chronological_auth_response_replaces_earlier_error_indications():
+    # Buffered entries need not arrive in timestamp order. Only the latest
+    # response is queried; an earlier credential error must not leak forward.
+    obj = auth_driver([auth_response('latest', 30), auth_response('earlier', 10, 401)],
+                      json.dumps({'callbacks': [{'type': 'ConfirmationCallback'}]}))
+    result = m.diagnostics(obj)
+    obj.execute_cdp_cmd.assert_called_once_with('Network.getResponseBody', {'requestId': 'latest'})
+    assert result['auth_http_status'] == 200
+    assert result['returned_callback_types'] == ['ConfirmationCallback']
+    assert result['provider_indications']['credential_problem'] is False
+
+
+def test_latest_unavailable_body_does_not_fall_back_to_old_error():
+    obj = auth_driver([auth_response('earlier', 10, 401), auth_response('latest', 20, 503)])
+    obj.execute_cdp_cmd.side_effect = WebDriverException('PRIVATE_CACHED_BODY_ERROR')
+    result = m.diagnostics(obj)
+    obj.execute_cdp_cmd.assert_called_once_with('Network.getResponseBody', {'requestId': 'latest'})
+    assert result['auth_http_status'] == 503
+    assert result['provider_indications'] is None
+    assert 'PRIVATE' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('url', [
+    'http://login.alditalk-kundenbetreuung.de/signin/json/authenticate',
+    'https://login.alditalk-kundenbetreuung.de.attacker.invalid/signin/json/authenticate',
+    'https://login.alditalk-kundenbetreuung.de/signin/json/authenticate/other',
+    'https://login.alditalk-kundenbetreuung.de:444/signin/json/authenticate',
+    'https://PRIVATE_USER:PRIVATE_PASSWORD@login.alditalk-kundenbetreuung.de/signin/json/authenticate',
+    'https://www.alditalk-kundenportal.de/signin/json/authenticate',
+])
+def test_auth_body_read_requires_exact_official_endpoint(url):
+    obj = auth_driver([auth_response(url=url)], json.dumps({'message': 'invalid credentials PRIVATE_PASSWORD'}))
+    result = m.diagnostics(obj)
+    assert result['auth_http_status'] is None
+    assert result['provider_indications'] is None
+    obj.execute_cdp_cmd.assert_not_called()
+
+
+def test_cached_auth_diagnostics_survive_unavailable_dom():
+    obj = auth_driver([auth_response()], json.dumps({'message': 'SMS-code required PRIVATE_PHONE'}))
+    obj.find_elements.side_effect = WebDriverException('PRIVATE_DOM_ERROR')
+    result = m.diagnostics(obj)
+    assert result['provider_indications']['additional_verification'] is True
     assert 'PRIVATE' not in json.dumps(result)

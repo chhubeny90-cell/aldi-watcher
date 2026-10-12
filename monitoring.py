@@ -1,5 +1,6 @@
 """Fail-closed, one-shot monitoring; no booking capability or raw portal logs."""
 import argparse
+import base64
 import contextvars
 import datetime as dt
 import json
@@ -90,12 +91,71 @@ def evaluate_run(results, auto_book_enabled=False):
                 auto_booking={'enabled': False, 'executed': False, 'reason': 'monitoring_only'})
 
 
+def _auth_response_diagnostics(driver, messages):
+    """Reduce the latest cached ALDI authentication response, without new requests."""
+    from core.aldi_http_login import AUTH_API, result_diagnostics
+    expected = urlsplit(AUTH_API)
+    matches = []
+    for message in messages:
+        if message.get('method') != 'Network.responseReceived':
+            continue
+        params = message.get('params', {})
+        response = params.get('response', {})
+        if not isinstance(response, dict):
+            continue
+        try:
+            actual = urlsplit(response.get('url', ''))
+            if (actual.scheme != expected.scheme or actual.hostname != expected.hostname
+                    or actual.path != expected.path or actual.port not in (None, 443)
+                    or actual.username or actual.password):
+                continue
+        except (ValueError, TypeError):
+            continue
+        timestamp = params.get('timestamp')
+        if (type(timestamp) not in (int, float) or not math.isfinite(timestamp)):
+            timestamp = None
+        matches.append((timestamp, params.get('requestId'), response.get('status')))
+    result = dict(auth_http_status=None, returned_callback_count=None,
+                  returned_callback_types=None, provider_indications=None)
+    if not matches:
+        return result
+    # Chrome supplies monotonic response timestamps. If absent, preserve the
+    # cached log's arrival order instead of mixing incompatible clock values.
+    last = (max(enumerate(matches), key=lambda item: (item[1][0], item[0]))[1]
+            if all(item[0] is not None for item in matches) else matches[-1])
+    _, request_id, status = last
+    if type(status) in (int, float) and math.isfinite(status) and 100 <= status <= 599 and int(status) == status:
+        result['auth_http_status'] = int(status)
+    if not isinstance(request_id, str) or not request_id:
+        return result
+    try:
+        cached = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
+        body = cached.get('body') if isinstance(cached, dict) else None
+        if not isinstance(body, str) or len(body) > 1024 * 1024:
+            return result
+        if cached.get('base64Encoded') is True:
+            body = base64.b64decode(body, validate=True)
+        elif cached.get('base64Encoded') not in (None, False):
+            return result
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            return result
+        result.update(result_diagnostics(payload))
+    except Exception:
+        # No cached body/schema means unknown. Never reuse an older response,
+        # expose provider content or infer a credential failure from a timeout.
+        pass
+    return result
+
+
 def diagnostics(driver):
-    """Allowlisted metadata only; no bodies, URLs, headers, cookie values or tokens."""
+    """Persist allowlisted evidence only; response bodies are reduced in memory."""
     result = dict(http_status=None, redirect_count=None, csrf_found=None,
                   cookie_count=None, login_form_visible=None, page_host=None,
                   visible_input_count=None, frame_count=None, captcha_detected=None,
-                  script_error_count=None, failed_resource_count=None)
+                  script_error_count=None, failed_resource_count=None,
+                  auth_http_status=None, returned_callback_count=None,
+                  returned_callback_types=None, provider_indications=None)
     if driver is None:
         return result
     try:
@@ -117,15 +177,28 @@ def diagnostics(driver):
             result['script_error_count'] = sum(entry.get('level') == 'SEVERE' for entry in driver.get_log('browser'))
         except Exception:
             pass
+    except Exception:
+        pass
+    try:
         redirects = 0
         failed_resources = 0
+        messages = []
         for entry in driver.get_log('performance'):
-            message = json.loads(entry['message'])['message']
+            try:
+                message = json.loads(entry['message'])['message']
+                if (not isinstance(message, dict) or not isinstance(message.get('params', {}), dict)
+                        or not isinstance(message.get('method'), str)):
+                    continue
+            except (ValueError, KeyError, TypeError):
+                continue
+            messages.append(message)
             params = message.get('params', {})
             if message['method'] == 'Network.loadingFailed':
                 failed_resources += 1
             if message['method'] == 'Network.responseReceived' and params.get('type') != 'Document':
-                if params.get('response', {}).get('status', 0) >= 400:
+                response = params.get('response', {})
+                status = response.get('status') if isinstance(response, dict) else None
+                if type(status) in (int, float) and status >= 400:
                     failed_resources += 1
             if params.get('type') != 'Document':
                 continue
@@ -137,6 +210,7 @@ def diagnostics(driver):
                     result['http_status'] = int(response['status'])
         result['redirect_count'] = redirects
         result['failed_resource_count'] = failed_resources
+        result.update(_auth_response_diagnostics(driver, messages))
     except Exception:
         pass
     return result

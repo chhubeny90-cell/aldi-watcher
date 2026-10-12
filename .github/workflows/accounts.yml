@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   monitor_accounts:
-    # Scheduling needs explicit activation after authenticated account checks.
-    if: github.event_name == 'workflow_dispatch' || vars.ALDI_ACCOUNTS_MONITOR_ENABLED == 'true'
+    # Manual and hourly triggers are active; credentials and enabled profiles
+    # are still checked below before any read-only account access.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

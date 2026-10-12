@@ -29,5 +29,9 @@ Rufnummern, Passwort und Accountinhalte werden nicht gespeichert.
 
 Manuell: Workflow **ALDI HTTP Login** starten. Ein Main-Commit mit
 `[http-login]` startet ebenfalls einen einzelnen Test. Automatische stündliche
-Nachbuchungen bleiben im vorhandenen Live-Workflow. Der HTTP-Zugang wird erst
-nach erfolgreicher Prüfung dort verwendet.
+Nachbuchungen sind nicht eingerichtet: Der Hauptworkflow führt stündlich Tests
+aus, der aktivierte Accounts-Workflow prüft konfigurierte Profile nur lesend.
+Der separate Live-Modus ist ausschließlich manuell mit `live-refill` startbar.
+Seine Aktivierung steht direkt im Workflow auf an; ein dauerhaftes privates
+Buchungsjournal und verifizierte Provider-Reconciliation bleiben erforderlich.
+Ein erfolgreicher HTTP-Login allein bestätigt keine kostenlose Nachbuchung.
