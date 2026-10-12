@@ -1,17 +1,25 @@
 """GitHub-hosted entry point for the guarded ALDI live-refill runner.
 
 GitHub-hosted runners are ephemeral. This adapter rehydrates only unresolved
-operation guards after the configured account is known, then persists each
-PENDING/UNKNOWN transition remotely without writing the account identity.
+operation guards after the configured account is known, persists each
+PENDING/UNKNOWN transition remotely without writing the account identity, and
+backs off repeated credential submissions after authentication failures.
 """
 
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aldi_live_refill as live
 import watcher
 from core.database import Database
-from github_journal_state import restore_journal, sync_journal
+from github_journal_state import (
+    auth_backoff_active,
+    restore_journal,
+    set_auth_backoff,
+    sync_journal,
+)
 
 
 _ORIGINAL_BEGIN = Database.begin_recharge
@@ -60,6 +68,45 @@ def _open_cloud_journal():
     return Database(str(path))
 
 
+def _report_path():
+    return Path(os.environ.get("ALDI_LIVE_REPORT", "aldi-live-refill.json"))
+
+
+def _write_backoff_report():
+    now = datetime.now(timezone.utc).isoformat()
+    report = {
+        "started_at": now,
+        "finished_at": now,
+        "outcome": "auth_backoff_active",
+        "booking_enabled": True,
+        "booking_clicks": 0,
+        "confirmation_clicks": 0,
+        "successful_refills": 0,
+        "cycles": [],
+    }
+    path = _report_path()
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, path)
+    print(json.dumps({
+        "outcome": report["outcome"],
+        "booking_enabled": True,
+        "booking_clicks": 0,
+        "confirmation_clicks": 0,
+        "successful_refills": 0,
+    }), flush=True)
+
+
+def _report_outcome():
+    path = _report_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    outcome = payload.get("outcome") if isinstance(payload, dict) else None
+    return outcome if isinstance(outcome, str) else None
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("github_actions_required")
@@ -67,10 +114,28 @@ def main():
         raise RuntimeError("remote_journal_not_enabled")
 
     _journal_path()
+
+    # Do this before live.main() configures/submits provider credentials. Scheduled
+    # runs continue every ten minutes, but a known lock never causes repeated
+    # password submissions during the durable backoff window.
+    if auth_backoff_active():
+        _write_backoff_report()
+        return 0
+
     Database.begin_recharge = _syncing_begin
     Database.set_recharge_status = _syncing_set
     live.open_live_journal = _open_cloud_journal
-    return live.main()
+    result = live.main()
+
+    # The live runner derives these fixed outcomes from cached sanitized provider
+    # evidence only. Account lock gets a long backoff; an otherwise unknown auth
+    # failure gets a shorter retry interval to avoid password hammering.
+    outcome = _report_outcome()
+    if outcome == "account_locked":
+        set_auth_backoff(hours=6)
+    elif outcome == "auth_failed":
+        set_auth_backoff(hours=1)
+    return result
 
 
 if __name__ == "__main__":
