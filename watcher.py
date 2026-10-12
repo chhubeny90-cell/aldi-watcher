@@ -222,31 +222,58 @@ def aldi_login(driver) -> bool:
     return True
 
 
-def aldi_read_status(driver) -> dict:
-    status = {'guthaben': '', 'inland_frei_gb': None}
-    phase('protected_page')
-    navigate(driver, ALDI_OVERVIEW_URL)
-    require_origin(driver, ALDI_OVERVIEW_URL)
-    wait = WebDriverWait(driver, WAIT_TIMEOUT)
-    wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Guthaben')]")))
-    time.sleep(2)
-    if not aldi_session_visible(driver):
-        raise PermissionError('session_invalid')
-    phase('usage_parse')
-    body_text = driver.find_element(By.TAG_NAME, 'body').text
-    for line in body_text.splitlines():
-        if 'Guthaben' in line and status['guthaben'] == '':
-            status['guthaben'] = line.strip()
-    try:
-        inland_label = driver.find_element(By.XPATH, "//*[text()='Inland']")
-        container = inland_label.find_element(By.XPATH, "./ancestor::*[self::div or self::li][1]/..")
-        text = container.text
-        status['inland_frei_gb'] = remaining_gb(text)
-    except NoSuchElementException:
-        pass
-    phase('refill_availability')
-    status.update(inspect_aldi_refill(driver, status['inland_frei_gb']))
-    return status
+def aldi_read_status(driver, include_refill=None, attempts=3) -> dict:
+    """Read protected ALDI usage first; inspect refill controls only when requested.
+
+    The usage read intentionally does not depend on a refill button being present.
+    This lets callers establish ``>= 1 GB -> not_needed`` without waiting for an
+    offer that ALDI correctly does not show yet. ``ALDI_STATUS_ONLY=true`` makes
+    legacy callers use the same status-only path without changing their call site.
+    """
+    if include_refill is None:
+        include_refill = os.environ.get('ALDI_STATUS_ONLY', 'false').lower() != 'true'
+    if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 1 or attempts > 5:
+        raise ValueError('invalid_status_attempts')
+
+    last_reason = 'remaining_volume_unverified'
+    for attempt in range(attempts):
+        status = {'guthaben': '', 'inland_frei_gb': None}
+        phase('protected_page')
+        navigate(driver, ALDI_OVERVIEW_URL, attempts=1)
+        require_origin(driver, ALDI_OVERVIEW_URL)
+
+        try:
+            wait = WebDriverWait(driver, WAIT_TIMEOUT)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+            if not aldi_session_visible(driver):
+                raise PermissionError('session_invalid')
+
+            phase('usage_parse')
+            body_text = driver.find_element(By.TAG_NAME, 'body').text
+            for line in body_text.splitlines():
+                if 'guthaben' in line.casefold() and status['guthaben'] == '':
+                    status['guthaben'] = line.strip()
+
+            # Parse the complete protected overview rather than relying on the
+            # exact historical "Inland" DOM nesting, which ALDI may re-render.
+            status['inland_frei_gb'] = remaining_gb(body_text)
+            if status['inland_frei_gb'] is None:
+                last_reason = 'remaining_volume_unverified'
+                raise TimeoutException(last_reason)
+
+            if include_refill and status['inland_frei_gb'] < 1.0:
+                phase('refill_availability')
+                status.update(inspect_aldi_refill(driver, status['inland_frei_gb']))
+            return status
+        except PermissionError:
+            raise
+        except (TimeoutException, NoSuchElementException, StaleElementReferenceException) as exc:
+            last_reason = str(exc) or type(exc).__name__
+            if attempt + 1 >= attempts:
+                raise TimeoutException('status_read_timeout') from exc
+            time.sleep(min(2, attempt + 1))
+
+    raise TimeoutException(last_reason)
 
 
 # ============================================================
