@@ -1,8 +1,9 @@
 """Public-safe durable state for GitHub-hosted ALDI live refill runs.
 
-The public state branch stores only random recharge operation IDs and the
-non-terminal states PENDING/UNKNOWN. Phone numbers, credentials, tariffs,
-allowances, SQLite bytes and error text never leave the runner.
+The public state branch stores only random recharge operation IDs, the
+non-terminal states PENDING/UNKNOWN, and an optional authentication retry time.
+Phone numbers, credentials, tariffs, allowances, SQLite bytes and provider error
+text never leave the runner.
 """
 
 import base64
@@ -10,7 +11,7 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -20,7 +21,7 @@ from core.aldi_http_login import phone_identifier
 from core.database import Database
 
 
-STATE_VERSION = 1
+STATE_VERSION = 2
 MAX_UNRESOLVED = 16
 DEFAULT_BRANCH = "aldi-watcher-state"
 DEFAULT_PATH = ".aldi-state/profile-1.json"
@@ -110,6 +111,25 @@ def _validate_operation(operation):
     return {"recharge_id": recharge_id, "status": status}
 
 
+def _validate_retry_after(value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 40:
+        raise RuntimeError("github_state_schema_invalid")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise RuntimeError("github_state_schema_invalid") from None
+    if parsed.tzinfo is None:
+        raise RuntimeError("github_state_schema_invalid")
+    parsed = parsed.astimezone(timezone.utc)
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def _empty_state():
+    return {"version": STATE_VERSION, "unresolved": [], "auth_retry_after": None}
+
+
 def _parse_state(content: bytes):
     if not isinstance(content, bytes) or len(content) > 65536:
         raise RuntimeError("github_state_content_invalid")
@@ -117,8 +137,19 @@ def _parse_state(content: bytes):
         payload = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise RuntimeError("github_state_content_invalid") from None
-    if (not isinstance(payload, dict)
-            or set(payload) != {"version", "unresolved"}
+    if not isinstance(payload, dict):
+        raise RuntimeError("github_state_schema_invalid")
+
+    # Version 1 contained only unresolved operation guards. Accept it once and
+    # upgrade in memory so a deployment can roll forward without losing a guard.
+    if payload.get("version") == 1 and set(payload) == {"version", "unresolved"}:
+        payload = {
+            "version": STATE_VERSION,
+            "unresolved": payload.get("unresolved"),
+            "auth_retry_after": None,
+        }
+
+    if (set(payload) != {"version", "unresolved", "auth_retry_after"}
             or payload.get("version") != STATE_VERSION
             or not isinstance(payload.get("unresolved"), list)
             or len(payload["unresolved"]) > MAX_UNRESOLVED):
@@ -127,14 +158,22 @@ def _parse_state(content: bytes):
     ids = [item["recharge_id"] for item in operations]
     if len(ids) != len(set(ids)):
         raise RuntimeError("github_state_schema_invalid")
-    return operations
+    return {
+        "version": STATE_VERSION,
+        "unresolved": operations,
+        "auth_retry_after": _validate_retry_after(payload.get("auth_retry_after")),
+    }
 
 
-def _encode_state(operations):
+def _encode_state(operations, auth_retry_after=None):
     validated = [_validate_operation(item) for item in operations]
     if len(validated) > MAX_UNRESOLVED:
         raise RuntimeError("too_many_unresolved_operations")
-    payload = {"version": STATE_VERSION, "unresolved": validated}
+    payload = {
+        "version": STATE_VERSION,
+        "unresolved": validated,
+        "auth_retry_after": _validate_retry_after(auth_retry_after),
+    }
     return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
@@ -159,6 +198,19 @@ def _get_state():
     return payload["sha"], _parse_state(content)
 
 
+def _put_state(state, current_sha=None, message="Persist ALDI refill guard state"):
+    content = _encode_state(state["unresolved"], state.get("auth_retry_after"))
+    payload = {
+        "message": message,
+        "content": base64.b64encode(content).decode("ascii"),
+        "branch": _branch(),
+    }
+    if current_sha is not None:
+        payload["sha"] = current_sha
+    state_path = quote(_state_path(), safe="/")
+    _request("PUT", f"contents/{state_path}", json_body=payload, expected=(200, 201))
+
+
 def _snapshot_unresolved(journal_path):
     path = Path(journal_path)
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
@@ -174,15 +226,41 @@ def _snapshot_unresolved(journal_path):
 def sync_journal(journal_path):
     operations = _snapshot_unresolved(journal_path)
     current = _get_state()
-    payload = {
-        "message": "Persist ALDI refill guard state",
-        "content": base64.b64encode(_encode_state(operations)).decode("ascii"),
-        "branch": _branch(),
-    }
-    if current is not None:
-        payload["sha"] = current[0]
-    state_path = quote(_state_path(), safe="/")
-    _request("PUT", f"contents/{state_path}", json_body=payload, expected=(200, 201))
+    state = _empty_state() if current is None else current[1]
+    state["unresolved"] = operations
+    _put_state(state, current[0] if current is not None else None)
+
+
+def auth_backoff_active(now=None):
+    current = _get_state()
+    if current is None or current[1].get("auth_retry_after") is None:
+        return False
+    retry = datetime.fromisoformat(
+        current[1]["auth_retry_after"].replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        raise RuntimeError("naive_auth_backoff_reference")
+    return reference.astimezone(timezone.utc) < retry
+
+
+def set_auth_backoff(hours=6, now=None):
+    if not isinstance(hours, (int, float)) or isinstance(hours, bool) or hours <= 0 or hours > 24:
+        raise RuntimeError("invalid_auth_backoff")
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        raise RuntimeError("naive_auth_backoff_reference")
+    retry = reference.astimezone(timezone.utc) + timedelta(hours=float(hours))
+    retry_text = retry.isoformat().replace("+00:00", "Z")
+    current = _get_state()
+    state = _empty_state() if current is None else current[1]
+    state["auth_retry_after"] = retry_text
+    _put_state(
+        state,
+        current[0] if current is not None else None,
+        message="Back off ALDI authentication after failed login",
+    )
+    return retry_text
 
 
 def restore_journal(journal_path, account):
@@ -195,7 +273,8 @@ def restore_journal(journal_path, account):
         path.unlink()
 
     current = _get_state()
-    operations = [] if current is None else current[1]
+    state = _empty_state() if current is None else current[1]
+    operations = state["unresolved"]
     canonical_account = phone_identifier(account)
     db = Database(str(path))
     now = datetime.now().isoformat()
