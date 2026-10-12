@@ -13,7 +13,6 @@ import re
 import time
 import sqlite3
 from pathlib import Path
-from contextlib import ExitStack
 from datetime import datetime, timezone
 
 from browser_dom import element_label
@@ -198,7 +197,6 @@ def main():
     driver = None
     db = None
     recharge_id = None
-    locks = ExitStack()
 
     try:
         if not report["booking_enabled"]:
@@ -210,10 +208,6 @@ def main():
 
         account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
         db = open_live_journal()
-        # One journal-wide ALDI executor lock also serializes canonical-name and
-        # alias workers; the account-specific lock is retained for other callers.
-        locks.enter_context(db.account_lock('alditalk_executor', 'all'))
-        locks.enter_context(db.account_lock('alditalk', account))
         try:
             unresolved = _unresolved_aldi(db, account)
         except RuntimeError:
@@ -311,7 +305,7 @@ def main():
                 report['outcome'] = 'unresolved_account_mapping_required'
                 return 2
             # Keep the cross-run cooldown, but an independently verified NEW success
-            # in this locked run may be followed by the next eligible refill.
+            # in this run may be followed by the next eligible refill.
             same_run_success = report["successful_refills"] > 0
             recharge_id = db.begin_recharge(
                 'alditalk', account,
@@ -416,8 +410,6 @@ def main():
                     driver.quit()
             except Exception:
                 pass
-            finally:
-                locks.close()
 
 
 if __name__ == "__main__":
