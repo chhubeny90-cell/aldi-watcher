@@ -90,7 +90,7 @@ def _price_state(text):
     """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
 
     Currency mentions are fail-closed: every € / EUR marker must have one parsed
-    unsigned numeric amount. A positive amount always wins over free wording.
+    unsigned numeric amount. A positive amount always wins over other wording.
     """
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
@@ -101,8 +101,6 @@ def _price_state(text):
             return "UNVERIFIED"
         if any(not re.fullmatch(r"0(?:[.,]0{1,2})?", p) for p in prices):
             return "PAID"
-        return "FREE"
-    if re.search(r"\b(?:kostenlos|gratis)\b", text, re.I):
         return "FREE"
     return "ABSENT"
 
