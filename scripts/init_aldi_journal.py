@@ -34,6 +34,10 @@ def initialize_journal(raw_path: str):
         raise RuntimeError("journal_parent_missing")
     if path.parent.is_symlink():
         raise RuntimeError("journal_parent_symlink_rejected")
+    # A group/world-writable parent lets another local process replace the file
+    # between checks even when the SQLite file itself is mode 0600.
+    if path.parent.stat().st_mode & 0o022:
+        raise RuntimeError("journal_parent_must_not_be_group_or_world_writable")
 
     existed = path.exists()
     if existed:
