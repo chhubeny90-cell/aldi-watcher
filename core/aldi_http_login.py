@@ -63,15 +63,21 @@ def result_diagnostics(result):
     text = " ".join(m.casefold() for m in messages if isinstance(m, str))
     known_types = {"NameCallback", "PasswordCallback", "HiddenValueCallback",
                    "TextOutputCallback", "ConfirmationCallback", "ChoiceCallback"}
+    maintenance = any(s in text for s in (
+        "wartungsarbeiten", "wartung", "maintenance", "temporarily unavailable",
+        "vorübergehend nicht verfügbar", "voruebergehend nicht verfuegbar",
+        "service unavailable",
+    ))
     return {
         "returned_callback_count": len(callbacks),
         "returned_callback_types": sorted({c.get("type") if c.get("type") in known_types
                                            else "OtherCallback" for c in callbacks if isinstance(c, dict)}),
         "provider_indications": {
+            "maintenance": maintenance,
             "account_locked": any(s in text for s in ("accountlock", "account locked", "gesperrt", "zu viele versuche")),
             "credential_problem": any(s in text for s in ("invalid credential", "incorrect credential", "wrong credential", "invalidlogin", "passwort falsch", "falsches passwort", "stimmen nicht überein")),
             "required_fields": any(s in text for s in ("required field", "pflichtfeld", "ausfüllen", "ausfuellen", "field is required")),
-            "technical_error": any(s in text for s in ("technical error", "technischer fehler", "temporarily unavailable", "service unavailable")),
+            "technical_error": maintenance or any(s in text for s in ("technical error", "technischer fehler")),
             "additional_verification": any(s in text for s in ("sms-code", "sms code", "sms-tan", "einmalpasswort", "one-time password", "bestätigungscode")),
             "error_message": any(s in text for s in ("error", "failed", "invalid", "fehler", "fehlgeschlagen")),
         },
@@ -154,7 +160,6 @@ class AldiHttpLogin:
                        "credential_submissions": 0, "phase": "not_started"}
 
     def _get(self, url, **kwargs):
-        # Inspect every redirect before requesting it. POSTs never follow redirects.
         for _ in range(12):
             trusted_url(url)
             response = self.session.get(url, allow_redirects=False, timeout=20, **kwargs)
@@ -215,7 +220,6 @@ class AldiHttpLogin:
         if urlsplit(response.url).hostname != urlsplit(PORTAL_BASE).hostname:
             raise LoginError("portal_session_unverified")
         self.report["phase"] = "account_verification"
-        # The portal's own current-account cookie identifies the selected SIM.
         cookies = [c.value for c in self.session.cookies if c.name == "lgrs_id"
                    and c.domain.lstrip(".") in ALLOWED_HOSTS]
         if len(set(cookies)) != 1:

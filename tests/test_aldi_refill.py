@@ -64,10 +64,10 @@ def test_paid_offer_is_rejected():
     assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
-def test_missing_free_evidence_is_rejected():
+def test_verified_tariff_can_use_official_free_entitlement_without_local_price():
     result = eligible(offer_text='1 GB Highspeed-Datenvolumen nachbuchen')
-    assert result['refill_eligible'] is False
-    assert result['refill_reason'] == 'price_unverified_or_paid'
+    assert result['refill_eligible'] is True
+    assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
 def test_multiple_candidate_controls_are_rejected():
@@ -101,14 +101,19 @@ def test_conflicting_terms_are_rejected_even_with_zero_price():
     assert result['refill_reason'] == 'conflicting_terms'
 
 
-def test_ordinary_tarif_m_and_l_do_not_authorize_refill():
-    for size in ('M', 'L'):
-        result = eligible(page_text=f'ALDI TALK Tarif {size}')
-        assert result['refill_eligible'] is False
-        assert result['refill_reason'] == 'active_tariff_unverified'
+def test_current_plain_tarif_s_m_l_authorize_exact_free_refill():
+    for size in ('S', 'M', 'L'):
+        result = eligible(
+            page_text=f'ALDI TALK Tarif {size}',
+            active_tariff_text=f'Tarif {size}',
+            offer_text='1 GB Highspeed-Datenvolumen nachbuchen',
+        )
+        assert result['refill_eligible'] is True
+        assert result['tariff_evidence'] == 'CURRENT_SML'
+        assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
-def test_tarif_s_with_explicit_free_one_gb_offer_is_eligible():
+def test_current_tarif_s_with_explicit_free_one_gb_offer_is_eligible():
     result = eligible(
         page_text='Übersicht Tarif S',
         active_tariff_text='Tarif S',
@@ -116,19 +121,19 @@ def test_tarif_s_with_explicit_free_one_gb_offer_is_eligible():
         button_text='+1 GB',
     )
     assert result['refill_eligible'] is True
-    assert result['refill_type'] == 'FREE_TARIF_S'
-    assert result['tariff_evidence'] == 'TARIF_S'
+    assert result['refill_type'] == 'FREE_UNLIMITED'
+    assert result['tariff_evidence'] == 'CURRENT_SML'
 
 
-def test_tarif_s_without_explicit_free_price_is_rejected():
+def test_current_tarif_s_without_local_price_uses_official_entitlement():
     result = eligible(
         page_text='Tarif S',
         active_tariff_text='Tarif S',
         offer_text='+1 GB Highspeed-Datenvolumen nachbuchen',
         button_text='+1 GB',
     )
-    assert result['refill_eligible'] is False
-    assert result['refill_reason'] == 'price_unverified_or_paid'
+    assert result['refill_eligible'] is True
+    assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
 def test_tarif_s_paid_one_gb_offer_is_rejected():
@@ -188,7 +193,6 @@ def test_refill_heading_alone_is_not_active_tariff_evidence():
 
 
 @pytest.mark.parametrize('offer', [
-    '1 GB Datenvolumen kostenlos nachbuchen',
     '1 GB Datenvolumen nachbuchen 0,000 €',
     '1 GB Datenvolumen nachbuchen -0,00 €',
     '1 GB Datenvolumen nachbuchen −0,00 €',
@@ -198,10 +202,16 @@ def test_refill_heading_alone_is_not_active_tariff_evidence():
     '1 GB Datenvolumen nachbuchen 0,00 € und 1,234 €',
     '1 GB Datenvolumen nachbuchen 0,00 € und 0,01 EUR',
 ])
-def test_every_price_must_be_an_explicit_well_formed_zero(offer):
+def test_every_present_price_must_be_an_explicit_well_formed_zero(offer):
     result = eligible(offer_text=offer)
     assert not result['refill_eligible']
     assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_free_word_without_currency_is_allowed_for_verified_current_tariff():
+    result = eligible(offer_text='1 GB Datenvolumen kostenlos nachbuchen')
+    assert result['refill_eligible'] is True
+    assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
 @pytest.mark.parametrize('quantity', [
