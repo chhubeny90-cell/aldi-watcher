@@ -1,5 +1,6 @@
 from unittest.mock import Mock
 import json
+import pytest
 from core.database import Database
 
 import aldi_live_refill as live
@@ -32,7 +33,6 @@ def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     db_path = tmp_path / 'journal.sqlite'
     Database(str(db_path))
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
-    monkeypatch.setattr(live, 'ALDI_RECONCILIATION_VERIFIED', True)
     monkeypatch.setattr(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000')
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
     monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
@@ -41,11 +41,21 @@ def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     monkeypatch.setattr(live.watcher, 'configure_credentials', lambda *_: True)
     monkeypatch.setattr(live.watcher, 'build_driver', lambda: driver)
     monkeypatch.setattr(live.watcher, 'aldi_login', lambda *_: True)
+    monkeypatch.setattr(live, 'verify_account_selenium', lambda *_: 'a' * 64)
+    monkeypatch.setattr(live, 'tariff_identity_selenium', lambda *_: 'b' * 64)
 
     remaining = iter(remaining_values)
     monkeypatch.setattr(live, '_safe_status', lambda *_: next(remaining))
 
-    evidence = iter(evidence_values)
+    # Each cycle reads the priced offer, revalidates it before clicking, then
+    # optionally checks a confirmation step. The fixture retains the same offer
+    # until the simulated first click; tests can override this for actual changes.
+    observed = []
+    for index, value in enumerate(evidence_values):
+        observed.append(value)
+        if index % 2 == 0 and value[0].get('refill_eligible'):
+            observed.append(value)
+    evidence = iter(observed)
     monkeypatch.setattr(live, 'locate_selenium', lambda *_: next(evidence))
     return driver
 
@@ -84,7 +94,7 @@ def test_paid_or_ambiguous_offer_never_clicks(monkeypatch, tmp_path):
     driver.execute_script.assert_not_called()
 
 
-def test_volume_increase_does_not_prove_success(monkeypatch, tmp_path):
+def test_new_refill_uses_same_account_refreshed_volume_without_historical_receipt(monkeypatch, tmp_path):
     control = Mock()
     driver = _setup(
         monkeypatch,
@@ -96,8 +106,16 @@ def test_volume_increase_does_not_prove_success(monkeypatch, tmp_path):
     monkeypatch.setattr(live, '_trusted_click', click)
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
 
-    assert live.main() == 2
+    assert live.ALDI_RECONCILIATION_VERIFIED is False
+    history = Mock(side_effect=AssertionError('NEW confirmation is not historical reconciliation'))
+    monkeypatch.setattr(live, 'check_recharge_status', history)
+    assert live.main() == 0
     click.assert_called_once_with(driver, control)
+    history.assert_not_called()
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['successful_refills'] == 1
+    assert report['cycles'][0]['confirmation'] == 'refreshed_volume'
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
 
 
 def test_unverified_result_after_click_never_repeats_booking(monkeypatch, tmp_path):
@@ -122,7 +140,7 @@ def test_reoffered_control_cannot_bypass_unknown(monkeypatch, tmp_path):
     driver = _setup(
         monkeypatch,
         tmp_path,
-        [0.0, 0.6, 1.4],
+        [0.0, 0.0, 1.4],
         [
             _eligible(first), _unavailable('offer_unverified'),
             _eligible(second), _unavailable('offer_unverified'),
@@ -152,7 +170,6 @@ def test_verified_refills_in_same_run_bypass_only_the_recent_success_cooldown(mo
     clicks = []
     monkeypatch.setattr(live, '_trusted_click', lambda session, control: clicks.append((session, control)))
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
-    monkeypatch.setattr(live, 'check_recharge_status', lambda *_: 'SUCCESS')
 
     assert live.main() == 0
     assert clicks == [(driver, first), (driver, second)]
@@ -174,18 +191,20 @@ def test_unverified_control_kind_is_not_clicked(monkeypatch, tmp_path):
     click.assert_not_called()
 
 
-def test_unverified_provider_adapter_blocks_before_credentials(monkeypatch, tmp_path):
-    monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
-    monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
-    configure = Mock(side_effect=AssertionError('no login'))
-    monkeypatch.setattr(live.watcher, 'configure_credentials', configure)
-    assert live.main() == 3
-    configure.assert_not_called()
+def test_unverified_current_account_blocks_before_booking(monkeypatch, tmp_path):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2], [_eligible(control)])
+    monkeypatch.setattr(live, 'verify_account_selenium', Mock(side_effect=RuntimeError('account_mismatch')))
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    assert live.main() == 2
+    click.assert_not_called()
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
 
 
 def test_pending_is_committed_before_click_and_unknown_survives_next_run(monkeypatch, tmp_path):
     control = Mock()
-    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    driver = _setup(monkeypatch, tmp_path, [0.2, 0.2], [_eligible(control), _unavailable()])
     db = Database(str(tmp_path / 'journal.sqlite'))
     ids = []
     recovery_sessions = []
@@ -208,7 +227,7 @@ def test_pending_is_committed_before_click_and_unknown_survives_next_run(monkeyp
     monkeypatch.setattr(live.watcher, 'build_driver', build)
     assert live.main() == 2
     build.assert_called_once()
-    assert recovery_sessions == [driver, driver]
+    assert recovery_sessions == [driver]
     assert len(ids) == 1
     assert db.get_unresolved_recharges()[0].recharge_id == ids[0]
 
@@ -248,12 +267,13 @@ def _live_crash_worker(db_path, calls_path, before_click=False, crash=True, star
             'AUTO_BOOK_ENABLED': 'true', 'ALDI_JOURNAL_PATH': db_path,
             'GITHUB_ACTIONS': 'false',
         }))
-        stack.enter_context(patch.object(live, 'ALDI_RECONCILIATION_VERIFIED', True))
         stack.enter_context(patch.object(live, 'REPORT_PATH', db_path + '.' + str(os.getpid()) + '.json'))
         stack.enter_context(patch.object(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000'))
         stack.enter_context(patch.object(live.watcher, 'configure_credentials', return_value=True))
         stack.enter_context(patch.object(live.watcher, 'build_driver', return_value=driver))
         stack.enter_context(patch.object(live.watcher, 'aldi_login', return_value=True))
+        stack.enter_context(patch.object(live, 'verify_account_selenium', return_value='a' * 64))
+        stack.enter_context(patch.object(live, 'tariff_identity_selenium', return_value='b' * 64))
         stack.enter_context(patch.object(live, '_safe_status', return_value=0.2))
         stack.enter_context(patch.object(live, 'locate_selenium', return_value=_eligible(control)))
         stack.enter_context(patch.object(live, '_action_kind', return_value='book'))
@@ -343,3 +363,164 @@ def test_live_four_processes_share_one_journal_and_issue_one_request(tmp_path):
     records = Database(db_path).get_unresolved_recharges()
     assert len(records) == 1 and records[0].status == 'UNKNOWN'
     assert calls.read_text().splitlines() == [records[0].recharge_id]
+
+
+def test_account_change_during_first_volume_refresh_never_clicks(monkeypatch, tmp_path):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2], [_eligible(control)])
+    monkeypatch.setattr(live, 'verify_account_selenium', Mock(side_effect=['a' * 64, 'c' * 64]))
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    assert live.main() == 2
+    click.assert_not_called()
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
+
+
+def test_account_change_before_click_never_reserves_or_books(monkeypatch, tmp_path):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2], [_eligible(control)])
+    monkeypatch.setattr(live, 'verify_account_selenium', Mock(side_effect=['a' * 64, 'a' * 64, 'c' * 64]))
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 2
+    click.assert_not_called()
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
+
+
+def test_offer_price_change_before_click_never_reserves_or_books(monkeypatch, tmp_path):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2], [])
+    monkeypatch.setattr(live, 'locate_selenium', Mock(side_effect=[_eligible(control), _unavailable()]))
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 2
+    click.assert_not_called()
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
+
+
+@pytest.mark.parametrize('changed', ['subscriptions', 'tariff'])
+def test_positive_volume_from_changed_identity_is_unknown_without_second_click(monkeypatch, tmp_path, changed):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    if changed == 'subscriptions':
+        monkeypatch.setattr(live, 'verify_account_selenium', Mock(side_effect=['a' * 64] * 4 + ['c' * 64]))
+    else:
+        monkeypatch.setattr(live, 'tariff_identity_selenium', Mock(side_effect=['b' * 64] * 3 + ['d' * 64]))
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 2
+    click.assert_called_once_with(driver, control)
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+
+
+def test_increase_larger_than_one_gb_cannot_confirm_this_one_gb_action(monkeypatch, tmp_path):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 2.2], [_eligible(control), _unavailable()])
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 2
+    click.assert_called_once_with(driver, control)
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('where', ['click', 'refresh'])
+def test_timeout_keeps_one_durable_unknown_request_and_never_retries(monkeypatch, tmp_path, where):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    click = Mock(side_effect=TimeoutError('private driver data') if where == 'click' else None)
+    if where == 'refresh':
+        monkeypatch.setattr(live, '_safe_status', Mock(side_effect=[0.2, TimeoutError('private account data')]))
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 2
+    click.assert_called_once_with(driver, control)
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+    assert 'private' not in (tmp_path / 'report.json').read_text()
+
+
+def test_old_unknown_is_not_reconciled_by_current_positive_volume_or_new_offer(monkeypatch, tmp_path):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    old_id = db.begin_recharge('alditalk', '01500000000')
+    db.set_recharge_status(old_id, 'UNKNOWN')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_safe_status', Mock(side_effect=AssertionError('old UNKNOWN has no new baseline')))
+    assert live.main() == 2
+    click.assert_not_called()
+    unresolved = db.get_unresolved_recharges()
+    assert len(unresolved) == 1
+    assert unresolved[0].recharge_id == old_id and unresolved[0].status == 'UNKNOWN'
+
+
+def test_confirmation_is_repriced_after_awaited_account_check(monkeypatch, tmp_path):
+    book, confirm = Mock(), Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 0.2], [])
+    monkeypatch.setattr(live, 'locate_selenium', Mock(side_effect=[
+        _eligible(book), _eligible(book), _eligible(confirm), _unavailable(),
+    ]))
+    monkeypatch.setattr(live, '_action_kind', lambda _, control: 'book' if control is book else 'confirm')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    assert live.main() == 2
+    click.assert_called_once_with(driver, book)
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['confirmation_clicks'] == 0
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+
+
+@pytest.mark.parametrize(('provider', 'username', 'outcome'), [
+    ('aldi', '+49 150 0000000', 'unresolved_recharge_blocked'),
+    ('ALDI_TALK', '01500000000', 'unresolved_recharge_blocked'),
+    ('aldi-talk', '01500000000', 'unresolved_recharge_blocked'),
+    ('alditalk', 'sim-private-alias', 'unresolved_account_mapping_required'),
+    ('unmapped-provider', '01500000000', 'unresolved_account_mapping_required'),
+    ('alditalk', '01500000001', 'unresolved_account_mapping_required'),
+])
+def test_legacy_alias_or_unmapped_unknown_cannot_be_hidden_by_new_account_key(
+        monkeypatch, tmp_path, provider, username, outcome):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    old_id = db.begin_recharge(provider, username)
+    db.set_recharge_status(old_id, 'UNKNOWN')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    assert live.main() == 2
+    click.assert_not_called()
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['outcome'] == outcome
+    records = db.get_unresolved_recharges()
+    assert len(records) == 1 and records[0].recharge_id == old_id
+    assert records[0].status == 'UNKNOWN'
+
+
+def test_known_lidl_unknown_does_not_block_independent_aldi_refill(monkeypatch, tmp_path):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    old_id = db.begin_recharge('lidlconnect', 'private-lidl-account')
+    db.set_recharge_status(old_id, 'UNKNOWN')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    assert live.main() == 0
+    click.assert_called_once_with(driver, control)
+    remaining = db.get_unresolved_recharges()
+    assert len(remaining) == 1 and remaining[0].recharge_id == old_id
+
+
+def test_journal_wide_aldi_executor_lock_blocks_before_browser_start(monkeypatch, tmp_path):
+    _setup(monkeypatch, tmp_path, [0.2, 1.2], [])
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    build = Mock(side_effect=AssertionError('an alias worker already holds this journal executor'))
+    monkeypatch.setattr(live.watcher, 'build_driver', build)
+    with db.account_lock('alditalk_executor', 'all'):
+        assert live.main() == 2
+    build.assert_not_called()
+    assert json.loads((tmp_path / 'report.json').read_text())['outcome'] == 'recharge_locked'

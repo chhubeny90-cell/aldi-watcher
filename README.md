@@ -1,7 +1,7 @@
-> **V3.3 safety update:** ALDI live booking is blocked in code until verified
-> per-operation provider reconciliation exists. Scheduled workflow runs perform
-> regression tests only. The proposed durable-journal deployment and remaining
-> activation requirements are documented in `docs/monitoring-recovery.md`.
+> **Live-Freigabe:** Neue Vorgänge können nach eindeutiger Account-, Tarif- und
+> 0-Euro-Prüfung ausgeführt und durch frisch geladenes Datenvolumen bestätigt
+> werden. Alte ungeklärte Vorgänge bleiben gesperrt. Deployment und tatsächliche
+> Login-Ergebnisse stehen in [Buchungsbereitschaft](docs/booking-readiness.md).
 
 # aldi-watcher
 
@@ -15,20 +15,23 @@ manuell über `workflow_dispatch` mit `watch` oder `all` startbar; auf einem
 Push wird er nur bei `[live-watch]` im Commit ausgelöst.
 
 Der Modus `live-refill` ist ausschließlich manuell auf `main` vorgesehen und
-verlangt zusätzlich `ALDI_V33_LIVE_ENABLED=true`, einen konfigurierten
-`ALDI_JOURNAL_PATH` sowie einen dauerhaften privaten Self-hosted-Linux-Runner
+verlangt einen konfigurierten `ALDI_JOURNAL_PATH` sowie einen dauerhaften
+privaten Self-hosted-Linux-Runner
 mit dem Label `aldi-journal`. Der Workflow begrenzt den Lauf auf höchstens
 eine Nachbuchung.
 
-**Der ALDI-Buchungscode ist trotzdem gesperrt:** `aldi_live_refill.py` setzt
-`ALDI_RECONCILIATION_VERIFIED = False` und beendet den Lauf vor dem Login mit
-`provider_reconciliation_unverified`. Ein echter Buchungserfolg und eine
-eindeutige ALDI-Belegabfrage sind nicht nachgewiesen. Ein manueller Start,
-`AUTO_BOOK_ENABLED=true` oder die interne Zustimmung des Kontoinhabers heben
-diese Sperre nicht auf. Zusätzlich muss EPS den automatisierten Portalzugriff
-ausdrücklich autorisieren; siehe [ALDI-TALK-AGB](https://www.alditalk.de/leistungsbeschreibung),
-Ziffer 10.3 g. Einen Einmal-Lauf kann man dort anfragen, aber er ist nicht
-automatisch von der Autorisierungspflicht ausgenommen.
+**Neue Buchungen sind bedingt freigegeben:** Vor dem Klick müssen geschützte
+Accountdaten und die ausgewählte SIM zum konfigurierten Account passen. Derselbe
+Tarif muss ein eindeutiges Angebot für genau 1 GB mit ausdrücklich 0 Euro zeigen.
+Das Restvolumen muss unter 1 GB liegen. Ein frisches Volumenplus nach dem Klick
+bestätigt ausschließlich diesen neuen Vorgang bei unveränderter Account- und
+Tarifbindung. Ein echter Live-Erfolg ist damit noch nicht nachgewiesen.
+
+`ALDI_RECONCILIATION_VERIFIED = False` beschreibt weiterhin die fehlende
+historische Belegabfrage. Alte `PENDING`-/`UNKNOWN`-Vorgänge bleiben gesperrt;
+aktuelles Volumen oder ein erneut angebotenes Paket lösen sie nicht auf.
+Die [ALDI-TALK-Nutzungsbedingungen](https://www.alditalk.de/leistungsbeschreibung)
+für automatisierten Portalzugriff sind weiterhin zu beachten.
 
 Der frühere README-Hinweis auf einen stündlichen Live-Refill und einen
 `[live-refill]`-Push-Auslöser war falsch. Die aktuelle Workflow-Definition ist
@@ -53,7 +56,8 @@ an den Lauf übergeben. Hinterlege Werte unter **Settings → Secrets and variab
 `LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
 Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
 
-Tarif S ist nur bei einem explizit kostenlosen 1-GB-Angebot buchbar; der Preis
+Tarif S ist nur bei einem 1-GB-Angebot mit ausdrücklich 0 Euro buchbar; „kostenlos“
+allein genügt nicht. Der Preis
 der Tarifverlängerung zählt nicht als Preisnachweis für dieses Zusatzangebot.
 
 Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
@@ -257,7 +261,8 @@ zu validieren. Zuerst denselben Ablauf in `DRY_RUN=true` prüfen.
 
 Der buchende Plugin-Dauerbetrieb benötigt eine dauerhafte SQLite-Datei auf demselben
 Datenträger und darf nicht mit einer leeren DB je GitHub-hosted Runner starten. Der
-separate ALDI-One-shot-Runner braucht keine DB und prüft den Buchungserfolg nach dem Klick.
+separate ALDI-One-shot-Runner verlangt ein bestehendes privates, dauerhaftes
+Buchungsjournal und prüft den Buchungserfolg nach dem Klick.
 
 ## Troubleshooting
 

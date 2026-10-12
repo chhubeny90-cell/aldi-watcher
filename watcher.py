@@ -2,7 +2,7 @@ import os
 import time
 from urllib.parse import urlsplit
 from core.credentials import get_credential
-from browser_dom import find_visible_elements, element_label, rendered_text
+from browser_dom import find_visible_elements, element_label, rendered_text, trusted_pointer_click
 from core.lidl_refill import inspect_selenium
 from core.aldi_refill import inspect_selenium as inspect_aldi_refill
 from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
@@ -195,10 +195,11 @@ def aldi_login(driver) -> bool:
     button = wait.until(submit_control)
     phase('login_submit')
     require_origin(driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS)
-    # Exactly one trusted DOM click. ALDI's component-backed login can re-render
-    # during a native WebDriver click; invoking the element's click handler once
-    # avoids that race while still exercising the real client-side auth flow.
-    driver.execute_script("arguments[0].click();", button)
+    # DOM element.click() creates an untrusted event. Submit once through Chrome's
+    # native pointer path; an uncertain activation never gets a second attempt.
+    trusted_pointer_click(driver, button, lambda: require_origin(
+        driver, ALDI_LOGIN_URL, login_hosts=ALDI_LOGIN_HOSTS,
+    ))
 
     def confirmed_portal_session(_):
         return aldi_session_visible(driver)

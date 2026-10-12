@@ -17,14 +17,16 @@ from contextlib import ExitStack
 from datetime import datetime, timezone
 
 from browser_dom import element_label
-from core.aldi_refill import locate_selenium
+from core.aldi_refill import (locate_selenium, tariff_identity_selenium,
+                              verify_account_selenium)
 from monitoring import require_origin
 import watcher
 from core.database import Database, RechargeLockedError
-from core.aldi_http_login import phone_identifier
+from core.aldi_http_login import LoginError, phone_identifier
 
 
-# Enable only when a real per-operation ALDI receipt lookup is implemented.
+# Historical receipt reconciliation is unavailable. This is a factual capability,
+# not the user's booking switch; NEW operations have separate volume confirmation.
 ALDI_RECONCILIATION_VERIFIED = False
 
 REPORT_PATH = os.getenv("ALDI_LIVE_REPORT", "aldi-live-refill.json")
@@ -56,8 +58,9 @@ def open_live_journal():
 def check_recharge_status(driver, recharge_id):
     """No verified ALDI lookup mapping our operation ID to a receipt exists yet.
 
-    A volume delta, absence of an offer or a generic success notice cannot
-    resolve an operation. Never invent an endpoint or infer FAILED from absence.
+    A current volume, absence of an offer or a generic success notice cannot
+    resolve a historical operation with no trustworthy before-click baseline.
+    Never invent an endpoint or infer FAILED from absence.
     """
     return 'UNKNOWN'
 
@@ -82,6 +85,44 @@ def _safe_status(driver):
     if not _valid_remaining(remaining):
         raise ValueError("remaining_volume_unverified")
     return float(remaining)
+
+
+def _identity_proof(driver, account):
+    """Private within-run identity; never copy these signatures into reports."""
+    return (verify_account_selenium(driver, account), tariff_identity_selenium(driver))
+
+
+def _bound_status(driver, account):
+    # A cookie switch between the refresh and its volume read must not make an
+    # allowance from a different SIM look like this operation's confirmation.
+    previous_account = verify_account_selenium(driver, account)
+    remaining = _safe_status(driver)
+    binding = _identity_proof(driver, account)
+    if previous_account != binding[0]:
+        raise RuntimeError('account_changed_during_status_read')
+    return remaining, binding
+
+
+def _unresolved_aldi(db, account):
+    """Do not hide old reservations behind a changed provider/account spelling."""
+    relevant = []
+    for record in db.get_unresolved_recharges():
+        provider = re.sub(r'[^a-z0-9]', '', (record.provider or '').casefold())
+        if provider in {'lidl', 'lidlconnect'}:
+            continue
+        # Only known ALDI names plus the exact configured phone can be associated
+        # with this authenticated account. Unknown names/aliases require mapping;
+        # never turn their absence from a filtered query into permission to book.
+        if provider not in {'aldi', 'alditalk'}:
+            raise RuntimeError('unresolved_account_mapping_required')
+        try:
+            same_account = phone_identifier(record.username) == account
+        except (LoginError, TypeError):
+            same_account = False
+        if not same_account:
+            raise RuntimeError('unresolved_account_mapping_required')
+        relevant.append(record)
+    return relevant
 
 
 def _action_kind(driver, control):
@@ -154,17 +195,21 @@ def main():
         if not report["booking_enabled"]:
             report["outcome"] = "booking_disabled"
             return 3
-        if not ALDI_RECONCILIATION_VERIFIED:
-            report['outcome'] = 'provider_reconciliation_unverified'
-            return 3
         if not watcher.configure_credentials("ALDI"):
             report["outcome"] = "credentials_unavailable"
             return 3
 
         account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
         db = open_live_journal()
+        # One journal-wide ALDI executor lock also serializes canonical-name and
+        # alias workers; the account-specific lock is retained for other callers.
+        locks.enter_context(db.account_lock('alditalk_executor', 'all'))
         locks.enter_context(db.account_lock('alditalk', account))
-        unresolved = db.get_unresolved_recharges('alditalk', account)
+        try:
+            unresolved = _unresolved_aldi(db, account)
+        except RuntimeError:
+            report['outcome'] = 'unresolved_account_mapping_required'
+            return 2
 
         # Recovery must use the same authenticated portal session as a normal
         # status check. If login fails, leave every durable operation unresolved.
@@ -174,6 +219,9 @@ def main():
             return 2
 
         if unresolved:
+            # An old operation has no trustworthy before/after baseline. A new
+            # volume increase or reoffered button never releases its reservation.
+            verify_account_selenium(driver, account)
             for record in unresolved:
                 status = check_recharge_status(driver, record.recharge_id)
                 if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
@@ -183,13 +231,13 @@ def main():
             # Recovery is always a recovery-only run. Even when every old
             # operation reaches a terminal state, a fresh booking waits for a
             # separate run and a fresh eligibility check.
-            if db.get_unresolved_recharges('alditalk', account):
+            if _unresolved_aldi(db, account):
                 report['outcome'] = 'unresolved_recharge_blocked'
                 return 2
             report['outcome'] = 'recovery_complete'
             return 0
 
-        before = _safe_status(driver)
+        before, binding = _bound_status(driver, account)
         # ALDI allows the free refill only below 1 GB; exactly 1 GB is not eligible.
         if before >= 1.0:
             report["outcome"] = "not_needed"
@@ -221,8 +269,30 @@ def main():
                 cycle["action"] = action
                 return 2
 
+            # Revalidate identity and the complete priced offer immediately before
+            # reserving/clicking. The protected account GET is read-only and uses
+            # this browser session; no permanent portal polling is introduced.
+            if _identity_proof(driver, account) != binding:
+                report['outcome'] = 'identity_changed_before_click'
+                return 2
+            current_evidence, current_control = locate_selenium(driver, before)
+            if (current_evidence.get('refill_eligible') is not True
+                    or current_control is None
+                    or _action_kind(driver, current_control) != 'book'
+                    or tariff_identity_selenium(driver) != binding[1]):
+                report['outcome'] = 'offer_changed_before_click'
+                return 2
+            control = current_control
+
             cycle["action"] = "book"
-            # Keep the cross-run cooldown, but a previously receipt-verified success
+            try:
+                if _unresolved_aldi(db, account):
+                    report['outcome'] = 'unresolved_recharge_blocked'
+                    return 2
+            except RuntimeError:
+                report['outcome'] = 'unresolved_account_mapping_required'
+                return 2
+            # Keep the cross-run cooldown, but an independently verified NEW success
             # in this locked run may be followed by the next eligible refill.
             same_run_success = report["successful_refills"] > 0
             recharge_id = db.begin_recharge(
@@ -244,7 +314,17 @@ def main():
                 confirm_evidence, confirm_control = locate_selenium(driver, before)
                 if confirm_evidence.get("refill_eligible") and confirm_control is not None:
                     if _action_kind(driver, confirm_control) == "confirm":
-                        _trusted_click(driver, confirm_control)
+                        if _identity_proof(driver, account) != binding:
+                            raise RuntimeError('identity_changed_before_confirmation')
+                        # The account GET can outlive a DOM re-render or price
+                        # change. Reacquire and reprice the confirmation afterwards.
+                        fresh_evidence, fresh_control = locate_selenium(driver, before)
+                        if (fresh_evidence.get('refill_eligible') is not True
+                                or fresh_control is None
+                                or _action_kind(driver, fresh_control) != 'confirm'
+                                or tariff_identity_selenium(driver) != binding[1]):
+                            raise RuntimeError('confirmation_changed_before_click')
+                        _trusted_click(driver, fresh_control)
                         report["confirmation_clicks"] += 1
                         _write(report)
                         time.sleep(CLICK_SETTLE_SECONDS)
@@ -254,19 +334,23 @@ def main():
                 pass
 
             try:
-                after = _safe_status(driver)
+                # This navigates afresh to the protected provider overview. Bind
+                # that refreshed allowance to the same SIM/subscription/tariff.
+                after, after_binding = _bound_status(driver, account)
             except Exception:
                 report["outcome"] = "unknown_after_click"
                 return 2
 
             cycle["after_gb"] = round(after, 3)
             cycle['volume_increased'] = after > before
-            # Volume is diagnostic evidence, never an operation receipt.
-            status = check_recharge_status(driver, recharge_id)
-            if status not in {'SUCCESS', 'FAILED', 'UNKNOWN'}:
-                status = 'UNKNOWN'
+            delta = after - before
+            # The Masterprompt permits refreshed allowance as independent proof
+            # for this NEW one-click operation. It is never a historical receipt.
+            status = ('SUCCESS' if after_binding == binding and 0 < delta <= 1.0 + 1e-6
+                      else 'UNKNOWN')
             cycle['recharge_status'] = db.set_recharge_status(recharge_id, status)
             cycle['verified'] = status == 'SUCCESS'
+            cycle['confirmation'] = 'refreshed_volume' if status == 'SUCCESS' else 'unverified'
             _write(report)
             if status != 'SUCCESS':
                 report["outcome"] = "unknown_after_click"
