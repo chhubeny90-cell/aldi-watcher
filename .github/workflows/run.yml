@@ -4,6 +4,8 @@ on:
   push:
     branches: [main, develop, 'hardening/**', 'feature/**', 'fix/**']
   pull_request:
+  repository_dispatch:
+    types: [aldi-usage-alert]
   workflow_dispatch:
     inputs:
       mode:
@@ -24,10 +26,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: aldi-watcher-${{ github.ref }}-${{ github.event_name }}-${{ github.event.schedule || 'manual' }}
-  cancel-in-progress: false
-
 env:
   # Default remains read-only; only the isolated guarded live-refill job opts in.
   AUTO_BOOK_ENABLED: 'false'
@@ -38,6 +36,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
+      github.event_name == 'repository_dispatch' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch' || inputs.mode == 'live-refill'))
     runs-on: ubuntu-latest
@@ -62,6 +61,7 @@ jobs:
               'runner': 'github-hosted-linux',
               'journal_storage': 'public-safe-state-branch',
               'booking_limit_per_run': 1,
+              'manual_auth_once': True,
           }))
           PY
 
@@ -74,7 +74,6 @@ jobs:
         contains(github.event.head_commit.message, '[live-watch]'))
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         profile: [1]
     runs-on: ubuntu-latest
@@ -122,35 +121,36 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Schedule, explicit dispatch, and an explicit main-branch canary marker all
-    # use the same guarded free-only flow. The canary is useful when GitHub's
-    # scheduled-event delivery is delayed.
+    # Schedule, explicit dispatch, usage-mail dispatch, and an explicit main-branch
+    # canary marker all use the same free-only flow. No workflow concurrency lock
+    # is used; the remote state SHA is the atomic pre-click reservation guard.
     needs: test
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' ||
+       github.event_name == 'repository_dispatch' ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill') ||
        (github.event_name == 'push' &&
         contains(github.event.head_commit.message, '[live-refill-canary]')))
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         profile: [1]
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
-      # Only this job may update the non-sensitive refill guard state branch.
+      # This job updates only non-sensitive durable guard/proof/heartbeat state.
       contents: write
-    concurrency:
-      group: aldi-live-refill-profile-${{ matrix.profile }}
-      cancel-in-progress: false
     env:
       AUTO_BOOK_ENABLED: 'true'
       ALDI_MAX_REFILLS_PER_RUN: '1'
       ALDI_JOURNAL_PATH: /tmp/aldi-watcher-live.db
       ALDI_REMOTE_JOURNAL: 'true'
       ALDI_STATE_PATH: .aldi-state/profile-${{ matrix.profile }}.json
+      ALDI_MANUAL_AUTH_ONCE: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-refill-canary]')) }}
+      ALDI_TRIGGER_MESSAGE_KEY: ${{ github.event.client_payload.message_key || '' }}
+      ALDI_TRIGGER_PRECLAIMED: ${{ github.event.client_payload.preclaimed || false }}
+      WATCHER_HEARTBEAT_URL: ${{ secrets.WATCHER_HEARTBEAT_URL }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -170,7 +170,9 @@ jobs:
         env:
           ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_LOGIN_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_LOGIN_USER) || '' }}
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_EXPECTED_ACCOUNT || secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
@@ -185,6 +187,8 @@ jobs:
               os.environ.get('ALDI_LOGIN_USER_ENC') or os.environ.get('ALDI_USER_ENC'))
           if not (plain or encrypted):
               raise SystemExit('ALDI credentials are not configured in Actions secrets')
+          if not os.environ.get('ALDI_EXPECTED_ACCOUNT'):
+              raise SystemExit('ALDI expected account guard is not configured')
           print('Automatic live prerequisites present; secret values are not printed.')
           PY
       - name: Run guarded automatic free 1-GB refill
@@ -193,7 +197,9 @@ jobs:
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
           ALDI_LOGIN_USER: ${{ secrets[format('ALDI_PROFILE_{0}_LOGIN_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_LOGIN_USER) || '' }}
           ALDI_USER: ${{ secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
+          ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_EXPECTED_ACCOUNT || secrets[format('ALDI_PROFILE_{0}_USER', matrix.profile)] || (matrix.profile == 1 && secrets.ALDI_USER) || '' }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
           ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}

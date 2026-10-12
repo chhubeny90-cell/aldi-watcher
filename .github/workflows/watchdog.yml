@@ -1,0 +1,28 @@
+name: ALDI Watcher Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ALDI_STATE_PATH: .aldi-state/profile-1.json
+      ALDI_HEARTBEAT_MAX_AGE_SECONDS: '1800'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check durable heartbeat age
+        run: python heartbeat_watchdog.py

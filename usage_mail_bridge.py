@@ -1,0 +1,189 @@
+"""Poll up to two IMAP inboxes for ALDI usage alerts and wake the live runner.
+
+Matched mail is never modified or marked read. Message identifiers are reduced to
+SHA-256 keys before they leave this process. The live runner performs durable
+HMAC deduplication before any provider login.
+"""
+
+import email
+import hashlib
+import imaplib
+import json
+import os
+import re
+import ssl
+from email.header import decode_header, make_header
+from urllib.parse import quote
+
+import requests
+
+try:
+    from github_hardening_state import _mac, _trigger_state
+except Exception:
+    _mac = None
+    _trigger_state = None
+
+
+ALDI_MARKERS = ("aldi talk", "alditalk")
+
+
+def _decode(value):
+    if not value:
+        return ""
+    try:
+        return str(make_header(decode_header(value)))
+    except Exception:
+        return str(value)
+
+
+def _body_text(message):
+    parts = []
+    if message.is_multipart():
+        iterable = message.walk()
+    else:
+        iterable = [message]
+    for part in iterable:
+        if part.get_content_maintype() == "multipart":
+            continue
+        if part.get_content_type() not in {"text/plain", "text/html"}:
+            continue
+        payload = part.get_payload(decode=True)
+        if not isinstance(payload, (bytes, bytearray)):
+            continue
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            text = payload.decode(charset, errors="replace")
+        except LookupError:
+            text = payload.decode("utf-8", errors="replace")
+        parts.append(text[:50000])
+    return "\n".join(parts)[:100000]
+
+
+def _signal(message):
+    subject = _decode(message.get("Subject"))
+    sender = _decode(message.get("From"))
+    text = f"{sender}\n{subject}\n{_body_text(message)}".casefold()
+    if not any(marker in text for marker in ALDI_MARKERS):
+        return None
+    if re.search(r"\b80\s*%", text) and re.search(r"daten|volumen|high.?speed|verbrauch", text):
+        return "80_percent"
+    if re.search(r"\b(?:verbraucht|aufgebraucht|verbrauchen|datenvolumen.*weg)\b", text):
+        return "consumed"
+    return None
+
+
+def _message_key(message, raw_bytes):
+    message_id = (message.get("Message-ID") or "").strip()
+    material = message_id.encode("utf-8", errors="ignore") if message_id else raw_bytes
+    return hashlib.sha256(material).hexdigest()
+
+
+def _already_seen(message_key):
+    if _mac is None or _trigger_state is None:
+        return False
+    try:
+        _, state = _trigger_state()
+        fingerprint = _mac("trigger", message_key)
+        return fingerprint in state.get("keys", [])
+    except Exception:
+        return False
+
+
+def _dispatch(signal, message_key):
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    if "/" not in repo or not token:
+        raise RuntimeError("github_dispatch_configuration_missing")
+    url = f"{api}/repos/{quote(repo, safe='/')}/dispatches"
+    response = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={
+            "event_type": "aldi-usage-alert",
+            "client_payload": {
+                "provider": "alditalk",
+                "signal": signal,
+                "message_key": message_key,
+                "preclaimed": False,
+            },
+        },
+        timeout=20,
+    )
+    if response.status_code != 204:
+        raise RuntimeError(f"github_dispatch_http_{response.status_code}")
+
+
+def _mailboxes():
+    result = []
+    for index in (1, 2):
+        host = os.environ.get(f"MAILBOX_{index}_HOST", "").strip()
+        user = os.environ.get(f"MAILBOX_{index}_USER", "").strip()
+        password = os.environ.get(f"MAILBOX_{index}_PASS", "")
+        port_text = os.environ.get(f"MAILBOX_{index}_PORT", "993").strip() or "993"
+        if not (host or user or password):
+            continue
+        if not (host and user and password):
+            raise RuntimeError(f"mailbox_{index}_configuration_incomplete")
+        result.append((index, host, int(port_text), user, password))
+    return result
+
+
+def _poll_one(index, host, port, user, password):
+    dispatched = 0
+    context = ssl.create_default_context()
+    with imaplib.IMAP4_SSL(host, port, ssl_context=context) as client:
+        client.login(user, password)
+        status, _ = client.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"mailbox_{index}_select_failed")
+        status, data = client.search(None, "UNSEEN")
+        if status != "OK" or not data:
+            return 0
+        ids = data[0].split()[-50:]
+        for message_num in ids:
+            status, fetched = client.fetch(message_num, "(BODY.PEEK[])")
+            if status != "OK" or not fetched:
+                continue
+            raw = next((item[1] for item in fetched
+                        if isinstance(item, tuple) and isinstance(item[1], (bytes, bytearray))), None)
+            if raw is None:
+                continue
+            message = email.message_from_bytes(bytes(raw))
+            signal = _signal(message)
+            if signal is None:
+                continue
+            message_key = _message_key(message, bytes(raw))
+            if _already_seen(message_key):
+                continue
+            _dispatch(signal, message_key)
+            dispatched += 1
+    return dispatched
+
+
+def main():
+    mailboxes = _mailboxes()
+    if not mailboxes:
+        print(json.dumps({"configured_mailboxes": 0, "dispatched": 0}), flush=True)
+        return 0
+    dispatched = 0
+    failures = []
+    for config in mailboxes:
+        try:
+            dispatched += _poll_one(*config)
+        except Exception as exc:
+            failures.append({"mailbox": config[0], "error": type(exc).__name__})
+    print(json.dumps({
+        "configured_mailboxes": len(mailboxes),
+        "dispatched": dispatched,
+        "failed_mailboxes": failures,
+    }), flush=True)
+    return 2 if failures and dispatched == 0 else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
