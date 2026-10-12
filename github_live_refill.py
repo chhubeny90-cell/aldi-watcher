@@ -122,10 +122,21 @@ def main():
         _write_backoff_report()
         return 0
 
-    Database.begin_recharge = _syncing_begin
-    Database.set_recharge_status = _syncing_set
-    live.open_live_journal = _open_cloud_journal
-    result = live.main()
+    previous_begin = Database.begin_recharge
+    previous_set = Database.set_recharge_status
+    previous_open = live.open_live_journal
+    try:
+        Database.begin_recharge = _syncing_begin
+        Database.set_recharge_status = _syncing_set
+        live.open_live_journal = _open_cloud_journal
+        result = live.main()
+    finally:
+        # Never leak hosted persistence hooks into another watcher/test in the
+        # same interpreter. The GitHub runner normally exits after one call, but
+        # process-local cleanup keeps the adapter composable and test-safe.
+        Database.begin_recharge = previous_begin
+        Database.set_recharge_status = previous_set
+        live.open_live_journal = previous_open
 
     # The live runner derives these fixed outcomes from cached sanitized provider
     # evidence only. Account lock gets a long backoff; an otherwise unknown auth
