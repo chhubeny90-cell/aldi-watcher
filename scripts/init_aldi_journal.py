@@ -29,8 +29,13 @@ def initialize_journal(raw_path: str):
         raise RuntimeError("journal_parent_symlink_rejected")
 
     existed = path.exists()
-    if existed and not path.is_file():
-        raise RuntimeError("journal_not_regular_file")
+    if existed:
+        if not path.is_file():
+            raise RuntimeError("journal_not_regular_file")
+        # Validate an existing runtime file before Database can normalize modes.
+        # Deployment mistakes must be visible instead of silently repaired.
+        if path.stat().st_mode & 0o777 != 0o600:
+            raise RuntimeError("journal_permissions_must_be_0600")
 
     # Database creates a missing file with 0600 and initializes the schema.
     db = Database(str(path))
