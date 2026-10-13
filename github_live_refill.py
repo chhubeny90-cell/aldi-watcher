@@ -290,7 +290,7 @@ def _main():
 
     outcome = _report_outcome()
     if outcome == "account_locked":
-        set_auth_backoff(hours=6)
+        set_auth_backoff(hours=24)
     elif outcome == "provider_maintenance":
         set_auth_backoff(hours=0.5)
     elif outcome == "auth_failed":
