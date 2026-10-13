@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aldi-auth-profile-1
+  cancel-in-progress: false
+
 jobs:
   status_probe:
     if: >-
@@ -19,14 +23,14 @@ jobs:
       AUTO_BOOK_ENABLED: 'false'
       ALDI_STATUS_ONLY: 'true'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
@@ -53,7 +57,7 @@ jobs:
           timeout 180s python aldi_status_probe.py
       - name: Preserve sanitized status report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aldi-status-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-status-probe.json
