@@ -87,3 +87,18 @@ def test_status_probe_workflow_is_explicitly_read_only():
     assert "AUTO_BOOK_ENABLED: 'false'" in text
     assert "ALDI_STATUS_ONLY: 'true'" in text
     assert 'aldi_status_probe.py' in text
+
+
+def test_maintenance_is_distinct_from_login_timeout(monkeypatch, tmp_path, capsys):
+    _setup_probe(monkeypatch, tmp_path)
+    def maintenance(_driver):
+        watcher.phase('service_maintenance')
+        raise TimeoutException('service_maintenance')
+    monkeypatch.setattr(probe.watcher, 'aldi_login', maintenance)
+    assert probe.main() == 2
+    report = json.loads((tmp_path / 'status.json').read_text())
+    assert report['outcome'] == 'service_maintenance'
+    assert report['failed_phase'] == 'service_maintenance'
+    assert report['booking_clicks'] == 0
+    logged = json.loads(capsys.readouterr().out)
+    assert logged['failed_phase'] == 'service_maintenance'
