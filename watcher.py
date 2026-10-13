@@ -160,6 +160,16 @@ def aldi_login(driver) -> bool:
         except StaleElementReferenceException:
             # Re-query on the next bounded wait poll after a component re-render.
             return False
+        if not elements:
+            # Observed official maintenance page (2026-10-13). Inspect rendered
+            # text only; never log account content or retry credential submission.
+            page_text = rendered_text(driver)
+            if isinstance(page_text, str):
+                normalized = ' '.join(page_text.casefold().split())
+                if ('wir führen gerade wartungsarbeiten durch' in normalized
+                        and 'angebot gerade nicht verfügbar' in normalized):
+                    phase('service_maintenance')
+                    raise TimeoutException('service_maintenance')
         return elements[0] if len(elements) == 1 else False
 
     user_field = wait.until(
