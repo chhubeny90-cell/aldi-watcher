@@ -118,6 +118,7 @@ def main():
         print(json.dumps({
             'outcome': report['outcome'],
             'phase': report['phase'],
+            'failed_phase': report.get('failed_phase'),
             'login_success': report['login_success'],
             'account_verified': report['account_verified'],
             'status_success': report['status_success'],
