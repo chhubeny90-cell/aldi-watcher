@@ -25,8 +25,8 @@ jobs:
       MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
       MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
