@@ -60,7 +60,7 @@ def test_active_auth_backoff_skips_live_runner_before_credentials(tmp_path, monk
     assert payload['booking_clicks'] == 0
 
 
-def test_account_lock_sets_six_hour_backoff(tmp_path, monkeypatch):
+def test_account_lock_sets_24_hour_backoff(tmp_path, monkeypatch):
     _hosted_env(monkeypatch, tmp_path)
     monkeypatch.setattr(hosted, 'auth_backoff_active', lambda: False)
     monkeypatch.setattr(hosted.live, 'main', lambda: 2)
@@ -69,7 +69,7 @@ def test_account_lock_sets_six_hour_backoff(tmp_path, monkeypatch):
     monkeypatch.setattr(hosted, 'set_auth_backoff', lambda hours: delays.append(hours))
 
     assert hosted.main() == 2
-    assert delays == [6]
+    assert delays == [24]
 
 
 def test_generic_auth_failure_sets_short_backoff(tmp_path, monkeypatch):

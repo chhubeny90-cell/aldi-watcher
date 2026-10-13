@@ -209,6 +209,9 @@ class AldiHttpLogin:
         self.report["credential_submissions"] += 1
         result = self._authenticate(payload)
         self.report.update(result_diagnostics(result))
+        provider = self.report.get("provider_indications") or {}
+        if provider.get("account_locked") is True:
+            raise LoginError("account_locked")
         self.report["auth_token_received"] = bool(result.get("tokenId"))
         success_url = result.get("successUrl")
         self.report["success_url_received"] = bool(success_url)
