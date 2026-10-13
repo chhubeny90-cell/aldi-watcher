@@ -20,7 +20,7 @@ on:
           - public-probe
           - live-refill
   schedule:
-    # Automatic guarded live check every 10 minutes, offset from the hour.
+    # 24/7 backup check every 10 minutes; usage-mail dispatch can wake it sooner.
     - cron: '3-59/10 * * * *'
 
 permissions:
@@ -32,11 +32,10 @@ env:
 
 jobs:
   test:
+    # Run CI for code changes and explicit validation, not every runtime trigger.
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'repository_dispatch' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'tests' || inputs.mode == 'watch' || inputs.mode == 'live-refill'))
     runs-on: ubuntu-latest
@@ -51,19 +50,6 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run full test suite
         run: python -m pytest -q
-      - name: Report live execution prerequisites
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live-refill'
-        run: |
-          python - <<'PY'
-          import json
-          print(json.dumps({
-              'live_mode_requested': True,
-              'runner': 'github-hosted-linux',
-              'journal_storage': 'public-safe-state-branch',
-              'booking_limit_per_run': 1,
-              'manual_auth_once': True,
-          }))
-          PY
 
   watch:
     # Optional read-only diagnosis; live refill performs its own login and checks.
@@ -121,10 +107,9 @@ jobs:
           if-no-files-found: warn
 
   live_refill:
-    # Schedule, explicit dispatch, usage-mail dispatch, and an explicit main-branch
-    # canary marker all use the same free-only flow. No workflow concurrency lock
-    # is used; the remote state SHA is the atomic pre-click reservation guard.
-    needs: test
+    # Schedule, explicit dispatch, usage-mail dispatch and the canary share this
+    # free-only production path. Durable remote CAS/PENDING state is the overlap
+    # guard so GitHub concurrency queues cannot replace usage-mail triggers.
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' ||
