@@ -282,3 +282,32 @@ def test_disabled_control_after_pointer_move_cannot_submit(login_page):
         trusted_pointer_click(driver, submit, lambda: None)
     assert [item.args[1]['type'] for item in driver.execute_cdp_cmd.call_args_list] == ['mouseMoved']
     submit.click.assert_not_called()
+
+
+def test_maintenance_stops_before_credentials(login_page, monkeypatch):
+    driver, user, password, submit, _ = login_page
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [])
+    monkeypatch.setattr(watcher, 'rendered_text', lambda *_:
+        'Wir führen gerade Wartungsarbeiten durch. '
+        'Sorry, aufgrund planmäßiger Wartungsarbeiten ist unser Angebot gerade nicht verfügbar.')
+    phases = []
+    monkeypatch.setattr(watcher, 'phase', phases.append)
+    with pytest.raises(TimeoutException, match='service_maintenance'):
+        watcher.aldi_login(driver)
+    assert phases[-1] == 'service_maintenance'
+    user.send_keys.assert_not_called()
+    password.send_keys.assert_not_called()
+    driver.execute_cdp_cmd.assert_not_called()
+
+
+def test_missing_login_controls_are_not_assumed_to_be_maintenance(login_page, monkeypatch):
+    driver, user, password, submit, _ = login_page
+    monkeypatch.setattr(watcher, 'find_visible_elements', lambda *_: [])
+    monkeypatch.setattr(watcher, 'rendered_text', lambda *_: 'Willkommen')
+    phases = []
+    monkeypatch.setattr(watcher, 'phase', phases.append)
+    with pytest.raises(TimeoutException):
+        watcher.aldi_login(driver)
+    assert 'service_maintenance' not in phases
+    user.send_keys.assert_not_called()
+    password.send_keys.assert_not_called()
