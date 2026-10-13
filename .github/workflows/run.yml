@@ -42,8 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
@@ -79,14 +79,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
@@ -113,7 +113,7 @@ jobs:
           timeout 180s python watcher.py --run-once --provider aldi_talk --report monitoring-report.json
       - name: Preserve sanitized watcher report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: monitoring-profile-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: monitoring-report.json
@@ -153,14 +153,14 @@ jobs:
       WATCHER_HEARTBEAT_URL: ${{ secrets.WATCHER_HEARTBEAT_URL }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
@@ -211,7 +211,7 @@ jobs:
           timeout 180s python github_live_refill_http.py
       - name: Preserve sanitized live report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aldi-live-refill-profile-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-live-refill.json
@@ -225,14 +225,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
@@ -245,7 +245,7 @@ jobs:
         run: python portal_probe.py
       - name: Preserve public portal diagnosis
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
           path: portal-probe-report.json
