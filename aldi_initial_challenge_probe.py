@@ -12,6 +12,7 @@ from monitoring import navigate, require_origin
 from aldi_frontend_submit_probe import _capture_initial
 from aldi_sanitized_error_probe import _shape_with_sanitized_text
 from aldi_callback_fidelity_probe import _confirmation_meta, _hidden_meta
+from core.aldi_http_login import LOGIN_LABEL
 
 REPORT_PATH = os.getenv("ALDI_INITIAL_CHALLENGE_REPORT", "aldi-initial-challenge.json")
 
@@ -25,6 +26,14 @@ def _challenge_flags(shape):
     }
 
 
+def _output(callback, name):
+    values = [
+        item.get("value") for item in callback.get("output", [])
+        if isinstance(item, dict) and item.get("name") == name
+    ]
+    return values[0] if len(values) == 1 else None
+
+
 def _all_confirmation_meta(challenge):
     """Describe every ConfirmationCallback without retaining provider labels."""
     callbacks = []
@@ -33,7 +42,26 @@ def _all_confirmation_meta(challenge):
             callback for callback in challenge.get("callbacks", [])
             if isinstance(callback, dict) and callback.get("type") == "ConfirmationCallback"
         ]
-    rows = [_confirmation_meta({"callbacks": [callback]}) for callback in callbacks]
+    rows = []
+    for callback in callbacks:
+        row = _confirmation_meta({"callbacks": [callback]})
+        options = _output(callback, "options")
+        options = options if isinstance(options, list) else []
+        password_indexes = [
+            index for index, option in enumerate(options)
+            if isinstance(option, str) and option == LOGIN_LABEL
+        ]
+        row["password_login_option_count"] = len(password_indexes)
+        row["password_login_index"] = password_indexes[0] if len(password_indexes) == 1 else None
+        row["default_is_password_login"] = (
+            len(password_indexes) == 1
+            and row.get("default_index") == password_indexes[0]
+        )
+        row["sms_like_indices"] = [
+            index for index, option in enumerate(options)
+            if isinstance(option, str) and "sms" in option.casefold()
+        ][:10]
+        rows.append(row)
     return {"count": len(rows), "callbacks": rows}
 
 
