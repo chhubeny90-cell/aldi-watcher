@@ -102,3 +102,32 @@ def test_maintenance_is_distinct_from_login_timeout(monkeypatch, tmp_path, capsy
     assert report['booking_clicks'] == 0
     logged = json.loads(capsys.readouterr().out)
     assert logged['failed_phase'] == 'service_maintenance'
+
+
+def test_login_timeout_preserves_phase_and_hides_exception_details(monkeypatch, tmp_path, capsys):
+    _setup_probe(monkeypatch, tmp_path)
+
+    def fail_password_field(_driver):
+        watcher.phase('password_field')
+        raise TimeoutException('private-token-should-not-appear')
+
+    monkeypatch.setattr(probe.watcher, 'aldi_login', fail_password_field)
+    assert probe.main() == 2
+    report_text = (tmp_path / 'status.json').read_text(encoding='utf-8')
+    report = json.loads(report_text)
+    logged = json.loads(capsys.readouterr().out)
+    assert report['outcome'] == 'login_timeout'
+    assert report['failed_phase'] == 'password_field'
+    assert logged['failed_phase'] == 'password_field'
+    assert report['booking_clicks'] == logged['booking_clicks'] == 0
+    assert 'private-token-should-not-appear' not in report_text
+
+
+def test_login_page_timeout_reports_initial_phase(monkeypatch, tmp_path):
+    _setup_probe(monkeypatch, tmp_path)
+    monkeypatch.setattr(probe.watcher, 'aldi_login', Mock(side_effect=TimeoutException('page')))
+    assert probe.main() == 2
+    report = json.loads((tmp_path / 'status.json').read_text(encoding='utf-8'))
+    assert report['outcome'] == 'login_timeout'
+    assert report['failed_phase'] == 'login_page'
+    assert report['booking_clicks'] == 0
