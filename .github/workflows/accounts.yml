@@ -20,8 +20,8 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ALDI_STATE_PATH: .aldi-state/profile-1.json
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
           cache: pip
@@ -62,7 +62,7 @@ jobs:
       - name: Install Chrome
         id: chrome
         if: steps.auth_guard.outputs.proceed == 'true' && steps.configured.outputs.ready == 'true'
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
@@ -77,7 +77,7 @@ jobs:
         run: timeout 900s python aldi_accounts_monitor.py
       - name: Preserve sanitized account report
         if: always() && steps.auth_guard.outputs.proceed == 'true' && steps.configured.outputs.ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aldi-accounts-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-accounts-report.json
