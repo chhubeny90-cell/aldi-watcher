@@ -55,6 +55,10 @@ def test_structural_metadata_exposes_only_safe_callback_shape():
     row = metadata["confirmation_meta"]["callbacks"][0]
     assert row["default_index"] == 1
     assert len(row["option_categories"]) == 3
+    assert row["password_login_option_count"] == 0
+    assert row["password_login_index"] is None
+    assert row["default_is_password_login"] is False
+    assert row["sms_like_indices"] == [0]
     assert metadata["hidden_meta"] == [{
         "id_present": True,
         "id_length": 7,
@@ -77,3 +81,18 @@ def test_structural_metadata_counts_every_confirmation_callback():
     assert len(metadata["callbacks"]) == 2
     assert metadata["callbacks"][0]["default_index"] == 1
     assert metadata["callbacks"][1]["default_index"] == 0
+
+
+def test_exact_password_login_key_is_identified_without_submitting_credentials():
+    challenge = {
+        "callbacks": [
+            _confirmation(1, ["sms-login", probe.LOGIN_LABEL, "reset", "other"]),
+        ]
+    }
+
+    row = probe._structural_metadata(challenge)["confirmation_meta"]["callbacks"][0]
+    assert row["password_login_option_count"] == 1
+    assert row["password_login_index"] == 1
+    assert row["default_index"] == 1
+    assert row["default_is_password_login"] is True
+    assert row["sms_like_indices"] == [0]

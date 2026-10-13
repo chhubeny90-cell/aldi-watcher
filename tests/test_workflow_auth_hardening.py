@@ -23,3 +23,10 @@ def test_mail_trigger_does_not_receive_provider_password():
     assert "ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}" in text
     assert "ALDI_PASS: ${{ secrets.ALDI_PASS }}" not in text
     assert "ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}" not in text
+
+
+def test_live_refill_uses_verified_http_auth_handoff():
+    text = (ROOT / ".github" / "workflows" / "run.yml").read_text(encoding="utf-8")
+
+    assert "timeout 180s python github_live_refill_http.py" in text
+    assert "timeout 180s python github_live_refill.py" not in text

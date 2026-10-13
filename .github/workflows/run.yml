@@ -208,7 +208,7 @@ jobs:
         shell: bash
         run: |
           rm -f aldi-live-refill.json
-          timeout 180s python github_live_refill.py
+          timeout 180s python github_live_refill_http.py
       - name: Preserve sanitized live report
         if: always()
         uses: actions/upload-artifact@v4
