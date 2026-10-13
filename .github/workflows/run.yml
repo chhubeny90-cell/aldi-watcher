@@ -5,7 +5,7 @@ on:
     branches: [main, develop, 'hardening/**', 'feature/**', 'fix/**']
   pull_request:
   repository_dispatch:
-    types: [aldi-usage-alert]
+    types: [aldi-usage-alert, aldi-watchdog-recovery]
   workflow_dispatch:
     inputs:
       mode:
