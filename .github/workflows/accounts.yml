@@ -11,11 +11,14 @@ concurrency:
 jobs:
   monitor_accounts:
     # Manual and hourly triggers are active; credentials and enabled profiles
-    # are still checked below before any read-only account access.
+    # are still checked below before any read-only account access. The durable
+    # provider-auth backoff is checked before the encrypted manifest is loaded.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       AUTO_BOOK_ENABLED: 'false'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ALDI_STATE_PATH: .aldi-state/profile-1.json
       ALDI_ACCOUNTS_ENC: ${{ secrets.ALDI_ACCOUNTS_ENC }}
       CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
     steps:
