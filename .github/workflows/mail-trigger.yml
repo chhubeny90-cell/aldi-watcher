@@ -1,36 +1,16 @@
-name: ALDI Usage Mail Trigger
+name: ALDI Usage Mail Trigger (disabled)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  poll:
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ALDI_STATE_PATH: .aldi-state/profile-1.json
-      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
-      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_HOST }}
-      MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
-      MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
-      MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
-      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_HOST }}
-      MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
-      MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
-      MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Poll ALDI usage-alert mailboxes
-        run: python usage_mail_bridge.py
+      - name: Provider policy guard
+        run: |
+          echo "Automatic mail-triggered ALDI refill dispatch is disabled."
+          echo "Usage alerts are handled as notifications only; no authenticated portal automation is started."
