@@ -28,9 +28,10 @@ ALDI_PASS = os.environ.get('ALDI_PASS', '')
 LIDL_USER = os.environ.get('LIDL_USER', '')
 LIDL_PASS = os.environ.get('LIDL_PASS', '')
 
-# Current customer-area link published on https://www.alditalk.de/.
+# Public auth entry point. The OAuth authorize redirect currently returns a
+# successful session to /logged-in-home-page/, which must be probed separately.
 ALDI_LOGIN_URL = 'https://www.alditalk-kundenportal.de/portal/auth/uebersicht/'
-ALDI_OVERVIEW_URL = ALDI_LOGIN_URL
+ALDI_OVERVIEW_URL = 'https://www.alditalk-kundenportal.de/logged-in-home-page/'
 # Observed redirect from the configured ALDI portal; official ALDI login host.
 ALDI_LOGIN_HOSTS = ('login.alditalk-kundenbetreuung.de',)
 # Official www.lidl-connect.de customer-account link redirects to this page.
