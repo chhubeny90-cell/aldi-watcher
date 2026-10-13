@@ -72,7 +72,8 @@ def main():
             except TimeoutException:
                 stage = phase_context['phase']
                 report['failed_phase'] = stage
-                report['outcome'] = 'login_timeout'
+                report['outcome'] = ('service_maintenance' if stage == 'service_maintenance'
+                                     else 'login_timeout')
                 return 2
         finally:
             _CONTEXT.reset(token)
