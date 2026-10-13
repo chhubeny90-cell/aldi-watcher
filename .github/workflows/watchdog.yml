@@ -6,7 +6,11 @@ on:
     - cron: '7,22,37,52 * * * *'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: aldi-watcher-watchdog
+  cancel-in-progress: false
 
 jobs:
   heartbeat:
@@ -15,7 +19,9 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ALDI_STATE_PATH: .aldi-state/profile-1.json
+      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
       ALDI_HEARTBEAT_MAX_AGE_SECONDS: '1800'
+      ALDI_WATCHDOG_RECOVERY: 'true'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -24,5 +30,5 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Check durable heartbeat age
+      - name: Check heartbeat and request guarded recovery when stale
         run: python heartbeat_watchdog.py
