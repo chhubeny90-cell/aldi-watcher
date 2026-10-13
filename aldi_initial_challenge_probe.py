@@ -11,6 +11,7 @@ import watcher
 from monitoring import navigate, require_origin
 from aldi_frontend_submit_probe import _capture_initial
 from aldi_sanitized_error_probe import _shape_with_sanitized_text
+from aldi_callback_fidelity_probe import _confirmation_meta, _hidden_meta
 
 REPORT_PATH = os.getenv("ALDI_INITIAL_CHALLENGE_REPORT", "aldi-initial-challenge.json")
 
@@ -24,6 +25,14 @@ def _challenge_flags(shape):
     }
 
 
+def _structural_metadata(challenge):
+    """Return only non-secret callback structure useful for drift detection."""
+    return {
+        "confirmation_meta": _confirmation_meta(challenge),
+        "hidden_meta": _hidden_meta(challenge),
+    }
+
+
 def main():
     report = {
         "outcome": "unknown",
@@ -34,6 +43,8 @@ def main():
         "initial_request_captured": False,
         "initial_shape": None,
         "challenge_flags": None,
+        "confirmation_meta": None,
+        "hidden_meta": None,
         "exception_type": None,
     }
 
@@ -53,6 +64,8 @@ def main():
         shape = _shape_with_sanitized_text(challenge, 200)
         report["initial_shape"] = shape
         report["challenge_flags"] = _challenge_flags(shape)
+        metadata = _structural_metadata(challenge)
+        report.update(metadata)
         report["outcome"] = "observed"
         return 0
     except Exception as exc:
