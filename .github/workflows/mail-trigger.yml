@@ -60,8 +60,12 @@ jobs:
               print('::error title=ALDI mail monitor::Sanitized report missing')
               raise SystemExit(2)
           report = json.loads(path.read_text(encoding='utf-8'))
+          config_error = report.get('configuration_error')
           alerts = report.get('alerts') or []
           failures = report.get('failed_mailboxes') or []
+          if config_error:
+              print('::error title=ALDI mail monitor::Monitor configuration incomplete: ' + str(config_error))
+              raise SystemExit(2)
           if alerts:
               kinds = sorted({str(item.get('signal', 'usage')) for item in alerts})
               print('::warning title=ALDI usage alert::New ' + ', '.join(kinds) + ' signal detected; manual customer-portal action may be needed.')
