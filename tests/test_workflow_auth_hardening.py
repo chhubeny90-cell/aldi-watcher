@@ -56,3 +56,15 @@ def test_24_7_chain_uses_node24_compatible_action_generations():
     assert "actions/setup-python@v7.0.0" in _workflow("run.yml")
     assert "browser-actions/setup-chrome@v2.2.0" in _workflow("run.yml")
     assert "actions/upload-artifact@v7.0.2" in _workflow("run.yml")
+
+
+def test_watchdog_recovery_uses_non_override_repository_event():
+    run = _workflow("run.yml")
+    watchdog = _workflow("watchdog.yml")
+
+    assert "types: [aldi-usage-alert, aldi-watchdog-recovery]" in run
+    assert "ALDI_WATCHDOG_RECOVERY: 'true'" in watchdog
+    assert "ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}" in watchdog
+    assert "contents: write" in watchdog
+    assert "workflow_dispatch" not in watchdog.split("Check heartbeat and request guarded recovery when stale")[-1]
+    assert "ALDI_MANUAL_AUTH_ONCE" not in watchdog
