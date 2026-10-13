@@ -1,0 +1,3 @@
+Trigger the existing sanitized ALDI browser-free login diagnostic on merged main.
+The diagnostic performs one credential submission, no booking, no tariff change, and records no secret values.
+Current comparison target: trusted-pointer frontend login after PR #70.
