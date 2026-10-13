@@ -69,6 +69,7 @@ def main():
         "started_at": _now(),
         "finished_at": None,
         "configured_mailboxes": 0,
+        "configuration_error": None,
         "new_alerts": 0,
         "alerts": [],
         "failed_mailboxes": [],
@@ -78,6 +79,9 @@ def main():
     try:
         mailboxes = _mailboxes()
         report["configured_mailboxes"] = len(mailboxes)
+        if not mailboxes:
+            report["configuration_error"] = "no_mailboxes_configured"
+            return 2
         for config in mailboxes:
             try:
                 report["alerts"].extend(_poll_one(*config))
@@ -93,6 +97,7 @@ def main():
         _write(report)
         print(json.dumps({
             "configured_mailboxes": report["configured_mailboxes"],
+            "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
             "failed_mailboxes": len(report["failed_mailboxes"]),
             "authenticated_portal": False,
