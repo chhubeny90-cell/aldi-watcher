@@ -69,6 +69,7 @@ def main():
         "started_at": _now(),
         "finished_at": None,
         "configured_mailboxes": 0,
+        "dedup_key_configured": False,
         "configuration_error": None,
         "new_alerts": 0,
         "alerts": [],
@@ -79,8 +80,12 @@ def main():
     try:
         mailboxes = _mailboxes()
         report["configured_mailboxes"] = len(mailboxes)
+        report["dedup_key_configured"] = bool(os.environ.get("ALDI_RECOVERY_KEY", "").strip())
         if not mailboxes:
             report["configuration_error"] = "no_mailboxes_configured"
+            return 2
+        if not report["dedup_key_configured"]:
+            report["configuration_error"] = "dedup_key_missing"
             return 2
         for config in mailboxes:
             try:
@@ -97,6 +102,7 @@ def main():
         _write(report)
         print(json.dumps({
             "configured_mailboxes": report["configured_mailboxes"],
+            "dedup_key_configured": report["dedup_key_configured"],
             "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
             "failed_mailboxes": len(report["failed_mailboxes"]),
