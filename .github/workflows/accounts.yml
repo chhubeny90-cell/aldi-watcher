@@ -10,18 +10,47 @@ concurrency:
   cancel-in-progress: false
 jobs:
   monitor_accounts:
-    # Manual and hourly triggers are active; credentials and enabled profiles
-    # are still checked below before any read-only account access.
+    # Manual and hourly triggers are active. The durable provider-auth backoff
+    # is checked before Chrome starts and before encrypted account secrets are
+    # exposed to a step. The monitor script repeats the guard before decrypting.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       AUTO_BOOK_ENABLED: 'false'
-      ALDI_ACCOUNTS_ENC: ${{ secrets.ALDI_ACCOUNTS_ENC }}
-      CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ALDI_STATE_PATH: .aldi-state/profile-1.json
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies for auth guard
+        run: pip install -r requirements.txt
+      - name: Check durable provider auth guard
+        id: auth_guard
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from aldi_accounts_monitor import _auth_guard_status
+
+          status = _auth_guard_status()
+          output = os.environ["GITHUB_OUTPUT"]
+          with open(output, "a", encoding="utf-8") as stream:
+              stream.write(f"status={status}\n")
+              stream.write(f"proceed={'true' if status == 'clear' else 'false'}\n")
+          if status == "active":
+              print("Account monitoring skipped: provider auth backoff is active.")
+          elif status != "clear":
+              raise SystemExit("Account monitoring blocked: auth guard unavailable.")
+          PY
       - name: Check protected account configuration
         id: configured
+        if: steps.auth_guard.outputs.proceed == 'true'
+        env:
+          ALDI_ACCOUNTS_ENC: ${{ secrets.ALDI_ACCOUNTS_ENC }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
         shell: bash
         run: |
           if [ -n "$ALDI_ACCOUNTS_ENC" ] && [ -n "$CREDENTIAL_ENCRYPTION_KEY" ]; then
@@ -30,30 +59,24 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "Account monitoring skipped: encrypted configuration/key missing."
           fi
-      - uses: actions/setup-python@v5
-        if: steps.configured.outputs.ready == 'true'
-        with:
-          python-version: '3.11'
-          cache: pip
       - name: Install Chrome
         id: chrome
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.auth_guard.outputs.proceed == 'true' && steps.configured.outputs.ready == 'true'
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
           install-chromedriver: true
-      - name: Install dependencies
-        if: steps.configured.outputs.ready == 'true'
-        run: pip install -r requirements.txt
       - name: Check each enabled ALDI account in an isolated browser
-        if: steps.configured.outputs.ready == 'true'
+        if: steps.auth_guard.outputs.proceed == 'true' && steps.configured.outputs.ready == 'true'
         env:
+          ALDI_ACCOUNTS_ENC: ${{ secrets.ALDI_ACCOUNTS_ENC }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
           ALDI_ACCOUNTS_REPORT: aldi-accounts-report.json
         run: timeout 900s python aldi_accounts_monitor.py
       - name: Preserve sanitized account report
-        if: always() && steps.configured.outputs.ready == 'true'
+        if: always() && steps.auth_guard.outputs.proceed == 'true' && steps.configured.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aldi-accounts-${{ github.run_id }}-${{ github.run_attempt }}

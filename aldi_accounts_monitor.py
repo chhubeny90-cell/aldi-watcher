@@ -3,6 +3,23 @@ import json
 import os
 from core.aldi_accounts import load_accounts, require_selected_account, select_account
 from monitoring import execute_provider, utcnow, write_report
+from github_journal_state import auth_backoff_active
+
+
+def _auth_guard_status():
+    """Return clear/active/unavailable without touching account credentials.
+
+    Local runs do not depend on the GitHub durable state. GitHub-hosted account
+    polling, however, must share the same provider-auth backoff as the live
+    refill runner. If that state cannot be read, fail closed before decrypting
+    the account manifest or starting a browser.
+    """
+    if os.getenv("GITHUB_ACTIONS", "").strip().lower() != "true":
+        return "clear"
+    try:
+        return "active" if auth_backoff_active() else "clear"
+    except Exception:
+        return "unavailable"
 
 
 def tariff_snapshot(driver):
@@ -48,6 +65,21 @@ def main():
     report = {"started_at": utcnow(), "booking_executed": False, "accounts": []}
     report_path = os.getenv("ALDI_ACCOUNTS_REPORT", "aldi-accounts-report.json")
     write_report(report_path, report)
+
+    auth_guard = _auth_guard_status()
+    if auth_guard == "active":
+        report["status"] = "auth_backoff_active"
+        report["finished_at"] = utcnow()
+        write_report(report_path, report)
+        print(json.dumps({"status": report["status"]}))
+        return 0
+    if auth_guard != "clear":
+        report["status"] = "auth_guard_unavailable"
+        report["finished_at"] = utcnow()
+        write_report(report_path, report)
+        print(json.dumps({"status": report["status"]}))
+        return 3
+
     try:
         accounts = load_accounts()
     except ValueError:
