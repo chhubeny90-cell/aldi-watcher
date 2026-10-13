@@ -122,19 +122,35 @@ def test_usage_mail_ignores_unrelated_mail():
     assert mail_bridge._signal(msg) is None
 
 
-def test_main_workflow_has_no_parallel_concurrency_lock():
+def test_main_workflow_is_credential_free_public_monitoring_only():
     text = Path('.github/workflows/run.yml').read_text(encoding='utf-8')
-    assert '\nconcurrency:' not in text
-    assert '\n    concurrency:' not in text
-    assert 'max-parallel:' not in text
-    assert 'repository_dispatch:' in text
-    assert 'ALDI_MANUAL_AUTH_ONCE:' in text
-    assert 'ALDI_EXPECTED_ACCOUNT:' in text
+    assert "cron: '7-59/15 * * * *'" in text
+    assert "github.event_name == 'schedule'" in text
+    assert 'portal_probe.py' in text
+    assert 'repository_dispatch:' not in text
+    assert 'github_live_refill' not in text
+    assert 'ALDI_MANUAL_AUTH_ONCE:' not in text
+    assert 'ALDI_EXPECTED_ACCOUNT:' not in text
+    assert 'ALDI_PASS:' not in text
+    assert "AUTO_BOOK_ENABLED: 'false'" in text
 
 
-def test_mail_and_watchdog_workflows_are_present():
+def test_usage_mail_monitor_is_notification_only_and_has_no_provider_credentials():
     mail = Path('.github/workflows/mail-trigger.yml').read_text(encoding='utf-8')
-    watchdog = Path('.github/workflows/watchdog.yml').read_text(encoding='utf-8')
     assert "cron: '*/5 * * * *'" in mail
-    assert 'usage_mail_bridge.py' in mail
-    assert 'heartbeat_watchdog.py' in watchdog
+    assert 'usage_mail_notify.py' in mail
+    assert 'ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}' in mail
+    assert 'ALDI_PASS:' not in mail
+    assert 'ALDI_PASS_ENC:' not in mail
+    assert 'ALDI_USER:' not in mail
+    assert 'repository_dispatch' not in mail
+    assert 'Surface new usage alert or mailbox failure' in mail
+
+
+def test_authenticated_status_probe_and_live_watchdog_remain_disabled():
+    status = Path('.github/workflows/status-probe.yml').read_text(encoding='utf-8')
+    watchdog = Path('.github/workflows/watchdog.yml').read_text(encoding='utf-8')
+    assert 'ALDI Read-Only Status Probe (disabled)' in status
+    assert 'Authenticated ALDI status probing is disabled.' in status
+    assert 'ALDI Watcher Watchdog (paused)' in watchdog
+    assert 'Live runner intentionally disabled' in watchdog

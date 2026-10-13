@@ -82,11 +82,13 @@ def test_aldi_usage_reader_only_inspects_refill_below_one_gb():
     assert watcher.aldi_read_status.__defaults__ == (None, 3)
 
 
-def test_status_probe_workflow_is_explicitly_read_only():
+def test_authenticated_status_probe_workflow_is_disabled():
     text = open('.github/workflows/status-probe.yml', encoding='utf-8').read()
-    assert "AUTO_BOOK_ENABLED: 'false'" in text
-    assert "ALDI_STATUS_ONLY: 'true'" in text
-    assert 'aldi_status_probe.py' in text
+    assert 'ALDI Read-Only Status Probe (disabled)' in text
+    assert 'Authenticated ALDI status probing is disabled.' in text
+    assert 'aldi_status_probe.py' not in text
+    assert 'ALDI_PASS' not in text
+    assert 'ALDI_USER' not in text
 
 
 def test_maintenance_is_distinct_from_login_timeout(monkeypatch, tmp_path, capsys):

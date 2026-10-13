@@ -1,16 +1,73 @@
-name: ALDI Usage Mail Trigger (disabled)
+name: ALDI Usage Mail Monitor
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: aldi-usage-mail-monitor
+  cancel-in-progress: false
 
 jobs:
-  disabled:
+  monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
+      ALDI_STATE_PATH: .aldi-state/profile-1.json
+      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_HOST }}
+      MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
+      MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
+      MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
+      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_HOST }}
+      MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
+      MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
+      MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
+      ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
-      - name: Provider policy guard
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Poll usage mailboxes without ALDI portal access
+        id: monitor
+        continue-on-error: true
+        run: python usage_mail_notify.py
+      - name: Preserve sanitized usage-alert report
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: aldi-usage-alert-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aldi-usage-alert.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Surface new usage alert or mailbox failure
+        if: always()
         run: |
-          echo "Automatic mail-triggered ALDI refill dispatch is disabled."
-          echo "Usage alerts are handled as notifications only; no authenticated portal automation is started."
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('aldi-usage-alert.json')
+          if not path.is_file():
+              print('::error title=ALDI mail monitor::Sanitized report missing')
+              raise SystemExit(2)
+          report = json.loads(path.read_text(encoding='utf-8'))
+          alerts = report.get('alerts') or []
+          failures = report.get('failed_mailboxes') or []
+          if alerts:
+              kinds = sorted({str(item.get('signal', 'usage')) for item in alerts})
+              print('::warning title=ALDI usage alert::New ' + ', '.join(kinds) + ' signal detected; manual customer-portal action may be needed.')
+              raise SystemExit(1)
+          if failures:
+              print('::error title=ALDI mail monitor::One or more mailboxes could not be checked.')
+              raise SystemExit(2)
+          print('No new ALDI usage signal.')
+          PY
