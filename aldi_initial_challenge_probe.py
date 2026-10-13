@@ -25,10 +25,22 @@ def _challenge_flags(shape):
     }
 
 
+def _all_confirmation_meta(challenge):
+    """Describe every ConfirmationCallback without retaining provider labels."""
+    callbacks = []
+    if isinstance(challenge, dict):
+        callbacks = [
+            callback for callback in challenge.get("callbacks", [])
+            if isinstance(callback, dict) and callback.get("type") == "ConfirmationCallback"
+        ]
+    rows = [_confirmation_meta({"callbacks": [callback]}) for callback in callbacks]
+    return {"count": len(rows), "callbacks": rows}
+
+
 def _structural_metadata(challenge):
     """Return only non-secret callback structure useful for drift detection."""
     return {
-        "confirmation_meta": _confirmation_meta(challenge),
+        "confirmation_meta": _all_confirmation_meta(challenge),
         "hidden_meta": _hidden_meta(challenge),
     }
 
