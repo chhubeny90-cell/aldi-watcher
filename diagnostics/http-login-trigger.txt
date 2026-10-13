@@ -2,3 +2,4 @@ Trigger the existing sanitized ALDI browser-free login diagnostic on merged main
 The diagnostic performs one credential submission, no booking, no tariff change, and records no secret values.
 Immediate one-shot override requested on 2026-10-13 after account-lock backoff was enabled.
 Safe no-credential initial challenge refresh requested for callback-shape audit.
+Enhanced callback metadata refresh after auth hardening merge.
