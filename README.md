@@ -1,78 +1,47 @@
-> **Live-Freigabe:** Neue Vorgänge können nach eindeutiger Account-, Tarif- und
-> 0-Euro-Prüfung ausgeführt und durch frisch geladenes Datenvolumen bestätigt
-> werden. Alte ungeklärte Vorgänge bleiben gesperrt. Deployment und tatsächliche
-> Login-Ergebnisse stehen in [Buchungsbereitschaft](docs/booking-readiness.md).
-
 # aldi-watcher
 
-Überwachung von Prepaid-Datenvolumen für **ALDI Talk** und **Lidl Connect**, mit einem streng abgesicherten ALDI-Live-Refill.
+Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
-## Aktiver Betrieb und Full Run
+## Verifizierter Betriebsstand vom 14. Oktober 2026
 
-Der aktuelle Workflow führt **stündlich nur Regressionstests** aus. Er startet
-dabei weder einen ALDI-Login noch eine Buchung. Ein Read-only-Watch ist separat
-manuell über `workflow_dispatch` mit `watch` oder `all` startbar; auf einem
-Push wird er nur bei `[live-watch]` im Commit ausgelöst.
+**Keine aktive automatische ALDI-Nachbuchung.** Auf dem geprüften Hauptbranch
+`484aafd32dd8bfde54d97512fa9200e04a633e3f` führt `run.yml` nur Tests und
+öffentliche Portalprüfungen aus. Die Modi sind `all`, `tests`, `public-probe`.
+`all` bedeutet hier nicht Login oder Buchung. `AUTO_BOOK_ENABLED=false`.
+Accounts, Status-Probe und Watchdog sind deaktiviert.
 
-Der Modus `live-refill` ist ausschließlich manuell auf `main` vorgesehen und
-verlangt einen konfigurierten `ALDI_JOURNAL_PATH` sowie einen dauerhaften
-privaten Self-hosted-Linux-Runner
-mit dem Label `aldi-journal`. Der Workflow begrenzt den Lauf auf höchstens
-eine Nachbuchung.
+Der Mail-Monitor läuft laut Zeitplan alle fünf Minuten, ruft ausschließlich
+Postfächer ab und startet keine Portalaktion. Lauf `38565976011` meldete
+`no_mailboxes_configured`. Eine grüne öffentliche Probe ist kein Nachweis für
+Anmeldung, geladenes Kundenkonto oder Nachbuchung.
 
-**Neue Buchungen sind bedingt freigegeben:** Vor dem Klick müssen geschützte
-Accountdaten und die ausgewählte SIM zum konfigurierten Account passen. Derselbe
-Tarif muss ein eindeutiges Angebot für genau 1 GB mit ausdrücklich 0 Euro zeigen.
-Das Restvolumen muss unter 1 GB liegen. Ein frisches Volumenplus nach dem Klick
-bestätigt ausschließlich diesen neuen Vorgang bei unveränderter Account- und
-Tarifbindung. Ein echter Live-Erfolg ist damit noch nicht nachgewiesen.
+Die Anbieterbedingungen zu nicht autorisierter Software stehen in den
+[ALDI-TALK-AGB, Ziffer 10.3 g, PDF-Seite 16](https://media.medion.com/cms/medion/alditalkde/ALDI-TALK-Leistungsbeschreibung.pdf).
+Eine Freigabe für den vorgesehenen Automationsweg ist nicht belegt.
+Details und konkrete offene Schritte: [Betriebsprüfung](docs/operations-audit-2026-10-14.md).
 
-`ALDI_RECONCILIATION_VERIFIED = False` beschreibt weiterhin die fehlende
-historische Belegabfrage. Alte `PENDING`-/`UNKNOWN`-Vorgänge bleiben gesperrt;
-aktuelles Volumen oder ein erneut angebotenes Paket lösen sie nicht auf.
-Die [ALDI-TALK-Nutzungsbedingungen](https://www.alditalk.de/leistungsbeschreibung)
-für automatisierten Portalzugriff sind weiterhin zu beachten.
+### Mail-Konfiguration
 
-Der frühere README-Hinweis auf einen stündlichen Live-Refill und einen
-`[live-refill]`-Push-Auslöser war falsch. Die aktuelle Workflow-Definition ist
-maßgeblich. Details zu offenen Gates: [Monitoring-Recovery](docs/monitoring-recovery.md).
-```bash
-# Tests: ohne echte Providerzugriffe
-python -m pytest -q
-# Monitoring: Zugangsdaten vorher über sichere Umgebungsvariablen bereitstellen
-AUTO_BOOK_ENABLED=false python watcher.py --run-once
-# Nur ALDI prüfen
-AUTO_BOOK_ENABLED=false python watcher.py --run-once --provider aldi_talk
-```
+Für mindestens ein Postfach sind `MAILBOX_1_HOST`, `MAILBOX_1_USER` und
+`MAILBOX_1_PASS` als Actions Secrets erforderlich; `MAILBOX_1_PORT` ist optional
+(Standard 993). Für ein zweites Postfach entsprechend `MAILBOX_2_*`.
+Zusätzlich ist `ALDI_RECOVERY_KEY` für die dauerhafte HMAC-Deduplizierung nötig.
+Der Workflow übergibt seinen eigenen `GITHUB_TOKEN` für den State-Branch.
+Eine ChatGPT-Gmail-Verbindung stellt diese IMAP-Secrets nicht bereit.
 
-Für GitHub Actions identifiziert `ALDI_PROFILE_1_USER` (Fallback `ALDI_USER`)
-das Main-Profil. Falls der Loginname abweicht, verwende
-`ALDI_PROFILE_1_LOGIN_USER` (Fallback `ALDI_LOGIN_USER`); ohne separaten
-Loginnamen verwendet der Code die Profilkennung. `ALDI_PASS` liefert das Passwort.
-Die vorhandenen verschlüsselten Alternativen `ALDI_LOGIN_USER_ENC`,
-`ALDI_USER_ENC`, `ALDI_PASS_ENC` und `CREDENTIAL_ENCRYPTION_KEY` werden ebenfalls
-an den Lauf übergeben. Hinterlege Werte unter **Settings → Secrets and variables
-→ Actions**. Andere Profile werden vom Workflow nicht verarbeitet.
-`LIDL_USER` und `LIDL_PASS` gehören zum separaten Pluginbetrieb.
-Details stehen in [docs/monitoring-recovery.md](docs/monitoring-recovery.md).
+### Vorhandener Buchungscode ist kein Live-Nachweis
 
-Tarif S ist nur bei einem 1-GB-Angebot mit ausdrücklich 0 Euro buchbar; „kostenlos“
-allein genügt nicht. Der Preis
-der Tarifverlängerung zählt nicht als Preisnachweis für dieses Zusatzangebot.
+`core/aldi_refill.py` akzeptiert bereits ein eindeutig zugeordnetes Gratisangebot
+bei verifiziertem Tarif auch ohne numerische Nullpreis-Anzeige. Positive oder
+unklare Preise werden abgelehnt. Diese Prüfung muss nicht pauschal entfernt werden.
 
-Ein abgeschlossener Lauf benötigt `finished_at` im bereinigten JSON-Bericht.
-Exitcodes: 0 erfolgreich, 1 fehlgeschlagen, 2 teilweise erfolgreich,
-3 Konfigurationsfehler. LIDL meldet zusätzlich `refill_eligible`, `refill_type` und `refill_reason`,
-wenn die verifizierten Konto-Selektoren konfiguriert sind. Tarif-/Refill-
-Berechtigung und echte Status-Reconciliation sind noch nicht live nachgewiesen. Ein Session-/Volumen-Erfolg ist keine
-Buchungsfreigabe.
+`aldi_live_refill.py` verwendet derzeit einen frischen Volumenzuwachs als
+Erfolgsindikator. Das erfüllt die Anforderung einer offiziellen, dem Vorgang
+zugeordneten Buchungsbestätigung nicht. Historische PENDING/UNKNOWN-Vorgänge
+bleiben ungeklärt; `ALDI_RECONCILIATION_VERIFIED` ist false.
 
-`main.py` ist der separate Plugin-Dauerbetrieb mit `.env` und SQLite.
-Seine DB muss über Neustarts auf demselben persistenten Datenträger liegen.
-Der sichere Standard ist `DRY_RUN=true`, `AUTO_BOOK_ENABLED=false`.
-Ungültige Flags werden abgelehnt. Live-Pluginbetrieb verlangt beide expliziten
-Flags `DRY_RUN=false` und `AUTO_BOOK_ENABLED=true`, darf aber erst nach belegter
-Tarifentscheidung und Provider-Reconciliation aktiviert werden.
+Die folgenden Installations- und Pluginbeispiele beschreiben vorhandene
+Codepfade, nicht eine freigegebene oder nachgewiesene ALDI-Live-Konfiguration.
 
 ## Quickstart (5 Minuten)
 

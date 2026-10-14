@@ -1,3 +1,8 @@
+> **Statuskorrektur 14.10.2026:** Die nachfolgenden Angaben zur Workflow-Aktivierung
+> sind historisch und nicht der aktuelle Betriebsstand. Auf main sind authentifizierte
+> ALDI-Workflows deaktiviert; ein offizieller Buchungsnachweis fehlt.
+> Maßgeblich: [Betriebsprüfung](operations-audit-2026-10-14.md).
+
 # Conditional free-refill execution
 
 The source switches for the configured account checks and the separate manual
