@@ -144,7 +144,7 @@ def test_usage_mail_monitor_is_notification_only_and_has_no_provider_credentials
     assert 'ALDI_PASS_ENC:' not in mail
     assert 'ALDI_USER:' not in mail
     assert 'repository_dispatch' not in mail
-    assert 'Surface new usage alert or mailbox failure' in mail
+    assert 'Surface refill-ready mail or mailbox failure' in mail
 
 
 def test_authenticated_status_probe_and_live_watchdog_remain_disabled():
