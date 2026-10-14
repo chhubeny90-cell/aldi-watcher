@@ -49,7 +49,7 @@ jobs:
           path: aldi-usage-alert.json
           retention-days: 7
           if-no-files-found: error
-      - name: Surface new usage alert or mailbox failure
+      - name: Surface refill-ready mail or mailbox failure
         if: always()
         run: |
           python - <<'PY'
@@ -61,17 +61,20 @@ jobs:
               raise SystemExit(2)
           report = json.loads(path.read_text(encoding='utf-8'))
           config_error = report.get('configuration_error')
-          alerts = report.get('alerts') or []
+          actionable = int(report.get('actionable_alerts') or 0)
+          early = int(report.get('early_warnings') or 0)
           failures = report.get('failed_mailboxes') or []
           if config_error:
               print('::error title=ALDI mail monitor::Monitor configuration incomplete: ' + str(config_error))
               raise SystemExit(2)
-          if alerts:
-              kinds = sorted({str(item.get('signal', 'usage')) for item in alerts})
-              print('::warning title=ALDI usage alert::New ' + ', '.join(kinds) + ' signal detected; manual customer-portal action may be needed.')
+          if actionable:
+              print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; create/send the one-time activation link.')
               raise SystemExit(1)
           if failures:
               print('::error title=ALDI mail monitor::One or more mailboxes could not be checked.')
               raise SystemExit(2)
-          print('No new ALDI usage signal.')
+          if early:
+              print(f'ALDI early warning only: {early} 80-percent signal(s); no activation link yet.')
+          else:
+              print('No new ALDI refill-ready signal.')
           PY
