@@ -5,6 +5,9 @@ sanitized 80%-used / consumed signals, and durably deduplicates each message via
 an HMAC fingerprint on the repository state branch. It never logs message text,
 sender, subject, Message-ID, phone number, credentials, or account data and never
 starts an ALDI login or booking workflow.
+
+Observed mailbox behavior is intentionally reflected here: an 80% message is a
+heads-up only; a consumed-volume message is the actionable refill notification.
 """
 
 import email
@@ -53,7 +56,11 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key):
             if signal is None:
                 continue
             if claim(_message_key(message, raw)):
-                alerts.append({"mailbox": index, "signal": signal})
+                alerts.append({
+                    "mailbox": index,
+                    "signal": signal,
+                    "actionable": signal == "consumed",
+                })
     return alerts
 
 
@@ -72,10 +79,13 @@ def main():
         "dedup_key_configured": False,
         "configuration_error": None,
         "new_alerts": 0,
+        "actionable_alerts": 0,
+        "early_warnings": 0,
         "alerts": [],
         "failed_mailboxes": [],
         "authenticated_portal": False,
         "provider_action": False,
+        "trigger_policy": "consumed_only",
     }
     try:
         mailboxes = _mailboxes()
@@ -96,6 +106,12 @@ def main():
                     "error": type(exc).__name__,
                 })
         report["new_alerts"] = len(report["alerts"])
+        report["actionable_alerts"] = sum(
+            1 for item in report["alerts"] if item.get("actionable") is True
+        )
+        report["early_warnings"] = sum(
+            1 for item in report["alerts"] if item.get("signal") == "80_percent"
+        )
         return 2 if report["failed_mailboxes"] and not report["alerts"] else 0
     finally:
         report["finished_at"] = _now()
@@ -105,7 +121,10 @@ def main():
             "dedup_key_configured": report["dedup_key_configured"],
             "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
+            "actionable_alerts": report["actionable_alerts"],
+            "early_warnings": report["early_warnings"],
             "failed_mailboxes": len(report["failed_mailboxes"]),
+            "trigger_policy": report["trigger_policy"],
             "authenticated_portal": False,
             "provider_action": False,
         }), flush=True)
