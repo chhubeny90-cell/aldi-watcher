@@ -10,7 +10,7 @@ jobs:
   disabled:
     runs-on: ubuntu-latest
     steps:
-      - name: Provider policy guard
+      - name: Provider authorization and live-validation guard
         run: |
-          echo "Authenticated ALDI account automation is disabled."
-          echo "ALDI TALK stated on 2026-10-13 that automated scripts/browser control of the customer portal are not authorized."
+          echo "Authenticated ALDI account automation is disabled pending provider authorization and successful live validation."
+          echo "ALDI TALK's 2026-10-14 correspondence requires successful customer legitimation; it does not confirm or deny automated portal access."
