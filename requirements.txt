@@ -15,4 +15,4 @@ pytest-asyncio>=0.23.0
 typing-extensions>=4.9.0
 
 # GitHub Actions monitoring entrypoint
-selenium>=4.20,<5
+selenium>=4.26,<5
