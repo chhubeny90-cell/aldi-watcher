@@ -20,11 +20,11 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
       ALDI_STATE_PATH: .aldi-state/profile-1.json
-      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_HOST || 'imap.gmail.com' }}
+      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
       MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
       MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
       MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
-      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_HOST || 'imap.gmail.com' }}
+      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
       MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
       MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
       MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
