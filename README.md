@@ -2,7 +2,18 @@
 
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
-## Verifizierter Betriebsstand vom 14. Oktober 2026
+## Aktueller Prüfstand vom 17. Oktober 2026
+
+**Der vollständige Nachbuchungsablauf ist nicht betriebsbereit.** Auf main
+`481b0a9` meldet der Mail-Monitor weiterhin `no_mailboxes_configured`; auch der
+HMAC-Schlüssel ist in diesem Lauf nicht gesetzt. Die letzte Passwort-Diagnose
+vom 16.10. erhielt keine Sitzung. Der offizielle Abschlussdetektor fehlt, sodass
+neue Buchungen im vorhandenen Code `UNKNOWN` bleiben würden.
+
+Alle sechs Schritte mit aktuellen Laufquellen und offenen Voraussetzungen:
+[Betriebsprüfung 17.10.2026](docs/operations-audit-2026-10-17.md).
+
+## Historischer Prüfstand vom 14. Oktober 2026
 
 **Keine aktive automatische ALDI-Nachbuchung.** Auf dem geprüften Hauptbranch
 `484aafd32dd8bfde54d97512fa9200e04a633e3f` führt `run.yml` nur Tests und
