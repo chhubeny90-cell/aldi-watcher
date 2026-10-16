@@ -164,3 +164,22 @@ def test_generic_lock_word_is_not_proof(message):
 @pytest.mark.parametrize("message", ["Dein Konto ist gesperrt.", "Account locked", "custom.alditalk.accountLock"])
 def test_explicit_lock_message_is_detected(message):
     assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is True
+
+
+@pytest.mark.parametrize("domain", ["alditalk-kundenportal.de", ".alditalk-kundenportal.de", "www.alditalk-kundenportal.de"])
+def test_portal_parent_domain_cookie_is_valid(domain):
+    transport = session()
+    transport.cookies.clear()
+    transport.cookies.set("lgrs_id", base64.b64encode(PHONE.encode()).decode(), domain=domain, path="/")
+    transport.post.side_effect = [response(payload=challenge()), response(payload={"successUrl": "/success", "tokenId": "private-token"})]
+    transport.get.side_effect = [response(), response(), response(), response(url=NAVIGATION, payload={"userDetails": {"subscriptions": [{"contractId": "private-contract"}]}})]
+    assert AldiHttpLogin(transport).login(PHONE, PASSWORD) is True
+
+
+def test_international_cookie_without_plus_matches_expected_phone():
+    transport = session()
+    transport.cookies.clear()
+    transport.cookies.set("lgrs_id", base64.b64encode(("49" + PHONE[1:]).encode()).decode(), domain="www.alditalk-kundenportal.de", path="/")
+    transport.post.side_effect = [response(payload=challenge()), response(payload={"successUrl": "/success", "tokenId": "private-token"})]
+    transport.get.side_effect = [response(), response(), response(), response(url=NAVIGATION, payload={"userDetails": {"subscriptions": [{"contractId": "private-contract"}]}})]
+    assert AldiHttpLogin(transport).login(PHONE, PASSWORD) is True

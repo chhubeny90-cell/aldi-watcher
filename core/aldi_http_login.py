@@ -243,12 +243,15 @@ class AldiHttpLogin:
             raise LoginError("portal_session_unverified")
         self.report["phase"] = "account_verification"
         cookies = [c.value for c in self.session.cookies if c.name == "lgrs_id"
-                   and c.domain.lstrip(".") in ALLOWED_HOSTS]
+                   and c.domain.lstrip(".").lower() in {urlsplit(PORTAL_BASE).hostname,
+                       urlsplit(PORTAL_BASE).hostname.removeprefix("www.")}]
         if len(set(cookies)) != 1:
             raise LoginError("account_cookie_unverified")
         try:
             encoded = cookies[0] + "=" * (-len(cookies[0]) % 4)
             account = base64.b64decode(encoded, validate=True).decode()
+            if re.fullmatch(r"49[1-9]\d{8,12}", account):
+                account = "0" + account[2:]
             matches = phone_identifier(account) == phone
         except (ValueError, UnicodeDecodeError, LoginError):
             raise LoginError("account_cookie_unverified") from None
