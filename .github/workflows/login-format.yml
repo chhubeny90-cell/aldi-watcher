@@ -1,18 +1,28 @@
 name: ALDI Login Diagnostics
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      diagnostic:
+        description: 'Run exactly one diagnostic (stage2 requests SMS; pointer submits password)'
+        required: true
+        type: choice
+        default: public_controls
+        options:
+          - public_controls
+          - login_format
+          - password_reset_probe
+          - reset_identifier_probe
+          - passwordless_probe
+          - passwordless_stage2
+          - password_pointer
 
 permissions:
   contents: read
 
 jobs:
   login_format:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[login-format]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'login_format'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,9 +57,7 @@ jobs:
           if-no-files-found: warn
 
   password_reset_probe:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[reset-probe]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'password_reset_probe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -82,9 +90,7 @@ jobs:
           if-no-files-found: warn
 
   reset_identifier_probe:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[reset-id]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'reset_identifier_probe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -119,9 +125,7 @@ jobs:
           if-no-files-found: warn
 
   passwordless_probe:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[passwordless-probe]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'passwordless_probe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -154,9 +158,7 @@ jobs:
           if-no-files-found: warn
 
   passwordless_stage2:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[passwordless-stage2]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'passwordless_stage2'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -191,9 +193,7 @@ jobs:
           if-no-files-found: warn
 
   password_pointer:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[password-pointer]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'password_pointer'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -234,9 +234,7 @@ jobs:
           if-no-files-found: warn
 
   public_controls:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[public-controls]'))
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'public_controls'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
