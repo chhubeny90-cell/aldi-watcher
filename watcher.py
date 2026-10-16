@@ -59,6 +59,8 @@ def configure_credentials(prefix):
 
 
 def build_driver():
+    # Official Selenium Manager opt-out: no usage telemetry to Plausible.
+    os.environ["SE_AVOID_STATS"] = "true"
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
