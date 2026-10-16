@@ -149,3 +149,18 @@ def test_additional_verification_is_identified_without_selecting_it():
     diagnostics = result_diagnostics({"message": "Bitte SMS-Code PRIVATE_CODE eingeben"})
     assert diagnostics["provider_indications"]["additional_verification"] is True
     assert "PRIVATE_CODE" not in json.dumps(diagnostics)
+
+
+@pytest.mark.parametrize("message", [
+    "Nach zu vielen Versuchen wird dein Konto gesperrt",
+    "var messages = {accountLock: 'Konto gesperrt'};",
+    "<script>var accountLocked = false;</script>",
+    "Dein Konto ist nicht gesperrt",
+])
+def test_generic_lock_word_is_not_proof(message):
+    assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is False
+
+
+@pytest.mark.parametrize("message", ["Dein Konto ist gesperrt.", "Account locked", "custom.alditalk.accountLock"])
+def test_explicit_lock_message_is_detected(message):
+    assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is True

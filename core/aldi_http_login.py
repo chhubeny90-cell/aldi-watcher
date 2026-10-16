@@ -53,6 +53,25 @@ def _output(callback, name):
     return matches[0] if len(matches) == 1 else None
 
 
+def _explicit_account_lock(messages):
+    """Require a standalone lock message/code, not a word in scripts/help text."""
+    patterns = (
+        r"custom\.alditalk\.accountlock(?:[:.\s]|$)",
+        r"^(?:your )?account (?:is |has been )?locked[.!]?$",
+        r"^(?:(?:dein|ihr|das) )?(?:konto|kundenkonto|zugang) (?:ist |wurde )?(?:vorübergehend |voruebergehend |temporär )?gesperrt[.!]?$",
+    )
+    for message in messages:
+        if not isinstance(message, str):
+            continue
+        value = message.casefold().strip()
+        # Provider callbacks also contain page scripts and generic help text.
+        if '<' in value or 'function' in value or 'var ' in value:
+            continue
+        if any(re.search(pattern, value) for pattern in patterns):
+            return True
+    return False
+
+
 def result_diagnostics(result):
     """Reduce provider messages to indications, never persist their contents."""
     callbacks = result.get("callbacks")
@@ -74,7 +93,7 @@ def result_diagnostics(result):
                                            else "OtherCallback" for c in callbacks if isinstance(c, dict)}),
         "provider_indications": {
             "maintenance": maintenance,
-            "account_locked": any(s in text for s in ("accountlock", "account locked", "gesperrt", "zu viele versuche")),
+            "account_locked": _explicit_account_lock(messages),
             "credential_problem": any(s in text for s in ("invalid credential", "incorrect credential", "wrong credential", "invalidlogin", "passwort falsch", "falsches passwort", "stimmen nicht überein")),
             "required_fields": any(s in text for s in ("required field", "pflichtfeld", "ausfüllen", "ausfuellen", "field is required")),
             "technical_error": maintenance or any(s in text for s in ("technical error", "technischer fehler")),
