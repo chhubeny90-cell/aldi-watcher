@@ -57,7 +57,7 @@ def _explicit_account_lock(messages):
     """Require a standalone lock message/code, not a word in scripts/help text."""
     patterns = (
         r"custom\.alditalk\.accountlock(?:[:.\s]|$)",
-        r"^(?:your )?account (?:is |has been )?locked[.!]?$",
+        r"^(?:your )?account (?:is |has been )?locked\b",
         r"^(?:(?:dein|ihr|das) )?(?:konto|kundenkonto|zugang) (?:ist |wurde )?(?:vorübergehend |voruebergehend |temporär )?gesperrt[.!]?$",
     )
     for message in messages:
