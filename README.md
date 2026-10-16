@@ -35,10 +35,14 @@ Eine ChatGPT-Gmail-Verbindung stellt diese IMAP-Secrets nicht bereit.
 bei verifiziertem Tarif auch ohne numerische Nullpreis-Anzeige. Positive oder
 unklare Preise werden abgelehnt. Diese Prüfung muss nicht pauschal entfernt werden.
 
-`aldi_live_refill.py` verwendet derzeit einen frischen Volumenzuwachs als
-Erfolgsindikator. Das erfüllt die Anforderung einer offiziellen, dem Vorgang
-zugeordneten Buchungsbestätigung nicht. Historische PENDING/UNKNOWN-Vorgänge
-bleiben ungeklärt; `ALDI_RECONCILIATION_VERIFIED` ist false.
+`aldi_live_refill.py` protokolliert einen frischen Volumenzuwachs nur als
+Beobachtung. Ohne offizielle, dem Vorgang zugeordnete Abschlussbestätigung
+bleibt eine neue Buchung `UNKNOWN`; der Lauf endet mit Exit 2 und weitere
+Buchungen bleiben über das persistente Journal gesperrt. Auch die
+GitHub-Recovery darf alte Vorgänge nicht allein anhand eines Volumenzuwachses
+als erfolgreich abschließen. `ALDI_RECONCILIATION_VERIFIED` ist false.
+Die Erkennung der offiziellen Abschlussbestätigung ist noch nicht implementiert;
+diese Sperre stellt keinen betriebsbereiten Nachbuchungsablauf her.
 
 Die folgenden Installations- und Pluginbeispiele beschreiben vorhandene
 Codepfade, nicht eine freigegebene oder nachgewiesene ALDI-Live-Konfiguration.

@@ -27,9 +27,6 @@ from github_hardening_state import (
     claim_trigger_key,
     clear_auth_backoff,
     clear_recovery_proof,
-    get_recovery_proof,
-    recover_before_gb,
-    recovery_binding_matches,
     set_recovery_proof,
     touch_heartbeat,
 )
@@ -190,25 +187,12 @@ def _maintenance_aware_login(driver):
 
 
 def _recover_recharge_status(driver, recharge_id):
-    try:
-        proof = get_recovery_proof(recharge_id)
-        if not proof:
-            return "UNKNOWN"
-        account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
-        remaining, binding = _ORIGINAL_BOUND_STATUS(driver, account)
-        if not recovery_binding_matches(recharge_id, proof, binding):
-            return "UNKNOWN"
-        before = recover_before_gb(recharge_id, proof)
-        if before is None:
-            return "UNKNOWN"
-        delta = remaining - before
-        # Require more than two MiB increase to stay clear of baseline rounding.
-        # Never infer FAILED from absence; only a positive same-binding increase
-        # within one refill can resolve the old operation as SUCCESS.
-        if (2.0 / 1024.0) < delta <= 1.0 + (2.0 / 1024.0):
-            return "SUCCESS"
-    except Exception:
-        pass
+    """Keep old operations blocked until an official completion lookup exists.
+
+    A stored baseline and matching account do not bind a later allowance
+    increase to this operation. Do not release its reservation from volume,
+    even when the HMAC-protected recovery baseline is available.
+    """
     return "UNKNOWN"
 
 
