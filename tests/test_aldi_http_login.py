@@ -149,3 +149,37 @@ def test_additional_verification_is_identified_without_selecting_it():
     diagnostics = result_diagnostics({"message": "Bitte SMS-Code PRIVATE_CODE eingeben"})
     assert diagnostics["provider_indications"]["additional_verification"] is True
     assert "PRIVATE_CODE" not in json.dumps(diagnostics)
+
+
+@pytest.mark.parametrize("message", [
+    "Nach zu vielen Versuchen wird dein Konto gesperrt",
+    "var messages = {accountLock: 'Konto gesperrt'};",
+    "<script>var accountLocked = false;</script>",
+    "Dein Konto ist nicht gesperrt",
+])
+def test_generic_lock_word_is_not_proof(message):
+    assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is False
+
+
+@pytest.mark.parametrize("message", ["Dein Konto ist gesperrt.", "Account locked", "custom.alditalk.accountLock"])
+def test_explicit_lock_message_is_detected(message):
+    assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is True
+
+
+@pytest.mark.parametrize("domain", ["alditalk-kundenportal.de", ".alditalk-kundenportal.de", "www.alditalk-kundenportal.de"])
+def test_portal_parent_domain_cookie_is_valid(domain):
+    transport = session()
+    transport.cookies.clear()
+    transport.cookies.set("lgrs_id", base64.b64encode(PHONE.encode()).decode(), domain=domain, path="/")
+    transport.post.side_effect = [response(payload=challenge()), response(payload={"successUrl": "/success", "tokenId": "private-token"})]
+    transport.get.side_effect = [response(), response(), response(), response(url=NAVIGATION, payload={"userDetails": {"subscriptions": [{"contractId": "private-contract"}]}})]
+    assert AldiHttpLogin(transport).login(PHONE, PASSWORD) is True
+
+
+def test_international_cookie_without_plus_matches_expected_phone():
+    transport = session()
+    transport.cookies.clear()
+    transport.cookies.set("lgrs_id", base64.b64encode(("49" + PHONE[1:]).encode()).decode(), domain="www.alditalk-kundenportal.de", path="/")
+    transport.post.side_effect = [response(payload=challenge()), response(payload={"successUrl": "/success", "tokenId": "private-token"})]
+    transport.get.side_effect = [response(), response(), response(), response(url=NAVIGATION, payload={"userDetails": {"subscriptions": [{"contractId": "private-contract"}]}})]
+    assert AldiHttpLogin(transport).login(PHONE, PASSWORD) is True
