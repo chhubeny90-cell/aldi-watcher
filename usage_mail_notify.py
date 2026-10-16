@@ -88,7 +88,21 @@ def main():
         "trigger_policy": "consumed_only",
     }
     try:
-        mailboxes = _mailboxes()
+        try:
+            mailboxes = _mailboxes()
+        except (RuntimeError, ValueError) as exc:
+            # A partial configuration must produce the same sanitized report as
+            # an empty one. Never persist arbitrary exception text: it may
+            # contain a configured port or other private input.
+            known_errors = {
+                "mailbox_1_configuration_incomplete",
+                "mailbox_2_configuration_incomplete",
+            }
+            error = str(exc)
+            report["configuration_error"] = (
+                error if error in known_errors else "mailbox_configuration_invalid"
+            )
+            return 2
         report["configured_mailboxes"] = len(mailboxes)
         report["dedup_key_configured"] = bool(os.environ.get("ALDI_RECOVERY_KEY", "").strip())
         if not mailboxes:
