@@ -1,0 +1,34 @@
+name: ALDI Mail Watch (read-only readiness)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aldi-mail-readonly
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ALDI_PORTAL_AUTOMATION: "false"
+      ALDI_REFILL_ENABLED: "false"
+      MAIL_USER: ${{ secrets.ALDI_MAIL_USER }}
+      MAIL_APP_PASSWORD: ${{ secrets.ALDI_MAIL_APP_PASSWORD }}
+    steps:
+      - name: Verify mail credentials exist (no disclosure)
+        shell: bash
+        run: |
+          if [[ -z "$MAIL_USER" || -z "$MAIL_APP_PASSWORD" ]]; then
+            echo "::warning::Mail secrets missing: set ALDI_MAIL_USER and ALDI_MAIL_APP_PASSWORD."
+            echo "No mailbox access, portal login or refill was attempted."
+            exit 1
+          fi
+          echo "Mail secret names are configured. This is a readiness check only."
+          echo "No mailbox access, portal login or refill was attempted."
