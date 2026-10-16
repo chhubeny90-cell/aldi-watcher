@@ -87,16 +87,11 @@ def test_recovery_proof_contains_no_plain_baseline_or_binding(monkeypatch):
         recharge_id, proof, ('other-account', 'tariff-signature')) is False
 
 
-def test_recovery_only_marks_same_binding_positive_refill_as_success(monkeypatch):
+def test_recovery_without_official_receipt_does_not_query_volume_or_release_guard(monkeypatch):
     recharge_id = str(uuid.uuid4())
-    monkeypatch.setattr(hosted, 'get_recovery_proof', lambda *_: {'proof': True})
-    monkeypatch.setattr(hosted, 'recovery_binding_matches', lambda *_: True)
-    monkeypatch.setattr(hosted, 'recover_before_gb', lambda *_: 0.20)
-    monkeypatch.setattr(hosted, '_ORIGINAL_BOUND_STATUS', lambda *_: (1.0, ('a', 'b')))
-    monkeypatch.setattr(hosted.watcher, 'ALDI_ACCOUNT_USER', '01500000001')
-    assert hosted._recover_recharge_status(object(), recharge_id) == 'SUCCESS'
-
-    monkeypatch.setattr(hosted, 'recovery_binding_matches', lambda *_: False)
+    def forbidden_volume_lookup(*_):
+        raise AssertionError('An allowance read cannot reconcile a provider operation')
+    monkeypatch.setattr(hosted, '_ORIGINAL_BOUND_STATUS', forbidden_volume_lookup)
     assert hosted._recover_recharge_status(object(), recharge_id) == 'UNKNOWN'
 
 

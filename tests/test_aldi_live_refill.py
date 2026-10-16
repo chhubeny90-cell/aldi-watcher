@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import json
 import pytest
-from core.database import Database
+from core.database import Database, RechargeLockedError
 
 import aldi_live_refill as live
 
@@ -94,12 +94,13 @@ def test_paid_or_ambiguous_offer_never_clicks(monkeypatch, tmp_path):
     driver.execute_script.assert_not_called()
 
 
-def test_new_refill_uses_same_account_refreshed_volume_without_historical_receipt(monkeypatch, tmp_path):
+@pytest.mark.parametrize('after', [0.2, 0.8, 1.2, 2.2])
+def test_refreshed_volume_without_official_receipt_stays_unknown(monkeypatch, tmp_path, after):
     control = Mock()
     driver = _setup(
         monkeypatch,
         tmp_path,
-        [0.2, 1.2],
+        [0.2, after],
         [_eligible(control), _unavailable('offer_unverified')],
     )
     click = Mock()
@@ -107,15 +108,23 @@ def test_new_refill_uses_same_account_refreshed_volume_without_historical_receip
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
 
     assert live.ALDI_RECONCILIATION_VERIFIED is False
-    history = Mock(side_effect=AssertionError('NEW confirmation is not historical reconciliation'))
+    history = Mock(side_effect=AssertionError('No receipt lookup exists for this new operation'))
     monkeypatch.setattr(live, 'check_recharge_status', history)
-    assert live.main() == 0
+    assert live.main() == 2
     click.assert_called_once_with(driver, control)
     history.assert_not_called()
     report = json.loads((tmp_path / 'report.json').read_text())
-    assert report['successful_refills'] == 1
-    assert report['cycles'][0]['confirmation'] == 'refreshed_volume'
-    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
+    assert report['outcome'] == 'unknown_after_click'
+    assert report['successful_refills'] == 0
+    cycle = report['cycles'][0]
+    assert cycle['recharge_status'] == 'UNKNOWN'
+    assert cycle['verified'] is False
+    assert cycle['confirmation'] == 'unverified'
+    assert cycle['observed_volume_delta_gb'] == pytest.approx(after - 0.2)
+    assert cycle['identity_unchanged'] is True
+    records = Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()
+    assert len(records) == 1 and records[0].status == 'UNKNOWN'
+    assert records[0].recharge_id == cycle['recharge_id']
 
 
 def test_unverified_result_after_click_never_repeats_booking(monkeypatch, tmp_path):
@@ -155,7 +164,7 @@ def test_reoffered_control_cannot_bypass_unknown(monkeypatch, tmp_path):
     click.assert_called_once_with(driver, first)
 
 
-def test_verified_refills_in_same_run_bypass_only_the_recent_success_cooldown(monkeypatch, tmp_path):
+def test_positive_volume_below_threshold_cannot_trigger_second_refill_or_restart_retry(monkeypatch, tmp_path):
     first, second = Mock(), Mock()
     driver = _setup(
         monkeypatch,
@@ -171,8 +180,66 @@ def test_verified_refills_in_same_run_bypass_only_the_recent_success_cooldown(mo
     monkeypatch.setattr(live, '_trusted_click', lambda session, control: clicks.append((session, control)))
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
 
-    assert live.main() == 0
-    assert clicks == [(driver, first), (driver, second)]
+    assert live.main() == 2
+    assert clicks == [(driver, first)]
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert len(report['cycles']) == 1
+    assert report['successful_refills'] == 0
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    records = db.get_unresolved_recharges()
+    assert len(records) == 1 and records[0].status == 'UNKNOWN'
+    recharge_id = records[0].recharge_id
+
+    # The GitHub adapter must not release this guard using its stored baseline.
+    import github_live_refill as hosted
+    monkeypatch.setattr(live, 'check_recharge_status', hosted._recover_recharge_status)
+    # A separate run must recover the same unresolved operation without clicking.
+    for _ in range(3):
+        assert live.main() == 2
+        assert clicks == [(driver, first)]
+        records = db.get_unresolved_recharges()
+        assert len(records) == 1
+        assert records[0].recharge_id == recharge_id
+        assert records[0].status == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('fail_all_updates', [False, True])
+def test_journal_update_failure_preserves_prior_outcome_and_durable_guard(
+        monkeypatch, tmp_path, fail_all_updates):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    original = Database.set_recharge_status
+    updates = []
+
+    def failing_update(db, recharge_id, status, *args, **kwargs):
+        updates.append(recharge_id)
+        if fail_all_updates or len(updates) == 2:
+            raise OSError('private journal details must not enter reports')
+        return original(db, recharge_id, status, *args, **kwargs)
+
+    monkeypatch.setattr(Database, 'set_recharge_status', failing_update)
+    assert live.main() == 2
+    click.assert_called_once_with(driver, control)
+    driver.quit.assert_called_once()
+    report_text = (tmp_path / 'report.json').read_text()
+    report = json.loads(report_text)
+    assert report['outcome'] == 'journal_update_failed'
+    assert report['outcome_before_journal_failure'] == (
+        'error' if fail_all_updates else 'unknown_after_click')
+    assert report['journal_exception_type'] == 'OSError'
+    assert report['successful_refills'] == 0
+    assert report['finished_at'] is not None
+    assert 'private journal details' not in report_text
+    db = Database(str(tmp_path / 'journal.sqlite'))
+    records = db.get_unresolved_recharges()
+    assert len(records) == 1
+    assert records[0].recharge_id == report['cycles'][0]['recharge_id']
+    assert records[0].status == ('PENDING' if fail_all_updates else 'UNKNOWN')
+    with pytest.raises(RechargeLockedError):
+        db.begin_recharge('alditalk', '01500000000')
 
 
 def test_visible_plus_one_gb_button_is_recognized_after_offer_gate(monkeypatch):
@@ -509,10 +576,13 @@ def test_known_lidl_unknown_does_not_block_independent_aldi_refill(monkeypatch, 
     click = Mock()
     monkeypatch.setattr(live, '_trusted_click', click)
     monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
-    assert live.main() == 0
+    assert live.main() == 2
     click.assert_called_once_with(driver, control)
     remaining = db.get_unresolved_recharges()
-    assert len(remaining) == 1 and remaining[0].recharge_id == old_id
+    assert len(remaining) == 2
+    assert next(record for record in remaining if record.recharge_id == old_id).status == 'UNKNOWN'
+    aldi = [record for record in remaining if record.provider == 'alditalk']
+    assert len(aldi) == 1 and aldi[0].status == 'UNKNOWN'
 
 
 def test_journal_wide_aldi_executor_lock_blocks_before_browser_start(monkeypatch, tmp_path):

@@ -27,7 +27,8 @@ from core.aldi_http_login import LoginError, phone_identifier
 
 
 # Historical receipt reconciliation is unavailable. This is a factual capability,
-# not the user's booking switch; NEW operations have separate volume confirmation.
+# not the user's booking switch. New operations also require an official,
+# operation-bound completion receipt; refreshed volume alone is not proof.
 ALDI_RECONCILIATION_VERIFIED = False
 
 REPORT_PATH = os.getenv("ALDI_LIVE_REPORT", "aldi-live-refill.json")
@@ -388,13 +389,16 @@ def main():
             cycle["after_gb"] = round(after, 3)
             cycle['volume_increased'] = after > before
             delta = after - before
-            # The Masterprompt permits refreshed allowance as independent proof
-            # for this NEW one-click operation. It is never a historical receipt.
-            status = ('SUCCESS' if after_binding == binding and 0 < delta <= 1.0 + 1e-6
-                      else 'UNKNOWN')
+            # Keep allowance changes as observations only. Neither a volume
+            # increase nor an order-accepted notice proves completed provision
+            # for this operation. Until an official completion receipt can be
+            # verified, keep the durable reservation unresolved and stop here.
+            cycle['observed_volume_delta_gb'] = round(delta, 6)
+            cycle['identity_unchanged'] = after_binding == binding
+            status = 'UNKNOWN'
             cycle['recharge_status'] = db.set_recharge_status(recharge_id, status)
-            cycle['verified'] = status == 'SUCCESS'
-            cycle['confirmation'] = 'refreshed_volume' if status == 'SUCCESS' else 'unverified'
+            cycle['verified'] = False
+            cycle['confirmation'] = 'unverified'
             _write(report)
             if status != 'SUCCESS':
                 report["outcome"] = "unknown_after_click"
@@ -426,8 +430,11 @@ def main():
             # Late UNKNOWN cannot overwrite a verified terminal outcome.
             try:
                 db.set_recharge_status(recharge_id, 'UNKNOWN')
-            except Exception:
-                # A failed update leaves durable PENDING blocking the account.
+            except Exception as exc:
+                # Preserve both the booking outcome and the sanitized storage
+                # failure. The durable PENDING/UNKNOWN reservation stays active.
+                report['outcome_before_journal_failure'] = report['outcome']
+                report['journal_exception_type'] = type(exc).__name__
                 report['outcome'] = 'journal_update_failed'
         report["finished_at"] = utcnow()
         try:
