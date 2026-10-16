@@ -430,8 +430,11 @@ def main():
             # Late UNKNOWN cannot overwrite a verified terminal outcome.
             try:
                 db.set_recharge_status(recharge_id, 'UNKNOWN')
-            except Exception:
-                # A failed update leaves durable PENDING blocking the account.
+            except Exception as exc:
+                # Preserve both the booking outcome and the sanitized storage
+                # failure. The durable PENDING/UNKNOWN reservation stays active.
+                report['outcome_before_journal_failure'] = report['outcome']
+                report['journal_exception_type'] = type(exc).__name__
                 report['outcome'] = 'journal_update_failed'
         report["finished_at"] = utcnow()
         try:

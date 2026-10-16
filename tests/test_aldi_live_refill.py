@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import json
 import pytest
-from core.database import Database
+from core.database import Database, RechargeLockedError
 
 import aldi_live_refill as live
 
@@ -194,12 +194,52 @@ def test_positive_volume_below_threshold_cannot_trigger_second_refill_or_restart
     import github_live_refill as hosted
     monkeypatch.setattr(live, 'check_recharge_status', hosted._recover_recharge_status)
     # A separate run must recover the same unresolved operation without clicking.
+    for _ in range(3):
+        assert live.main() == 2
+        assert clicks == [(driver, first)]
+        records = db.get_unresolved_recharges()
+        assert len(records) == 1
+        assert records[0].recharge_id == recharge_id
+        assert records[0].status == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('fail_all_updates', [False, True])
+def test_journal_update_failure_preserves_prior_outcome_and_durable_guard(
+        monkeypatch, tmp_path, fail_all_updates):
+    control = Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [_eligible(control), _unavailable()])
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    original = Database.set_recharge_status
+    updates = []
+
+    def failing_update(db, recharge_id, status, *args, **kwargs):
+        updates.append(recharge_id)
+        if fail_all_updates or len(updates) == 2:
+            raise OSError('private journal details must not enter reports')
+        return original(db, recharge_id, status, *args, **kwargs)
+
+    monkeypatch.setattr(Database, 'set_recharge_status', failing_update)
     assert live.main() == 2
-    assert clicks == [(driver, first)]
+    click.assert_called_once_with(driver, control)
+    driver.quit.assert_called_once()
+    report_text = (tmp_path / 'report.json').read_text()
+    report = json.loads(report_text)
+    assert report['outcome'] == 'journal_update_failed'
+    assert report['outcome_before_journal_failure'] == (
+        'error' if fail_all_updates else 'unknown_after_click')
+    assert report['journal_exception_type'] == 'OSError'
+    assert report['successful_refills'] == 0
+    assert report['finished_at'] is not None
+    assert 'private journal details' not in report_text
+    db = Database(str(tmp_path / 'journal.sqlite'))
     records = db.get_unresolved_recharges()
     assert len(records) == 1
-    assert records[0].recharge_id == recharge_id
-    assert records[0].status == 'UNKNOWN'
+    assert records[0].recharge_id == report['cycles'][0]['recharge_id']
+    assert records[0].status == ('PENDING' if fail_all_updates else 'UNKNOWN')
+    with pytest.raises(RechargeLockedError):
+        db.begin_recharge('alditalk', '01500000000')
 
 
 def test_visible_plus_one_gb_button_is_recognized_after_offer_gate(monkeypatch):
