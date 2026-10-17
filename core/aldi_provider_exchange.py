@@ -82,11 +82,28 @@ def clear_performance_log(driver) -> None:
         pass
 
 
+def _cached_response_body(driver, request_id):
+    """Read only Chrome's cached response body; never issue or repeat a provider call."""
+    try:
+        cached = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
+    except Exception:
+        return None
+    if not isinstance(cached, dict):
+        return None
+    return _json_body(
+        cached.get("body"),
+        base64_encoded=cached.get("base64Encoded") is True,
+    )
+
+
 def observe_update_unlimited_exchange(driver, timeout: float = 8.0) -> Optional[ProviderExchange]:
     """Return the first observed updateUnlimited request/response pair.
 
     No click, navigation, refresh or network retry is performed here. DevTools body
-    reads operate on data Chrome already received for the UI-triggered request.
+    reads operate on data Chrome already received for the UI-triggered request. A
+    response body can become readable shortly after responseReceived, so cached
+    body reads are retried until the observation deadline without repeating the
+    provider request.
     """
     deadline = time.monotonic() + max(0.1, float(timeout))
     request_id = None
@@ -136,25 +153,16 @@ def observe_update_unlimited_exchange(driver, timeout: float = 8.0) -> Optional[
                 continue
 
         if request_id and response_seen:
-            try:
-                cached = driver.execute_cdp_cmd(
-                    "Network.getResponseBody", {"requestId": request_id}
+            response_payload = _cached_response_body(driver, request_id)
+            if response_payload is not None:
+                return ProviderExchange(
+                    request_payload=request_payload,
+                    response_payload=response_payload,
+                    http_status=http_status,
+                    request_was_update_unlimited=True,
+                    request_id_present=True,
+                    response_body_available=True,
                 )
-                response_payload = _json_body(
-                    cached.get("body") if isinstance(cached, dict) else None,
-                    base64_encoded=bool(isinstance(cached, dict) and cached.get("base64Encoded") is True),
-                )
-            except Exception:
-                response_payload = None
-
-            return ProviderExchange(
-                request_payload=request_payload,
-                response_payload=response_payload,
-                http_status=http_status,
-                request_was_update_unlimited=True,
-                request_id_present=True,
-                response_body_available=response_payload is not None,
-            )
 
         remaining = deadline - time.monotonic()
         if remaining > 0:
