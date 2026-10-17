@@ -186,6 +186,16 @@ pytest --cov=.
 
 ## Plugin-Erweiterung
 
+`import plugins` lädt keine Watcher-Untermodule. Auch
+`from plugins import BaseWatcher` benötigt weder aiohttp noch Playwright.
+Die Providerklassen werden beim ersten Zugriff geladen und anschließend
+zwischengespeichert; `dir(plugins)` zeigt sie ohne Import an. Fehlende optionale
+Provider-Abhängigkeiten erzeugen einen `ImportError` mit Installationshinweis.
+`from plugins import *` lädt dagegen alle in `__all__` aufgeführten Klassen
+und benötigt deshalb deren Laufzeitabhängigkeiten. Die Browserinstallation
+ist erst für den tatsächlichen Playwright-Betrieb erforderlich.
+
+
 Neue Provider als Plugin in `plugins/` hinzufügen:
 
 ```python
