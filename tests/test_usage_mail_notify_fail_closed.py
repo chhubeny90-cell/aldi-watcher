@@ -52,13 +52,11 @@ def test_workflow_surfaces_monitor_configuration_errors():
     assert "github_live_refill" not in text
 
 
-def test_workflow_uses_secret_dedup_fallback_without_plaintext_key():
+def test_workflow_keeps_dedup_key_independent_of_rotating_mailbox_passwords():
     text = Path(".github/workflows/mail-trigger.yml").read_text(encoding="utf-8")
-    assert (
-        "ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY || "
-        "secrets.MAILBOX_1_PASS || secrets.MAILBOX_2_PASS }}"
-    ) in text
-    assert "ALDI_RECOVERY_KEY: hardcoded" not in text
+    key_line = next(line.strip() for line in text.splitlines()
+                    if line.strip().startswith("ALDI_RECOVERY_KEY:"))
+    assert key_line == "ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}"
 
 
 @pytest.mark.parametrize("index", [1, 2])
