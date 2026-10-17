@@ -35,8 +35,35 @@ For every external result:
    - `TEST` — plausible but requires repository or live evidence.
    - `REJECT` — contradicted, unsafe, stale or weaker than the existing design.
    - `DUPLICATE` — already covered.
-6. Never copy secrets, tokens, credentials, phone numbers or provider identifiers into issues, PRs or logs.
-7. Never weaken fail-closed behavior because multiple AI systems agree.
+6. Private identifiers such as phone numbers may be read and used internally for account/profile binding. They must not be copied into issues, PR descriptions, logs, model reports or external AI prompts unless a future task explicitly requires that disclosure.
+7. Secrets, tokens, credentials, cookies and passwords are never placed in issues, PRs, logs or external AI prompts.
+8. Never weaken fail-closed behavior because multiple AI systems agree.
+
+## Zero-cost policy
+
+The AI review hub is **zero-cost only** by default.
+
+- The current implementation is API-neutral and performs no paid provider calls.
+- Do not enable an adapter that can incur usage charges, metered API fees, credits, purchases or subscriptions.
+- A provider that is only available through a paid/metered API is `NOT_RUN`; the hub must not silently fall back to a billable endpoint.
+- Existing consumer subscriptions are not treated as API spending permission.
+- Manual/app-based review paths and already-included free capabilities are preferred.
+- No repository workflow may purchase, upgrade or enable a paid plan.
+
+## Repository write policy
+
+The orchestrator may prepare and push reviewed commits to working branches and may open/update pull requests. External model output never writes directly to `main`; repository checks remain the authority for promotion. This is a safety boundary, not a ban on pushing changes.
+
+## Private identifier handling
+
+Phone numbers are operational data, not forbidden input. The local/private workflow may:
+
+- read and normalize a configured number;
+- compare it with authenticated account identity;
+- use it for profile selection and wrong-account guards;
+- retain it only in private configuration or protected local state when necessary.
+
+Before any context is sent to an external AI reviewer, phone numbers and mailbox addresses are masked. Reports should contain only a non-reversible description such as `PHONE_REDACTED` or an already-approved short suffix when needed for diagnostics.
 
 ## Promotion rules
 
@@ -57,6 +84,7 @@ For ALDI refill completion, visible volume changes, banners, SMS, e-mail or mode
 - Close or supersede redundant branches/PRs instead of stacking variants.
 - Fold accepted findings into existing canonical docs rather than creating parallel notes.
 - Remove temporary diagnostic code after the evidence it was created to capture has been converted into tests or durable documentation.
+- Delete or archive transient AI review payloads after their accepted claims are converted into tests/docs/commits; do not accumulate raw model output indefinitely.
 - Keep `main` as the sole source of truth for the current implementation state.
 
 ## Working convention
