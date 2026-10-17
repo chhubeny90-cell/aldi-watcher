@@ -101,6 +101,37 @@ def _status(payload: Any) -> Optional[str]:
     return values[0]
 
 
+def _response_resource_matches(payload: Any, expected: Optional[str]) -> bool:
+    """Omission is allowed; every present alias must be valid and match."""
+    for path, value in _walk(payload):
+        if path[-1].casefold() not in RESOURCE_ID_KEYS:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            return False
+        if not str(value).strip() or str(value).strip() != expected:
+            return False
+    return True
+
+
+def _operation_status_bound(payload: Any, operation_id: Optional[str], status: Optional[str]) -> bool:
+    """Require one record with both direct operation ID and status fields.
+
+    Recursive global uniqueness checks remain in force, but may never assemble
+    completion evidence from separate operation/history records.
+    """
+    if operation_id is None or status is None:
+        return False
+    records = [payload] + [value for _, value in _walk(payload) if isinstance(value, Mapping)]
+    matches = 0
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        direct = {key: value for key, value in record.items() if not isinstance(value, (Mapping, list))}
+        if _unique_scalar(direct, OPERATION_ID_KEYS) == operation_id and _status(direct) == status:
+            matches += 1
+    return matches == 1
+
+
 def evaluate_completion(
     *,
     request_payload: Any,
@@ -120,7 +151,6 @@ def evaluate_completion(
     request_offer = _unique_scalar(request_payload, OFFER_ID_KEYS)
     request_subscription = _unique_scalar(request_payload, SUBSCRIPTION_ID_KEYS)
     request_resource = _unique_scalar(request_payload, RESOURCE_ID_KEYS)
-    response_resource = _unique_scalar(response_payload, RESOURCE_ID_KEYS)
     operation_id = _unique_scalar(response_payload, OPERATION_ID_KEYS)
     provider_status = _status(response_payload)
 
@@ -129,18 +159,19 @@ def evaluate_completion(
         and request_offer
         and request_subscription
         and request_resource
-        and (response_resource is None or response_resource == request_resource)
+        and _response_resource_matches(response_payload, request_resource)
     )
 
     provider_terminal_success = bool(provider_status in TERMINAL_SUCCESS)
     if provider_status in NON_TERMINAL:
         provider_terminal_success = False
 
-    valid_http = isinstance(http_status, int) and 200 <= http_status < 300
+    # Acceptance is not a terminal completion, even with a success-looking body.
+    valid_http = type(http_status) is int and 200 <= http_status < 300 and http_status != 202
     return CompletionContract(
         account_binding_verified=account_binding_verified is True,
         offer_binding_verified=offer_binding_verified,
-        provider_operation_bound=bool(operation_id),
+        provider_operation_bound=_operation_status_bound(response_payload, operation_id, provider_status),
         provider_terminal_success=bool(valid_http and provider_terminal_success),
         provider_operation_id=operation_id,
         provider_resource_id=request_resource,
@@ -158,3 +189,4 @@ def supporting_evidence(*, volume_delta_gb=None, identity_unchanged=None, banner
         "sms_observed": bool(sms),
         "email_observed": bool(email),
     }
+

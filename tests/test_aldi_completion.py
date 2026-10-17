@@ -171,3 +171,59 @@ def test_balance_sms_banner_and_email_are_diagnostic_only():
     assert evidence["volume_delta_gb"] == 1.0
     assert evidence["identity_unchanged"] is True
     assert all(evidence[key] is True for key in ("banner_observed", "sms_observed", "email_observed"))
+
+
+@pytest.mark.parametrize("resource_fields", [
+    {"resourceId": "resource-live", "nested": {"resourceId": "other"}},
+    {"resourceId": "resource-live", "updateOfferResourceID": "other"},
+    {"resourceId": None},
+    {"resourceId": ""},
+    {"resourceId": True},
+    {"resourceId": ["resource-live"]},
+])
+def test_present_invalid_or_conflicting_response_resource_stays_unknown(resource_fields):
+    result = evaluate_completion(
+        request_payload=_live_request(),
+        response_payload={"transactionId": "tx-1", "status": "COMPLETED", **resource_fields},
+        http_status=200, account_binding_verified=True, request_was_update_unlimited=True,
+    )
+    assert result.offer_binding_verified is False
+    assert result.result == "UNKNOWN"
+
+
+@pytest.mark.parametrize("status", ["SUCCESS", "COMPLETED", "FULFILLED"])
+def test_http_202_never_confirms_completion(status):
+    result = evaluate_completion(
+        request_payload=_live_request(),
+        response_payload={"transactionId": "tx-1", "status": status},
+        http_status=202, account_binding_verified=True, request_was_update_unlimited=True,
+    )
+    assert result.provider_terminal_success is False
+    assert result.result == "UNKNOWN"
+
+
+@pytest.mark.parametrize("response", [
+    {"current": {"transactionId": "tx-1"}, "history": {"status": "COMPLETED"}},
+    {"transactionId": "tx-1", "history": {"status": "COMPLETED"}},
+    [{"transactionId": "tx-1"}, {"status": "COMPLETED"}],
+    [{"transactionId": "tx-1", "status": "COMPLETED"},
+     {"transactionId": "tx-1", "status": "COMPLETED"}],
+])
+def test_unbound_or_ambiguous_operation_record_stays_unknown(response):
+    result = evaluate_completion(
+        request_payload=_live_request(), response_payload=response,
+        http_status=200, account_binding_verified=True, request_was_update_unlimited=True,
+    )
+    assert result.provider_operation_bound is False
+    assert result.result == "UNKNOWN"
+
+
+def test_single_nested_operation_record_can_confirm_completion():
+    result = evaluate_completion(
+        request_payload=_live_request(),
+        response_payload={"operation": {"transactionId": "tx-1", "status": "COMPLETED",
+                                        "resourceId": "resource-live"}},
+        http_status=200, account_binding_verified=True, request_was_update_unlimited=True,
+    )
+    assert result.result == "SUCCESS"
+
