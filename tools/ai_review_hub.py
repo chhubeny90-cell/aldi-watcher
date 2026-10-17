@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 PROVIDERS = ("perplexity", "gemini", "copilot", "openai")
+COST_POLICY = "ZERO_COST_ONLY"
 CATEGORIES = (
     "research/provider",
     "architecture/state-machine",
@@ -55,6 +56,10 @@ OBVIOUS_SECRET_PATTERNS = (
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+GERMAN_MOBILE_PATTERN = re.compile(
+    r"(?<!\w)(?:\+49|0049|0)[\s()/.-]*1[5-7]\d(?:[\s()/.-]*\d){7,9}(?!\w)"
+)
 
 
 class ReviewError(ValueError):
@@ -75,6 +80,18 @@ def _reject_obvious_secrets(text: str) -> None:
             raise ReviewError("obvious_secret_detected")
 
 
+def _sanitize_external_text(text: str) -> str:
+    """Mask operational identifiers before context leaves the private workflow."""
+    text = EMAIL_PATTERN.sub("<EMAIL_REDACTED>", text)
+    text = GERMAN_MOBILE_PATTERN.sub("<PHONE_REDACTED>", text)
+    return text
+
+
+def _reject_external_private_identifiers(text: str) -> None:
+    if EMAIL_PATTERN.search(text) or GERMAN_MOBILE_PATTERN.search(text):
+        raise ReviewError("private_identifier_in_external_output")
+
+
 def build_prompt(task: ReviewTask) -> str:
     if task.provider not in PROVIDERS:
         raise ReviewError(f"unsupported_provider:{task.provider}")
@@ -83,20 +100,25 @@ def build_prompt(task: ReviewTask) -> str:
     _reject_obvious_secrets(task.question)
     _reject_obvious_secrets(task.context)
 
+    question = _sanitize_external_text(task.question)
+    context = _sanitize_external_text(task.context)
+
     return f"""You are one reviewer in a multi-model GitHub review hub.
 
 Target repository commit: {task.target_commit}
 Provider role: {task.provider}
 Role focus: {ROLE_FOCUS[task.provider]}
+Cost policy: {COST_POLICY}. Do not recommend or initiate paid/metered API usage.
 
 Task:
-{task.question.strip()}
+{question.strip()}
 
 Repository/context supplied to you:
-{task.context.strip() or '(none)'}
+{context.strip() or '(none)'}
 
 Hard rules:
 - Review ONLY the target commit/context supplied. If evidence is missing, say so.
+- Phone numbers and mailbox addresses may have been masked before this prompt was created; do not reconstruct or request them.
 - Never output credentials, tokens, passwords, phone numbers, mailbox addresses, cookies, or private provider identifiers.
 - Treat external AI/model consensus as non-authoritative.
 - Do not weaken fail-closed behavior merely to make the system more convenient.
@@ -152,6 +174,7 @@ def validate_review(data: dict[str, Any], expected_provider: str | None = None,
         raise ReviewError("invalid_claims")
 
     _reject_obvious_secrets(summary)
+    _reject_external_private_identifiers(summary)
     normalized_claims: list[dict[str, Any]] = []
     for idx, claim in enumerate(claims):
         if not isinstance(claim, dict):
@@ -174,6 +197,7 @@ def validate_review(data: dict[str, Any], expected_provider: str | None = None,
             raise ReviewError(f"claim_{idx}_invalid_confidence")
         combined = "\n".join([text, *evidence, proposed_change, risk_if_wrong])
         _reject_obvious_secrets(combined)
+        _reject_external_private_identifiers(combined)
         normalized_claims.append({
             "id": _claim_fingerprint(category, text),
             "category": category,
@@ -246,6 +270,7 @@ def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "target_commit": next(iter(commits)),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cost_policy": COST_POLICY,
         "providers": sorted({review["provider"] for review in reviews}),
         "claims": flattened,
         "duplicate_groups": duplicate_groups,
