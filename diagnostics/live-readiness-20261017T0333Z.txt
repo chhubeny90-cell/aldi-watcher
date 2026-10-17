@@ -1,0 +1,3 @@
+User requested completion of live operation on 2026-10-17.
+Run the existing HTTP login diagnostic once with configured secrets.
+No refill, tariff change, secret disclosure or recurring booking is requested by this diagnostic marker.
