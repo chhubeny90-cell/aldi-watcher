@@ -395,10 +395,10 @@ def main():
             # verified, keep the durable reservation unresolved and stop here.
             cycle['observed_volume_delta_gb'] = round(delta, 6)
             cycle['identity_unchanged'] = after_binding == binding
-            status = 'UNKNOWN'
-            cycle['recharge_status'] = db.set_recharge_status(recharge_id, status)
-            cycle['verified'] = False
-            cycle['confirmation'] = 'unverified'
+            status = db.set_recharge_status(recharge_id, 'UNKNOWN')
+            cycle['recharge_status'] = status
+            cycle['verified'] = status == 'SUCCESS'
+            cycle['confirmation'] = 'provider_receipt' if status == 'SUCCESS' else 'unverified'
             _write(report)
             if status != 'SUCCESS':
                 report["outcome"] = "unknown_after_click"
@@ -459,3 +459,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

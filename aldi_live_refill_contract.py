@@ -62,6 +62,21 @@ def _persist_provider_evidence(db, recharge_id, contract):
                 FOREIGN KEY(recharge_id) REFERENCES recharges(recharge_id)
             )
         """)
+        # Fail closed on legacy duplicates instead of blessing a replay. The
+        # unique index also serializes concurrent attempts using this journal.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_provider_operation
+            ON recharge_provider_evidence(provider_operation_id)
+        """)
+        conn.execute('BEGIN IMMEDIATE')
+        existing = conn.execute("""
+            SELECT provider_operation_id, provider_resource_id
+            FROM recharge_provider_evidence WHERE recharge_id = ?
+        """, (recharge_id,)).fetchone()
+        if existing is not None and existing != (
+            contract.provider_operation_id, contract.provider_resource_id
+        ):
+            raise RuntimeError('provider_evidence_rebinding_rejected')
         conn.execute("""
             INSERT INTO recharge_provider_evidence
             (recharge_id, provider_operation_id, provider_resource_id,
@@ -167,3 +182,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
