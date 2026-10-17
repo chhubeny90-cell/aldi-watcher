@@ -74,7 +74,7 @@ jobs:
         run: python portal_probe.py
       - name: Preserve public portal diagnosis
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
           path: portal-probe-report.json
