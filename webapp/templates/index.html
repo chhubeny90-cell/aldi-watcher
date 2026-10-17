@@ -15,6 +15,7 @@
     .start { background: #30d158; color: #000; }
     .stop { background: #ff453a; color: #fff; }
     .save { background: #0a84ff; color: #fff; }
+    .test { background: #5e5ce6; color: #fff; }
     .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2c2c2e; }
     .row:last-child { border-bottom: 0; }
     .label { color: #aaa; }
@@ -23,6 +24,7 @@
     .normal { color: #30d158; }
     .hidden { display: none; }
     .small { color: #8e8e93; font-size: 13px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #2c2c2e; padding: 12px; border-radius: 12px; }
   </style>
 </head>
 <body>
@@ -54,6 +56,7 @@
         <option value="180">180 Minuten</option>
       </select>
       <button id="startButton" class="start">Unlimited Filmmodus starten</button>
+      <button id="testButton" class="test">ALDI + Lidl testen</button>
       <button id="stopButton" class="stop">Stoppen</button>
     </div>
 
@@ -67,7 +70,12 @@
       <div class="row"><span class="label">Letzte Prüfung</span><span class="value" id="lastCheckValue">–</span></div>
     </div>
 
-    <p class="small">Turbo ab 1,2 GB: Prüfung alle 20 Sekunden. ALDI bucht ab 1,0 GB unbegrenzt 1-GB-Refills; Lidl nur bei verifiziert verfügbarem Gratis-Refill.</p>
+    <div class="card hidden" id="testCard">
+      <h2>Testergebnis</h2>
+      <pre id="testResult"></pre>
+    </div>
+
+    <p class="small">Der Testmodus meldet sich bei beiden Konten an, liest Status und Refill-Verfügbarkeit – er bucht jedoch nie.</p>
   </div>
 </main>
 
@@ -103,6 +111,19 @@ $("startButton").onclick = async () => {
   const data = await (await fetch("/api/start", { method: "POST", body })).json();
   $("statusValue").textContent = data.message;
   refresh();
+};
+
+$("testButton").onclick = async () => {
+  $("testButton").disabled = true;
+  $("testCard").classList.remove("hidden");
+  $("testResult").textContent = "Teste ALDI und Lidl…";
+  try {
+    const data = await (await fetch("/api/test", { method: "POST" })).json();
+    $("testResult").textContent = JSON.stringify(data.results, null, 2);
+  } catch {
+    $("testResult").textContent = "Test fehlgeschlagen.";
+  }
+  $("testButton").disabled = false;
 };
 
 $("stopButton").onclick = async () => {

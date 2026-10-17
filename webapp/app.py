@@ -1,8 +1,8 @@
-"""Automatic local ALDI/LIDL Unlimited movie-mode web UI.
+"""Automatic local ALDI/LIDL Unlimited movie-mode web UI with combined read-only test mode.
 
-First opening shows a setup page for provider, phone/email and password.
-Credentials are stored only locally in webapp/local_config.json. After setup,
-the browser shows the Unlimited movie-mode dashboard.
+First opening shows setup for provider, phone/email and password. Credentials
+are stored locally. The dashboard can start Unlimited movie mode or run a
+read-only test against both ALDI Talk and Lidl Connect.
 """
 
 import json
@@ -59,14 +59,13 @@ def save_config(config):
         pass
 
 
-def apply_credentials(config):
-    provider = config["provider"]
+def apply_credentials(provider, username, password):
     if provider == "ALDI":
-        os.environ["ALDI_USER"] = config["username"]
-        os.environ["ALDI_PASS"] = config["password"]
+        os.environ["ALDI_USER"] = username
+        os.environ["ALDI_PASS"] = password
     else:
-        os.environ["LIDL_USER"] = config["username"]
-        os.environ["LIDL_PASS"] = config["password"]
+        os.environ["LIDL_USER"] = username
+        os.environ["LIDL_PASS"] = password
 
 
 def update(**values):
@@ -146,7 +145,7 @@ def movie_mode(provider, duration_minutes):
         update(running=False, status="Keine Zugangsdaten gespeichert.")
         return
 
-    apply_credentials(config)
+    apply_credentials(config["provider"], config["username"], config["password"])
     prefix = "ALDI" if provider == "ALDI" else "LIDL"
 
     if not watcher.configure_credentials(prefix):
@@ -186,6 +185,81 @@ def movie_mode(provider, duration_minutes):
                 driver.quit()
             except Exception:
                 pass
+
+
+def run_read_only_test():
+    """Test both providers without clicking any refill control."""
+    results = {}
+
+    aldi_config = load_config()
+    if aldi_config:
+        apply_credentials("ALDI", aldi_config["username"], aldi_config["password"])
+        if watcher.configure_credentials("ALDI"):
+            driver = None
+            try:
+                driver = watcher.build_driver()
+                if watcher.aldi_login(driver):
+                    status = watcher.aldi_read_status(driver, include_refill=False)
+                    remaining_gb = status.get("inland_frei_gb")
+                    refill = None
+                    if remaining_gb is not None and remaining_gb <= BOOKING_THRESHOLD_GB:
+                        refill, _ = locate_aldi(driver, remaining_gb)
+                    results["ALDI"] = {
+                        "ok": True,
+                        "remaining_gb": remaining_gb,
+                        "refill_available": bool(refill and refill.get("refill_eligible")),
+                        "refill_reason": refill.get("refill_reason") if refill else "above_booking_threshold",
+                    }
+                else:
+                    results["ALDI"] = {"ok": False, "error": "login_failed"}
+            except Exception as exc:
+                results["ALDI"] = {"ok": False, "error": type(exc).__name__}
+            finally:
+                if driver:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+
+    lidl_config = load_config()
+    if lidl_config:
+        apply_credentials("LIDL", lidl_config["username"], lidl_config["password"])
+        if watcher.configure_credentials("LIDL"):
+            driver = None
+            try:
+                driver = watcher.build_driver()
+                if watcher.lidl_login(driver):
+                    status = watcher.lidl_read_status(driver)
+                    remaining_gb = status.get("inland_frei_gb")
+                    selectors = configured_selectors()
+                    refill_available = False
+                    reason = "selectors_unconfigured"
+                    if all(selectors.values()):
+                        tariff = driver.find_element(By.CSS_SELECTOR, selectors["active_tariff"])
+                        offer = driver.find_element(By.CSS_SELECTOR, selectors["refill_offer"])
+                        button = offer.find_element(By.CSS_SELECTOR, selectors["refill_button"])
+                        enabled = button.is_enabled() and button.get_attribute("aria-disabled") != "true" and button.get_attribute("disabled") is None
+                        refill = assess_refill(tariff.text, offer.text, button.text, enabled)
+                        refill_available = bool(refill.get("refill_eligible"))
+                        reason = refill.get("refill_reason")
+                    results["LIDL"] = {
+                        "ok": True,
+                        "remaining_gb": remaining_gb,
+                        "refill_available": refill_available,
+                        "refill_reason": reason,
+                    }
+                else:
+                    results["LIDL"] = {"ok": False, "error": "login_failed"}
+            except Exception as exc:
+                results["LIDL"] = {"ok": False, "error": type(exc).__name__}
+            finally:
+                if driver:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+
+    return results
 
 
 @app.get("/")
@@ -249,6 +323,13 @@ def start():
 def stop():
     update(should_stop=True, status="Stoppen angefordert…")
     return jsonify({"ok": True, "message": "Filmmodus wird gestoppt."})
+
+
+@app.post("/api/test")
+def test_both():
+    """Read-only test for ALDI Talk and Lidl Connect. Never books."""
+    results = run_read_only_test()
+    return jsonify({"ok": True, "results": results})
 
 
 if __name__ == "__main__":
