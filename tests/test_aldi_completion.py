@@ -3,12 +3,22 @@ import pytest
 from core.aldi_completion import evaluate_completion, supporting_evidence
 
 
+def _live_request(resource="resource-live", offer="offer-live", subscription="subscription-live"):
+    return {
+        "offerId": offer,
+        "subscriptionId": subscription,
+        "updateOfferResourceID": resource,
+        "amount": "1048576",
+        "refillThresholdValue": "1048576",
+    }
+
+
 def test_success_requires_all_four_gates():
     result = evaluate_completion(
-        request_payload={"resourceId": "offer-1"},
+        request_payload=_live_request(),
         response_payload={
             "transactionId": "tx-1",
-            "resourceId": "offer-1",
+            "resourceId": "resource-live",
             "status": "COMPLETED",
         },
         http_status=200,
@@ -22,17 +32,17 @@ def test_success_requires_all_four_gates():
 @pytest.mark.parametrize(
     "response,http_status,account_bound,request_is_update",
     [
-        ({"transactionId": "tx-1", "resourceId": "offer-1", "status": "COMPLETED"}, 200, False, True),
+        ({"transactionId": "tx-1", "resourceId": "resource-live", "status": "COMPLETED"}, 200, False, True),
         ({"transactionId": "tx-1", "resourceId": "other", "status": "COMPLETED"}, 200, True, True),
-        ({"resourceId": "offer-1", "status": "COMPLETED"}, 200, True, True),
-        ({"transactionId": "tx-1", "resourceId": "offer-1", "status": "ACCEPTED"}, 202, True, True),
-        ({"transactionId": "tx-1", "resourceId": "offer-1", "status": "COMPLETED"}, 500, True, True),
-        ({"transactionId": "tx-1", "resourceId": "offer-1", "status": "COMPLETED"}, 200, True, False),
+        ({"resourceId": "resource-live", "status": "COMPLETED"}, 200, True, True),
+        ({"transactionId": "tx-1", "resourceId": "resource-live", "status": "ACCEPTED"}, 202, True, True),
+        ({"transactionId": "tx-1", "resourceId": "resource-live", "status": "COMPLETED"}, 500, True, True),
+        ({"transactionId": "tx-1", "resourceId": "resource-live", "status": "COMPLETED"}, 200, True, False),
     ],
 )
 def test_missing_or_nonterminal_gate_stays_unknown(response, http_status, account_bound, request_is_update):
     result = evaluate_completion(
-        request_payload={"resourceId": "offer-1"},
+        request_payload=_live_request(),
         response_payload=response,
         http_status=http_status,
         account_binding_verified=account_bound,
@@ -42,13 +52,61 @@ def test_missing_or_nonterminal_gate_stays_unknown(response, http_status, accoun
     assert result.result == "UNKNOWN"
 
 
+@pytest.mark.parametrize(
+    "request_payload",
+    [
+        {"subscriptionId": "subscription-live", "updateOfferResourceID": "resource-live"},
+        {"offerId": "offer-live", "updateOfferResourceID": "resource-live"},
+        {"offerId": "offer-live", "subscriptionId": "subscription-live"},
+    ],
+)
+def test_offer_binding_requires_offer_subscription_and_resource(request_payload):
+    result = evaluate_completion(
+        request_payload=request_payload,
+        response_payload={"transactionId": "tx-1", "status": "SUCCESS"},
+        http_status=200,
+        account_binding_verified=True,
+        request_was_update_unlimited=True,
+    )
+    assert result.offer_binding_verified is False
+    assert result.result == "UNKNOWN"
+
+
+def test_live_portal_update_offer_resource_id_is_recognized():
+    result = evaluate_completion(
+        request_payload=_live_request(resource="resource-209"),
+        response_payload={"transactionId": "tx-209", "status": "SUCCESS"},
+        http_status=200,
+        account_binding_verified=True,
+        request_was_update_unlimited=True,
+    )
+    assert result.provider_resource_id == "resource-209"
+    assert result.offer_binding_verified is True
+    assert result.success is True
+
+
+def test_conflicting_resource_aliases_fail_closed():
+    request = _live_request()
+    request["resourceId"] = "different-resource"
+    result = evaluate_completion(
+        request_payload=request,
+        response_payload={"transactionId": "tx-1", "status": "SUCCESS"},
+        http_status=200,
+        account_binding_verified=True,
+        request_was_update_unlimited=True,
+    )
+    assert result.provider_resource_id is None
+    assert result.offer_binding_verified is False
+    assert result.result == "UNKNOWN"
+
+
 def test_ambiguous_operation_ids_are_not_bound():
     result = evaluate_completion(
-        request_payload={"resourceId": "offer-1"},
+        request_payload=_live_request(),
         response_payload={
             "transactionId": "tx-1",
             "orderId": "order-2",
-            "resourceId": "offer-1",
+            "resourceId": "resource-live",
             "status": "SUCCESS",
         },
         http_status=200,
@@ -61,10 +119,10 @@ def test_ambiguous_operation_ids_are_not_bound():
 
 def test_ambiguous_statuses_are_not_terminal_success():
     result = evaluate_completion(
-        request_payload={"resourceId": "offer-1"},
+        request_payload=_live_request(),
         response_payload={
             "transactionId": "tx-1",
-            "resourceId": "offer-1",
+            "resourceId": "resource-live",
             "status": "COMPLETED",
             "details": {"state": "PROCESSING"},
         },
@@ -76,9 +134,9 @@ def test_ambiguous_statuses_are_not_terminal_success():
     assert result.result == "UNKNOWN"
 
 
-def test_response_may_omit_resource_if_request_has_one():
+def test_response_may_omit_resource_when_request_binding_is_complete():
     result = evaluate_completion(
-        request_payload={"resourceId": "offer-1"},
+        request_payload=_live_request(),
         response_payload={"transactionId": "tx-1", "status": "SUCCESS"},
         http_status=200,
         account_binding_verified=True,
@@ -90,7 +148,7 @@ def test_response_may_omit_resource_if_request_has_one():
 
 def test_sanitized_report_never_exposes_provider_ids():
     result = evaluate_completion(
-        request_payload={"resourceId": "secret-offer"},
+        request_payload=_live_request(resource="secret-offer", offer="secret-plan", subscription="secret-sub"),
         response_payload={"transactionId": "secret-tx", "status": "FULFILLED"},
         http_status=200,
         account_binding_verified=True,
