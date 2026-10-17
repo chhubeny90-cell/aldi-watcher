@@ -77,6 +77,25 @@ def test_untrusted_origin_never_receives_credentials(login_page):
     driver.execute_script.assert_not_called()
 
 
+def test_current_oauth_redirect_is_allowed():
+    driver = Mock(current_url=(
+        'https://login.alditalk-kundenbetreuung.de/signin/oauth2/authorize?state=PRIVATE'
+    ))
+    watcher.require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
+
+
+@pytest.mark.parametrize('url', [
+    'http://login.alditalk-kundenbetreuung.de/signin/oauth2/authorize',
+    'https://login.alditalk-kundenbetreuung.de/signin/oauth2/authorize/extra',
+    'https://login.alditalk-kundenbetreuung.de.attacker.invalid/signin/oauth2/authorize',
+    'https://user@login.alditalk-kundenbetreuung.de/signin/oauth2/authorize',
+])
+def test_oauth_redirect_allowlist_rejects_near_misses(url):
+    driver = Mock(current_url=url)
+    with pytest.raises(PermissionError):
+        watcher.require_origin(driver, watcher.ALDI_LOGIN_URL, login_hosts=watcher.ALDI_LOGIN_HOSTS)
+
+
 def test_sso_host_is_not_a_confirmed_portal_session(login_page):
     driver, user, password, submit, navigate_mock = login_page
     driver.current_url = 'https://login.alditalk-kundenbetreuung.de/signin/XUI/'
@@ -311,3 +330,4 @@ def test_missing_login_controls_are_not_assumed_to_be_maintenance(login_page, mo
     assert 'service_maintenance' not in phases
     user.send_keys.assert_not_called()
     password.send_keys.assert_not_called()
+    driver.execute_cdp_cmd.assert_not_called()
