@@ -20,7 +20,15 @@ OPERATION_ID_KEYS = {
     "transactionid", "transaction_id", "operationid", "operation_id",
     "orderid", "order_id", "referenceid", "reference_id",
 }
-RESOURCE_ID_KEYS = {"resourceid", "resource_id", "offerresourceid", "offer_resource_id"}
+# The current ALDI portal's updateUnlimited payload uses updateOfferResourceID.
+# Keep older/generic aliases for observed provider responses, but require exactly
+# one value across all aliases so conflicting identifiers fail closed.
+RESOURCE_ID_KEYS = {
+    "resourceid", "resource_id", "offerresourceid", "offer_resource_id",
+    "updateofferresourceid", "update_offer_resource_id",
+}
+OFFER_ID_KEYS = {"offerid", "offer_id"}
+SUBSCRIPTION_ID_KEYS = {"subscriptionid", "subscription_id"}
 STATUS_KEYS = {"status", "state", "operationstatus", "operation_status", "orderstatus", "order_status"}
 
 
@@ -103,11 +111,14 @@ def evaluate_completion(
 ) -> CompletionContract:
     """Evaluate one observed updateUnlimited exchange without guessing semantics.
 
-    Offer binding requires exactly one request resource id and, when the response
-    exposes a resource id, an exact match. A successful HTTP status is not enough;
-    the response must also contain exactly one explicit terminal-success status and
-    exactly one provider operation/order/reference id.
+    Offer binding requires the concrete request triplet used by the current portal:
+    offerId + subscriptionId + updateOfferResourceID/resourceId. If the response
+    exposes a resource id it must exactly match the request. A successful HTTP
+    status alone is not enough; the response must also contain exactly one explicit
+    terminal-success status and exactly one provider operation/order/reference id.
     """
+    request_offer = _unique_scalar(request_payload, OFFER_ID_KEYS)
+    request_subscription = _unique_scalar(request_payload, SUBSCRIPTION_ID_KEYS)
     request_resource = _unique_scalar(request_payload, RESOURCE_ID_KEYS)
     response_resource = _unique_scalar(response_payload, RESOURCE_ID_KEYS)
     operation_id = _unique_scalar(response_payload, OPERATION_ID_KEYS)
@@ -115,6 +126,8 @@ def evaluate_completion(
 
     offer_binding_verified = bool(
         request_was_update_unlimited
+        and request_offer
+        and request_subscription
         and request_resource
         and (response_resource is None or response_resource == request_resource)
     )
