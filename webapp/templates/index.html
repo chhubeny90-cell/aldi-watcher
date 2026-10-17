@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unlimited Filmmodus</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 0; background: #111; color: #fff; }
+    main { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
+    h1 { font-size: 26px; }
+    .card { background: #1c1c1e; border-radius: 18px; padding: 20px; margin-bottom: 16px; }
+    label { display: block; color: #aaa; font-size: 14px; margin: 12px 0 6px; }
+    input, select { width: 100%; padding: 14px; border: 0; border-radius: 12px; background: #2c2c2e; color: #fff; font-size: 16px; }
+    button { width: 100%; padding: 16px; border: 0; border-radius: 14px; font-size: 17px; font-weight: 700; cursor: pointer; margin-top: 12px; }
+    .start { background: #30d158; color: #000; }
+    .stop { background: #ff453a; color: #fff; }
+    .save { background: #0a84ff; color: #fff; }
+    .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2c2c2e; }
+    .row:last-child { border-bottom: 0; }
+    .label { color: #aaa; }
+    .value { font-weight: 600; }
+    .turbo { color: #ffd60a; }
+    .normal { color: #30d158; }
+    .hidden { display: none; }
+    .small { color: #8e8e93; font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Unlimited Filmmodus</h1>
+
+  <div id="setup" class="card hidden">
+    <h2>Ersteinrichtung</h2>
+    <label for="provider">Anbieter</label>
+    <select id="provider">
+      <option value="ALDI">ALDI Talk</option>
+      <option value="LIDL">Lidl Connect</option>
+    </select>
+    <label for="username">Rufnummer oder E-Mail</label>
+    <input id="username" autocomplete="username">
+    <label for="password">Passwort</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="saveButton" class="save">Speichern und starten</button>
+    <p id="setupMessage" class="small"></p>
+  </div>
+
+  <div id="dashboard" class="hidden">
+    <div class="card">
+      <label for="duration">Filmmodus-Dauer</label>
+      <select id="duration">
+        <option value="60">60 Minuten</option>
+        <option value="90">90 Minuten</option>
+        <option value="120" selected>120 Minuten</option>
+        <option value="180">180 Minuten</option>
+      </select>
+      <button id="startButton" class="start">Unlimited Filmmodus starten</button>
+      <button id="stopButton" class="stop">Stoppen</button>
+    </div>
+
+    <div class="card">
+      <div class="row"><span class="label">Anbieter</span><span class="value" id="providerValue">–</span></div>
+      <div class="row"><span class="label">Benutzer</span><span class="value" id="usernameValue">–</span></div>
+      <div class="row"><span class="label">Modus</span><span class="value" id="modeValue">NORMAL</span></div>
+      <div class="row"><span class="label">Status</span><span class="value" id="statusValue">Bereit.</span></div>
+      <div class="row"><span class="label">Rest-Highspeed</span><span class="value" id="remainingValue">–</span></div>
+      <div class="row"><span class="label">Nachbuchungen</span><span class="value" id="bookingsValue">0</span></div>
+      <div class="row"><span class="label">Letzte Prüfung</span><span class="value" id="lastCheckValue">–</span></div>
+    </div>
+
+    <p class="small">Turbo ab 1,2 GB: Prüfung alle 20 Sekunden. ALDI bucht ab 1,0 GB unbegrenzt 1-GB-Refills; Lidl nur bei verifiziert verfügbarem Gratis-Refill.</p>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function loadConfig() {
+  const config = await (await fetch("/api/config")).json();
+  if (config.configured) {
+    $("setup").classList.add("hidden");
+    $("dashboard").classList.remove("hidden");
+    $("providerValue").textContent = config.provider;
+    $("usernameValue").textContent = config.username;
+  } else {
+    $("setup").classList.remove("hidden");
+    $("dashboard").classList.add("hidden");
+  }
+}
+
+$("saveButton").onclick = async () => {
+  const body = new URLSearchParams({
+    provider: $("provider").value,
+    username: $("username").value,
+    password: $("password").value
+  });
+  const data = await (await fetch("/api/config", { method: "POST", body })).json();
+  $("setupMessage").textContent = data.message;
+  if (data.ok) loadConfig();
+};
+
+$("startButton").onclick = async () => {
+  const body = new URLSearchParams({ duration_minutes: $("duration").value });
+  const data = await (await fetch("/api/start", { method: "POST", body })).json();
+  $("statusValue").textContent = data.message;
+  refresh();
+};
+
+$("stopButton").onclick = async () => {
+  await fetch("/api/stop", { method: "POST" });
+  $("statusValue").textContent = "Stoppen angefordert…";
+  refresh();
+};
+
+async function refresh() {
+  try {
+    const data = await (await fetch("/api/status")).json();
+    $("modeValue").textContent = data.mode;
+    $("modeValue").className = "value " + data.mode.toLowerCase();
+    $("statusValue").textContent = data.status;
+    $("remainingValue").textContent = data.remaining_gb === null ? "–" : Number(data.remaining_gb).toFixed(2) + " GB";
+    $("bookingsValue").textContent = data.bookings;
+    $("lastCheckValue").textContent = data.last_check || "–";
+  } catch {
+    $("statusValue").textContent = "Server nicht erreichbar.";
+  }
+}
+
+loadConfig();
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
