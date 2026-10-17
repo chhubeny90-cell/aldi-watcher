@@ -17,7 +17,7 @@ jobs:
       ALDI_USER: ${{ secrets.ALDI_USER }}
       ALDI_PASS: ${{ secrets.ALDI_PASS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
