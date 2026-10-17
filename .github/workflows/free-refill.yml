@@ -75,11 +75,12 @@ jobs:
     env:
       AUTO_BOOK_ENABLED: 'true'
       ALDI_MAX_REFILLS_PER_RUN: '1'
+      ALDI_REQUIRED_TARGET_SUFFIX: '1869'
       ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
       ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
       ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER || secrets.ALDI_USER }}
       ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
-      ALDI_LOGIN_USER: ${{ secrets.ALDI_LOGIN_USER }}
+      ALDI_LOGIN_USER: ${{ secrets.ALDI_PROFILE_1_LOGIN_USER || secrets.ALDI_LOGIN_USER }}
       ALDI_PASS: ${{ secrets.ALDI_PASS }}
       ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
       CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
