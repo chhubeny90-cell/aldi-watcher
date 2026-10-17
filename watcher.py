@@ -5,7 +5,7 @@ from core.credentials import get_credential
 from browser_dom import find_visible_elements, element_label, rendered_text, trusted_pointer_click
 from core.lidl_refill import inspect_selenium
 from core.aldi_refill import inspect_selenium as inspect_aldi_refill
-from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin
+from monitoring import run_cli, phase, session_visible, navigate, remaining_gb, require_origin as _require_origin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -39,6 +39,25 @@ LIDL_LOGIN_URL = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
 LIDL_OVERVIEW_URL = LIDL_LOGIN_URL
 
 WAIT_TIMEOUT = 30
+
+
+def require_origin(driver, expected, login_hosts=()):
+    """Allow only reviewed ALDI SSO paths in addition to the shared origin guard."""
+    actual = urlsplit(driver.current_url)
+    try:
+        trusted_oauth = (
+            actual.scheme == 'https'
+            and actual.hostname in login_hosts
+            and actual.path == '/signin/oauth2/authorize'
+            and actual.port in (None, 443)
+            and actual.username is None
+            and actual.password is None
+        )
+    except ValueError:
+        trusted_oauth = False
+    if trusted_oauth:
+        return
+    return _require_origin(driver, expected, login_hosts=login_hosts)
 
 
 def configure_credentials(prefix):
