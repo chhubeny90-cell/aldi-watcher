@@ -90,3 +90,19 @@ def test_preclaimed_mail_cannot_bypass_unverified_handoff(monkeypatch):
     monkeypatch.setenv("ALDI_TRIGGER_MESSAGE_KEY", "synthetic-unit-test")
     with pytest.raises(RuntimeError, match="unverified_mail_handoff_blocked"):
         hosted._claim_mail_trigger()
+
+
+def test_unverified_raw_mail_trigger_cannot_start_actor(monkeypatch):
+    import pytest
+    monkeypatch.setenv("ALDI_TRIGGER_MESSAGE_KEY", "synthetic-mail-event")
+    monkeypatch.delenv("ALDI_TRIGGER_PRECLAIMED", raising=False)
+    with pytest.raises(RuntimeError, match="unverified_mail_handoff_blocked"):
+        hosted._claim_mail_trigger()
+
+
+def test_preclaimed_without_message_key_is_also_blocked(monkeypatch):
+    import pytest
+    monkeypatch.delenv("ALDI_TRIGGER_MESSAGE_KEY", raising=False)
+    monkeypatch.setenv("ALDI_TRIGGER_PRECLAIMED", "true")
+    with pytest.raises(RuntimeError, match="unverified_mail_handoff_blocked"):
+        hosted._claim_mail_trigger()
