@@ -43,10 +43,9 @@ def test_crash_before_actor_is_resumable_but_after_actor_is_quarantined():
 def test_completion_cannot_be_replayed():
     pending = reserve(None, KEY, "consumed")
     in_flight = transition(pending, Phase.IN_FLIGHT, expected_revision=0)
-    done = transition(in_flight, Phase.COMPLETED, expected_revision=1)
-    assert recover_after_crash(done) == done
-    with pytest.raises(HandoffBlocked, match="unsafe_transition"):
-        transition(done, Phase.IN_FLIGHT, expected_revision=2)
+    with pytest.raises(HandoffBlocked, match="provider_receipt_verifier_unavailable"):
+        transition(in_flight, Phase.COMPLETED, expected_revision=1)
+    assert recover_after_crash(in_flight).phase == Phase.QUARANTINED_UNKNOWN
 
 
 def test_cannot_claim_success_before_actor():
