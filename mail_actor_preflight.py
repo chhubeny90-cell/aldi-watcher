@@ -22,6 +22,9 @@ def preflight():
         "completed": counts[Phase.COMPLETED.value],
         "provider_action": False,
         "booking_enabled": False,
+        "journal_binding_verified": False,
+        "account_binding_verified": False,
+        "provider_completion_verified": False,
     }
 
 
