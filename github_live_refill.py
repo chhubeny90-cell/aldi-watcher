@@ -201,7 +201,9 @@ def _claim_mail_trigger():
     if not message_key:
         return True
     if os.environ.get("ALDI_TRIGGER_PRECLAIMED", "").strip().lower() == "true":
-        return True
+        # A caller-provided flag is not proof of a durable reservation.
+        # Reject until the mail handoff is bound to the authoritative journal.
+        raise RuntimeError("unverified_mail_handoff_blocked")
     return claim_trigger_key(message_key)
 
 
