@@ -106,3 +106,19 @@ def test_preclaimed_without_message_key_is_also_blocked(monkeypatch):
     monkeypatch.setenv("ALDI_TRIGGER_PRECLAIMED", "true")
     with pytest.raises(RuntimeError, match="unverified_mail_handoff_blocked"):
         hosted._claim_mail_trigger()
+
+
+def test_live_actor_requires_explicit_target_account(monkeypatch):
+    monkeypatch.setenv("AUTO_BOOK_ENABLED", "true")
+    monkeypatch.delenv("ALDI_EXPECTED_ACCOUNT", raising=False)
+    monkeypatch.setattr(hosted.watcher, "configure_credentials",
+                        lambda *_: (_ for _ in ()).throw(
+                            AssertionError("must fail before reading credentials")
+                        ))
+    assert hosted._target_guard() == "target_account_guard_missing"
+
+
+def test_non_live_actor_does_not_require_target_account(monkeypatch):
+    monkeypatch.setenv("AUTO_BOOK_ENABLED", "false")
+    monkeypatch.delenv("ALDI_EXPECTED_ACCOUNT", raising=False)
+    assert hosted._target_guard() is None
