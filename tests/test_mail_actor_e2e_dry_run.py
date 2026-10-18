@@ -92,7 +92,7 @@ def test_crash_after_claim_cannot_be_replayed(remote_state):
     assert recovered.phase == Phase.QUARANTINED_UNKNOWN
     with pytest.raises(HandoffBlocked, match="unsafe_transition"):
         queue.update_event("test-key", 2, Phase.IN_FLIGHT)
-    with pytest.raises(HandoffBlocked, match="provider_receipt_verifier_unavailable"):
+    with pytest.raises(HandoffBlocked, match="unsafe_transition"):
         queue.update_event("test-key", 2, Phase.COMPLETED)
 
 
