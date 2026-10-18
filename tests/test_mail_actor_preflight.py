@@ -52,3 +52,19 @@ def test_missing_remote_journal_blocks_handoff(monkeypatch):
     assert result["status"] == "BLOCKED"
     assert result["journal_state_present"] is False
     assert result["journal_binding_verified"] is False
+
+
+def test_blocked_preflight_returns_failing_exit_code(monkeypatch, capsys):
+    monkeypatch.setattr(worker, "preflight", lambda: {
+        "status": "BLOCKED", "booking_enabled": False,
+    })
+    assert worker.main() == 2
+    assert '"status": "BLOCKED"' in capsys.readouterr().out
+
+
+def test_preflight_only_exit_is_not_booking_permission(monkeypatch, capsys):
+    monkeypatch.setattr(worker, "preflight", lambda: {
+        "status": "PREFLIGHT_ONLY", "booking_enabled": False,
+    })
+    assert worker.main() == 0
+    assert '"booking_enabled": false' in capsys.readouterr().out
