@@ -49,10 +49,10 @@ def transition(current: Handoff, target: Phase, *, expected_revision: int) -> Ha
     # The provider has no implemented, operation-bound completion verifier.
     # Until such a verifier exists, a caller must never turn a mere volume
     # increase or a fabricated success flag into a terminal completion.
-    if target == Phase.COMPLETED:
-        raise HandoffBlocked("provider_receipt_verifier_unavailable")
     if target not in allowed[current.phase]:
         raise HandoffBlocked("unsafe_transition")
+    if target == Phase.COMPLETED:
+        raise HandoffBlocked("provider_receipt_verifier_unavailable")
     return Handoff(current.event_key, target, current.revision + 1)
 
 
