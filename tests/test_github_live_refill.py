@@ -82,3 +82,11 @@ def test_generic_auth_failure_sets_short_backoff(tmp_path, monkeypatch):
 
     assert hosted.main() == 2
     assert delays == [1]
+
+
+def test_preclaimed_mail_cannot_bypass_unverified_handoff(monkeypatch):
+    import pytest
+    monkeypatch.setenv("ALDI_TRIGGER_PRECLAIMED", "true")
+    monkeypatch.setenv("ALDI_TRIGGER_MESSAGE_KEY", "synthetic-unit-test")
+    with pytest.raises(RuntimeError, match="unverified_mail_handoff_blocked"):
+        hosted._claim_mail_trigger()
