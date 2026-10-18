@@ -19,9 +19,9 @@ def _load():
     if data.get("version") != QUEUE_VERSION or not isinstance(events, dict) or len(events) > MAX_EVENTS:
         raise HandoffBlocked("queue_invalid")
     for key, record in events.items():
-        if (not isinstance(key, str) or len(key) != 64 or
+        if (not isinstance(key, str) or len(key) != 64 or any(c not in "0123456789abcdef" for c in key) or
                 not isinstance(record, dict) or set(record) != {"phase", "revision"} or
-                record["phase"] not in Phase._value2member_map_ or
+                type(record["phase"]) is not str or record["phase"] not in Phase._value2member_map_ or
                 type(record["revision"]) is not int or record["revision"] < 0):
             raise HandoffBlocked("queue_invalid")
     return sha, events
