@@ -64,3 +64,11 @@ def test_queue_capacity_fail_closed(monkeypatch):
     with pytest.raises(HandoffBlocked, match="queue_capacity_reached"):
         queue._persist({"a": {} , "b": {}}, None) if queue.MAX_EVENTS < 2 else queue._persist(
             {str(i): {} for i in range(queue.MAX_EVENTS + 1)}, None)
+
+
+def test_queue_cannot_mark_completed_without_official_receipt(memory):
+    queue.enqueue_consumed(KEY, "consumed")
+    queue.update_event(KEY, 0, Phase.IN_FLIGHT)
+    with pytest.raises(HandoffBlocked, match="provider_receipt_verifier_unavailable"):
+        queue.update_event(KEY, 1, Phase.COMPLETED)
+    assert next(iter(memory["events"].values()))["phase"] == "IN_FLIGHT"
