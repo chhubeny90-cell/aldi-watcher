@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
+from core.mail_handoff_queue import enqueue_consumed
 from usage_mail_bridge import _mailboxes, _message_key, _signal
 
 
@@ -29,7 +30,8 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _poll_one(index, host, port, user, password, claim=claim_trigger_key):
+def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
+              enqueue=enqueue_consumed):
     alerts = []
     context = ssl.create_default_context()
     with imaplib.IMAP4_SSL(host, port, ssl_context=context) as client:
@@ -55,7 +57,14 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key):
             signal = _signal(message)
             if signal is None:
                 continue
-            if claim(_message_key(message, raw)):
+            message_key = _message_key(message, raw)
+            if signal == "consumed":
+                # Reserve the actionable event durably before reporting it.
+                # No provider action is dispatched from this monitor.
+                is_new = enqueue(message_key, signal)
+            else:
+                is_new = claim(message_key)
+            if is_new:
                 alerts.append({
                     "mailbox": index,
                     "signal": signal,

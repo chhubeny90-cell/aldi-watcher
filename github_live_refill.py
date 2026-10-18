@@ -152,6 +152,10 @@ def _manual_auth_once():
 def _target_guard():
     expected = os.environ.get("ALDI_EXPECTED_ACCOUNT", "").strip()
     if not expected:
+        # A live run must be pinned to an explicit intended SIM. The configured
+        # login alone cannot establish that it is the user's target account.
+        if os.environ.get("AUTO_BOOK_ENABLED", "false").strip().lower() == "true":
+            return "target_account_guard_missing"
         return None
     if not watcher.configure_credentials("ALDI"):
         return "credentials_unavailable"
@@ -197,13 +201,17 @@ def _recover_recharge_status(driver, recharge_id):
 
 
 def _claim_mail_trigger():
-    message_key = os.environ.get("ALDI_TRIGGER_MESSAGE_KEY", "").strip()
-    if not message_key:
-        return True
-    if os.environ.get("ALDI_TRIGGER_PRECLAIMED", "").strip().lower() == "true":
-        return True
-    return claim_trigger_key(message_key)
+    """Reject mail-driven bookings until the queue and journal share a verified actor gate.
 
+    Neither a raw Message-ID nor an environment 'preclaimed' flag proves
+    that the provider-changing actor owns a durable, account-bound reservation.
+    Manual runs without a mail trigger keep their existing guards.
+    """
+    message_key = os.environ.get("ALDI_TRIGGER_MESSAGE_KEY", "").strip()
+    preclaimed = os.environ.get("ALDI_TRIGGER_PRECLAIMED", "").strip().lower() == "true"
+    if message_key or preclaimed:
+        raise RuntimeError("unverified_mail_handoff_blocked")
+    return True
 
 def _heartbeat():
     try:
