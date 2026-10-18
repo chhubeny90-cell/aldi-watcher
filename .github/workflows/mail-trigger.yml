@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 4
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY || secrets.MAILBOX_1_PASS || secrets.MAILBOX_2_PASS }}
+      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
       ALDI_STATE_PATH: .aldi-state/profile-1.json
       MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
       MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}

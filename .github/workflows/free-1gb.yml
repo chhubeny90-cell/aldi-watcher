@@ -1,41 +1,16 @@
-name: Aldi Free 1GB Watcher
+name: Aldi Free 1GB Watcher (retired)
 
 on:
-  schedule:
-    - cron: "*/20 * * * *"
   workflow_dispatch:
 
-concurrency:
-  group: aldi-free-1gb
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
-  check-and-book:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      ALDI_USER: ${{ secrets.ALDI_USER }}
-      ALDI_PASS: ${{ secrets.ALDI_PASS }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install Chrome
-        id: chrome
-        uses: browser-actions/setup-chrome@v2
-        with:
-          chrome-version: stable
-          install-chromedriver: true
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Check volume and book free 1GB if needed
-        env:
-          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
-          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-        run: python simple_free_1gb.py
+      - name: Use the guarded refill entrypoint
+        run: |
+          echo "Legacy unjournaled booking is disabled. Use ALDI Guarded Free Refill with its target, journal and completion checks."
+          exit 3
