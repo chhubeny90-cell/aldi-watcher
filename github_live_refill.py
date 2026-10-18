@@ -152,6 +152,10 @@ def _manual_auth_once():
 def _target_guard():
     expected = os.environ.get("ALDI_EXPECTED_ACCOUNT", "").strip()
     if not expected:
+        # A live run must be pinned to an explicit intended SIM. The configured
+        # login alone cannot establish that it is the user's target account.
+        if os.environ.get("AUTO_BOOK_ENABLED", "false").strip().lower() == "true":
+            return "target_account_guard_missing"
         return None
     if not watcher.configure_credentials("ALDI"):
         return "credentials_unavailable"
