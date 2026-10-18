@@ -3,6 +3,7 @@ from core.mail_actor_handoff import HandoffBlocked
 
 
 def test_empty_queue_is_preflight_only(monkeypatch):
+    monkeypatch.setattr(worker, "_get_state", lambda: ("sha", {"unresolved": []}))
     monkeypatch.setattr(worker, "_load", lambda: (None, {}))
     result = worker.preflight()
     assert result["status"] == "PREFLIGHT_ONLY"
@@ -11,6 +12,7 @@ def test_empty_queue_is_preflight_only(monkeypatch):
 
 
 def test_unresolved_event_blocks_preflight(monkeypatch):
+    monkeypatch.setattr(worker, "_get_state", lambda: ("sha", {"unresolved": []}))
     monkeypatch.setattr(worker, "_load", lambda: (None, {
         "a" * 64: {"phase": "QUARANTINED_UNKNOWN", "revision": 2},
     }))
@@ -20,9 +22,33 @@ def test_unresolved_event_blocks_preflight(monkeypatch):
 
 
 def test_preflight_does_not_mutate_queue(monkeypatch):
+    monkeypatch.setattr(worker, "_get_state", lambda: ("sha", {"unresolved": []}))
     def load():
         return "sha", {"a" * 64: {"phase": "RESERVED", "revision": 0}}
     monkeypatch.setattr(worker, "_load", load)
     result = worker.preflight()
     assert result["reserved"] == 1
     assert result["provider_action"] is False
+
+
+def test_unresolved_provider_journal_blocks_handoff(monkeypatch):
+    monkeypatch.setattr(worker, "_load", lambda: ("sha", {
+        "a" * 64: {"phase": "RESERVED", "revision": 0},
+    }))
+    monkeypatch.setattr(worker, "_get_state", lambda: ("sha", {
+        "unresolved": [{"recharge_id": "00000000-0000-4000-8000-000000000001",
+                        "status": "UNKNOWN"}],
+    }))
+    result = worker.preflight()
+    assert result["status"] == "BLOCKED"
+    assert result["journal_unresolved"] == 1
+    assert result["provider_action"] is False
+
+
+def test_missing_remote_journal_blocks_handoff(monkeypatch):
+    monkeypatch.setattr(worker, "_load", lambda: (None, {}))
+    monkeypatch.setattr(worker, "_get_state", lambda: None)
+    result = worker.preflight()
+    assert result["status"] == "BLOCKED"
+    assert result["journal_state_present"] is False
+    assert result["journal_binding_verified"] is False
