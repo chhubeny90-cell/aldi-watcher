@@ -38,10 +38,18 @@ def preflight():
         "provider_completion_verified": False,
     }
 
-if __name__ == "__main__":
+def main():
     try:
-        print(json.dumps(preflight(), sort_keys=True))
+        result = preflight()
+        print(json.dumps(result, sort_keys=True))
+        # A blocked remote journal or unresolved mail event must fail the job.
+        # PREFLIGHT_ONLY is never an authorization to run a provider actor.
+        return 0 if result["status"] == "PREFLIGHT_ONLY" else 2
     except Exception:
         print(json.dumps({"status": "BLOCKED", "provider_action": False,
                           "booking_enabled": False, "error": "preflight_failed"}))
-        raise SystemExit(2)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
