@@ -6,7 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 STATUSES = ('BLOCKED', 'DRY_RUN_READY', 'LIVE_READY')
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3  # LIVE-010 adds a mandatory independent recovery proof
 SECURITY = frozenset({'SECURITY', 'AUTH', 'SECRETS', 'BOOKING', 'JOURNAL', 'CAS'})
 DRY = {f'DRY-{i:03d}': name for i, name in enumerate((
     'external actions disabled', 'synthetic mail replay', 'legacy deduplication',
