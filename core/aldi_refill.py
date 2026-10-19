@@ -76,7 +76,18 @@ def _exact_one_gb(text):
 
 
 def _price_state(text):
-    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text."""
+    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
+
+    Wallet balance is not a refill charge. An ancestor DOM container may contain
+    both the 1-GB offer and a clearly labelled prepaid balance; ignore only that
+    labelled balance amount. Unlabelled/malformed amounts and actual offer prices
+    are still checked fail-closed.
+    """
+    text = re.sub(
+        r"(?<![\\w-])(?:Prepaid[ -])?(?:Guthaben|Kontostand)\\s*:?\\s*"
+        r"\\d+(?:[.,]\\d{1,2})?\\s*(?:€|EUR\\b)",
+        "", text, flags=re.I,
+    )
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
     prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
