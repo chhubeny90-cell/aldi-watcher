@@ -73,3 +73,28 @@ def test_ephemeral_or_checkout_journal_is_rejected(journal, monkeypatch, runner,
     monkeypatch.setenv('GITHUB_WORKSPACE', str(workspace))
     with pytest.raises(RuntimeError, match='durable_runner_required'):
         inspect_runtime(str(journal))
+
+
+@pytest.mark.parametrize('schema', [
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL, status TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT, provider TEXT, username TEXT, status TEXT,
+        error_message TEXT, created_at TEXT, updated_at TEXT)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL, status TEXT NOT NULL,
+        error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+])
+def test_partial_lookalike_schema_is_rejected(tmp_path, monkeypatch, schema):
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    path = tmp_path / 'invalid.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute(schema)
+        conn.execute('CREATE INDEX idx_recharges_account_status '
+                     'ON recharges(provider, username, status, created_at)')
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        inspect_runtime(str(path))
