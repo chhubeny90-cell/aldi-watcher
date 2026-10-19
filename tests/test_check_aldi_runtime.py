@@ -87,6 +87,11 @@ def test_ephemeral_or_checkout_journal_is_rejected(journal, monkeypatch, runner,
         recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
         username TEXT NOT NULL, status TEXT NOT NULL,
         error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL,
+        status TEXT NOT NULL /* CHECK(status IN('PENDING','UNKNOWN','SUCCESS','FAILED')) */,
+        error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
 ])
 def test_partial_lookalike_schema_is_rejected(tmp_path, monkeypatch, schema):
     monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
