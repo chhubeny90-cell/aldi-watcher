@@ -16,8 +16,9 @@ LIVE = {f'LIVE-{i:03d}': name for i, name in enumerate((
     'current authenticated account and tariff', 'current explicit zero-price 1GB offer',
     'mailbox to SIM binding', 'durable private host and journal',
     'no pending or unknown operation', 'exact-commit CI and review',
-    'real provider completion and recovery contract', 'one-shot authorization',
-    'complete historical deduplication and durable audit'), 1)}
+    'real provider completion contract', 'one-shot authorization',
+    'complete historical deduplication and durable audit',
+    'independent provider recovery contract'), 1)}
 BLOCK = {f'BLOCK-{i:03d}': name for i, name in enumerate((
     'missing criterion catalog', 'unknown criterion ID', 'unreviewed change',
     'stale security evidence', 'missing evidence URL', 'missing artifact',
