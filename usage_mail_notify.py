@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
-from core.mail_handoff_queue import enqueue_consumed
+from core.mail_handoff_queue import enqueue_consumed, _legacy_seen
 from usage_mail_bridge import _mailboxes, _message_key, _legacy_message_key, _signal
 
 
@@ -64,7 +64,11 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
                 is_new = enqueue(message_key, signal,
                                  legacy_message_key=_legacy_message_key(message, raw))
             else:
-                is_new = claim(message_key)
+                # Preserve retained legacy fingerprints before claiming a v2
+                # warning, just as for consumed mail. History failures abort.
+                is_new = (not _legacy_seen(
+                    message_key, _legacy_message_key(message, raw)
+                ) and claim(message_key))
             if is_new:
                 alerts.append({
                     "mailbox": index,
