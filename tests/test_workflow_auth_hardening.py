@@ -43,7 +43,7 @@ def test_main_workflow_has_no_authenticated_live_refill():
 
 
 def test_policy_safe_24_7_workflow_cadence_is_preserved():
-    assert "cron: '*/5 * * * *'" in _workflow("mail-trigger.yml")
+    assert "cron: '0 * * * *'" in _workflow("mail-trigger.yml")
     assert "cron: '7-59/15 * * * *'" in _workflow("run.yml")
     assert "schedule:" not in _workflow("watchdog.yml")
     assert "schedule:" not in _workflow("accounts.yml")
