@@ -48,13 +48,37 @@ def inspect_runtime(raw_path):
         ]
         if [(c[1], c[2].upper(), c[3], c[5]) for c in cols] != expected:
             raise RuntimeError('journal_schema_invalid')
-        row = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='recharges'"
-        ).fetchone()
-        import re
-        definition = re.sub(r'\s+', '', row[0]).upper() if row and row[0] else ''
-        if "CHECK(STATUSIN('PENDING','UNKNOWN','SUCCESS','FAILED'))" not in definition:
-            raise RuntimeError('journal_schema_invalid')
+        # Verify the actual SQLite constraint behavior on an in-memory backup.
+        # Text matching sqlite_master can be fooled by comments or string literals.
+        with closing(sqlite3.connect(':memory:')) as probe:
+            connection.backup(probe)
+            probe.execute('SAVEPOINT aldi_status_schema_probe')
+            try:
+                def insert_probe(status):
+                    probe.execute(
+                        'INSERT INTO recharges '
+                        '(recharge_id, provider, username, status, error_message, created_at, updated_at) '
+                        'VALUES (?, ?, ?, ?, NULL, ?, ?)',
+                        ('schema-probe-' + os.urandom(12).hex(), 'aldi_talk',
+                         'schema-probe-' + os.urandom(12).hex(), status,
+                         '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z'),
+                    )
+                try:
+                    insert_probe('PENDING')
+                except sqlite3.Error:
+                    raise RuntimeError('journal_schema_invalid') from None
+                probe.execute('ROLLBACK TO aldi_status_schema_probe')
+                try:
+                    insert_probe('BOGUS')
+                except sqlite3.IntegrityError:
+                    pass
+                except sqlite3.Error:
+                    raise RuntimeError('journal_schema_invalid') from None
+                else:
+                    raise RuntimeError('journal_schema_invalid')
+            finally:
+                probe.execute('ROLLBACK TO aldi_status_schema_probe')
+                probe.execute('RELEASE aldi_status_schema_probe')
         indexes = connection.execute("PRAGMA index_list('recharges')").fetchall()
         if not any(
             [c[2] for c in connection.execute('PRAGMA index_info("' + i[1] + '")')]
