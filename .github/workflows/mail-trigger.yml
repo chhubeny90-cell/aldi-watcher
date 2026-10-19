@@ -3,7 +3,7 @@ name: ALDI Usage Mail Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
@@ -67,12 +67,14 @@ jobs:
           if config_error:
               print('::error title=ALDI mail monitor::Monitor configuration incomplete: ' + str(config_error))
               raise SystemExit(2)
-          if actionable:
-              print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; create/send the one-time activation link.')
-              raise SystemExit(1)
           if failures:
               print('::error title=ALDI mail monitor::One or more mailboxes could not be checked.')
+              if actionable:
+                  print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; no provider action dispatched.')
               raise SystemExit(2)
+          if actionable:
+              print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; no provider action dispatched.')
+              raise SystemExit(1)
           if early:
               print(f'ALDI early warning only: {early} 80-percent signal(s); no activation link yet.')
           else:
