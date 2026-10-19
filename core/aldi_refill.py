@@ -101,9 +101,7 @@ def _free_offer_evidence(offer_text, tariff):
         return None
     if price_state == "FREE":
         return "explicit_free_offer"
-    if tariff in {"UNLIMITED", "CURRENT_SML"} and price_state == "ABSENT":
-        return "official_unlimited_entitlement"
-    return None
+        return None
 
 
 def _portal_origin(driver):
