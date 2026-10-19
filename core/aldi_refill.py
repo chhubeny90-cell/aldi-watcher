@@ -84,8 +84,8 @@ def _price_state(text):
     are still checked fail-closed.
     """
     text = re.sub(
-        r"(?<![\\w-])(?:Prepaid[ -])?(?:Guthaben|Kontostand)\\s*:?\\s*"
-        r"\\d+(?:[.,]\\d{1,2})?\\s*(?:€|EUR\\b)",
+        r"(?<![\w-])(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)",
         "", text, flags=re.I,
     )
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
