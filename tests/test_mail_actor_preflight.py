@@ -1,5 +1,14 @@
 import mail_actor_preflight as worker
-from core.mail_actor_handoff import HandoffBlocked
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def snapshot(monkeypatch):
+    # Unit fixtures supply one already-coherent immutable snapshot.
+    monkeypatch.setattr(worker, "_load", lambda: (None, {}), raising=False)
+    monkeypatch.setattr(worker, "_get_state", lambda: None, raising=False)
+    monkeypatch.setattr(worker, "consistent_mail_snapshot", lambda: (
+        "a" * 40, worker._load()[1], worker._get_state()))
 
 
 def test_empty_queue_is_preflight_only(monkeypatch):

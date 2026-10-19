@@ -8,6 +8,8 @@ KEY = "example-message-key"
 
 @pytest.fixture
 def memory(monkeypatch):
+    monkeypatch.setattr(queue, "_archive", lambda: (None, {}))
+    monkeypatch.setattr(queue, "_legacy_seen", lambda *args: False)
     state = {"sha": None, "events": {}}
     def load():
         return state["sha"], dict(state["events"])

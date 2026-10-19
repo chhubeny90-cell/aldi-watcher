@@ -6,15 +6,13 @@ It reports queue readiness, and fails closed on malformed or unresolved state.
 import json
 from collections import Counter
 
-from core.mail_handoff_queue import _load
 from core.mail_actor_handoff import Phase
-from github_journal_state import _get_state
+from github_journal_state import consistent_mail_snapshot
 
 
 def preflight():
     """Inspect both durable stores; never imply that an actor is authorized."""
-    _, events = _load()
-    journal = _get_state()
+    snapshot_version, events, journal = consistent_mail_snapshot()
     counts = Counter(record["phase"] for record in events.values())
     unresolved = counts[Phase.IN_FLIGHT.value] + counts[Phase.QUARANTINED_UNKNOWN.value]
     # Missing journal state is not an empty, trustworthy journal.
@@ -25,6 +23,7 @@ def preflight():
     blocked = bool(unresolved or journal_missing or journal_unresolved)
     return {
         "status": "BLOCKED" if blocked else "PREFLIGHT_ONLY",
+        "snapshot_version": snapshot_version,
         "reserved": counts[Phase.RESERVED.value],
         "in_flight": counts[Phase.IN_FLIGHT.value],
         "unknown": counts[Phase.QUARANTINED_UNKNOWN.value],

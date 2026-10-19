@@ -49,9 +49,10 @@ def _mac(label, *parts):
     return hmac.new(_secret_key(), payload, hashlib.sha256).hexdigest()
 
 
-def _read_json(path):
-    _ensure_branch()
-    encoded_branch = quote(_branch(), safe="")
+def _read_json(path, ref=None):
+    if ref is None:
+        _ensure_branch()
+    encoded_branch = quote(ref if ref is not None else _branch(), safe="")
     encoded_path = quote(path, safe="/")
     response = requests.get(
         _url(f"contents/{encoded_path}?ref={encoded_branch}"),

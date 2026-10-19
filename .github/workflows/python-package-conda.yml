@@ -10,8 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.10'
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q
+      - name: Commit-bound regression evidence (no provider actions)
+        run: |
+          git rev-parse HEAD
+          python -m pytest -k test_old_mail_not_retriggered --tb=short -q
+          python -m pytest -k hardening --tb=short -q
+          python -m pytest --tb=short -q

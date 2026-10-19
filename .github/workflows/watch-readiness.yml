@@ -1,0 +1,75 @@
+name: WATCH Read-only Live Prerequisites
+
+on:
+  push:
+    branches: ['fix/watch-001-live-readiness-20261019']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prerequisites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      AUTO_BOOK_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Print commit and run safety regression tests
+        run: |
+          git rev-parse HEAD
+          python -m pytest -k hardening --tb=short -q
+      - name: Check configuration presence without exposing credentials
+        env:
+          ACCOUNT_CONFIGURED: ${{ secrets.ALDI_PROFILE_1_USER != '' || secrets.ALDI_USER != '' || secrets.ALDI_USER_ENC != '' }}
+          EXPECTED_ACCOUNT_CONFIGURED: ${{ secrets.ALDI_PROFILE_1_USER != '' }}
+          PASSWORD_CONFIGURED: ${{ secrets.ALDI_PASS != '' || secrets.ALDI_PASS_ENC != '' }}
+          ENCRYPTION_KEY_REQUIRED: ${{ secrets.ALDI_USER_ENC != '' || secrets.ALDI_PASS_ENC != '' }}
+          ENCRYPTION_KEY_CONFIGURED: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY != '' }}
+          JOURNAL_PATH_CONFIGURED: ${{ vars.ALDI_JOURNAL_PATH != '' }}
+          MAILBOX_CONFIGURED: ${{ (secrets.MAILBOX_1_USER != '' && secrets.MAILBOX_1_PASS != '') || (secrets.MAILBOX_2_USER != '' && secrets.MAILBOX_2_PASS != '') }}
+          MAIL_DEDUP_KEY_CONFIGURED: ${{ secrets.ALDI_RECOVERY_KEY != '' }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          flags = {name.lower(): os.environ.get(name) == 'true' for name in (
+              'ACCOUNT_CONFIGURED', 'EXPECTED_ACCOUNT_CONFIGURED', 'PASSWORD_CONFIGURED',
+              'ENCRYPTION_KEY_REQUIRED', 'ENCRYPTION_KEY_CONFIGURED', 'JOURNAL_PATH_CONFIGURED',
+              'MAILBOX_CONFIGURED', 'MAIL_DEDUP_KEY_CONFIGURED')}
+          report = {'commit': os.environ['GITHUB_SHA'], 'configuration': flags,
+                    'status': 'BLOCKED', 'runner_available': 'unverified',
+                    'provider_action': False, 'booking_enabled': False,
+                    'configuration_is_not_live_evidence': True}
+          Path('watch-config-report.json').write_text(json.dumps(report, sort_keys=True))
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - name: Read coherent queue and provider guard without authentication to ALDI
+        id: snapshot
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALDI_STATE_PATH: .aldi-state/profile-1.json
+        run: python mail_actor_preflight.py > watch-journal-report.json
+      - name: Preserve sanitized prerequisites
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: watch-readiness-${{ github.sha }}
+          path: |
+            watch-config-report.json
+            watch-journal-report.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Surface a blocked journal snapshot
+        if: steps.snapshot.outcome == 'failure'
+        run: |
+          cat watch-journal-report.json
+          exit 2

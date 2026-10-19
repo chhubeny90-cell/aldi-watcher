@@ -7,6 +7,7 @@ HMAC deduplication before any provider login.
 
 import email
 import hashlib
+import hmac
 import imaplib
 import json
 import os
@@ -73,6 +74,20 @@ def _signal(message):
 
 
 def _message_key(message, raw_bytes):
+    key = os.environ.get("ALDI_RECOVERY_KEY", "").strip()
+    if not key:
+        raise RuntimeError("recovery_key_unavailable")
+    # Length-delimited JSON avoids ambiguous concatenation. Missing headers
+    # use the stable raw digest, never a mailbox UID or receive timestamp.
+    material = json.dumps([
+        "mail-identity-v2", (message.get("Message-ID") or "").strip(),
+        (message.get("Date") or "").strip(),
+        "" if message.get("Message-ID") else hashlib.sha256(raw_bytes).hexdigest(),
+    ], separators=(",", ":"), ensure_ascii=True).encode()
+    return hmac.new(key.encode(), material, hashlib.sha256).hexdigest()
+
+
+def _legacy_message_key(message, raw_bytes):
     message_id = (message.get("Message-ID") or "").strip()
     material = message_id.encode("utf-8", errors="ignore") if message_id else raw_bytes
     return hashlib.sha256(material).hexdigest()
@@ -80,13 +95,10 @@ def _message_key(message, raw_bytes):
 
 def _already_seen(message_key):
     if _mac is None or _trigger_state is None:
-        return False
-    try:
-        _, state = _trigger_state()
-        fingerprint = _mac("trigger", message_key)
-        return fingerprint in state.get("keys", [])
-    except Exception:
-        return False
+        raise RuntimeError("deduplication_unavailable")
+    _, state = _trigger_state()
+    fingerprint = _mac("trigger", message_key)
+    return fingerprint in state["keys"]
 
 
 def _dispatch(signal, message_key):
@@ -158,7 +170,8 @@ def _poll_one(index, host, port, user, password):
             if signal is None:
                 continue
             message_key = _message_key(message, bytes(raw))
-            if _already_seen(message_key):
+            if (_already_seen(_legacy_message_key(message, bytes(raw)))
+                    or _already_seen(message_key)):
                 continue
             _dispatch(signal, message_key)
             dispatched += 1
