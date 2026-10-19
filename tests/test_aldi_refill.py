@@ -76,22 +76,22 @@ def test_verified_tariff_can_use_official_free_entitlement_without_local_price()
     'Prepaid-Guthaben 14,95 €',
 ])
 def test_labelled_prepaid_wallet_balance_does_not_count_as_refill_price(wallet):
-    result = eligible(offer_text=f'{wallet}\\n1 GB Datenvolumen kostenlos nachbuchen 0,00 €')
+    result = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen kostenlos nachbuchen 0,00 €')
     assert result['refill_eligible'] is True
     assert result['free_evidence'] == 'explicit_free_offer'
 
-    unpriced = eligible(offer_text=f'{wallet}\\n1 GB Datenvolumen nachbuchen')
+    unpriced = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen nachbuchen')
     assert unpriced['refill_eligible'] is True
     assert unpriced['free_evidence'] == 'official_unlimited_entitlement'
 
 
 def test_page_prepaid_balance_is_independent_of_free_refill_eligibility():
-    result = eligible(page_text='Guthaben 0,01 €\\nALDI TALK Tarif S Unlimited')
+    result = eligible(page_text='Guthaben 0,01 €\nALDI TALK Tarif S Unlimited')
     assert result['refill_eligible'] is True
 
 
 def test_paid_refill_stays_blocked_even_if_wallet_balance_is_labelled():
-    result = eligible(offer_text='Guthaben 0,01 €\\n1 GB Datenvolumen nachbuchen 0,99 €')
+    result = eligible(offer_text='Guthaben 0,01 €\n1 GB Datenvolumen nachbuchen 0,99 €')
     assert result['refill_eligible'] is False
     assert result['refill_reason'] == 'price_unverified_or_paid'
 
