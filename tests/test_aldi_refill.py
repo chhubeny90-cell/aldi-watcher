@@ -95,6 +95,16 @@ def test_paid_refill_stays_blocked_even_if_wallet_balance_is_labelled():
     assert result['refill_eligible'] is False
     assert result['refill_reason'] == 'price_unverified_or_paid'
 
+@pytest.mark.parametrize('offer', [
+    '1 GB Datenvolumen nachbuchen; vom Guthaben 0,99 € abziehen',
+    '1 GB Datenvolumen nachbuchen\nAbbuchung vom Guthaben 0,99 €',
+    '1 GB Datenvolumen nachbuchen\nGuthaben 0,99 € wird abgezogen',
+])
+def test_wallet_deduction_is_a_paid_refill_price(offer):
+    result = eligible(offer_text=offer)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
 
 def test_unlabelled_amount_must_not_be_mistaken_for_wallet_balance():
     result = eligible(offer_text='0,01 € 1 GB Datenvolumen nachbuchen 0,00 €')
