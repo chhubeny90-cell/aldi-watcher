@@ -6,7 +6,7 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- no positive, conflicting, or unparsed local price is present.
+- an explicit, well-formed local 0,00 EUR offer price is present with no conflicting price.
 
 Current ALDI TALK Tarif S/M/L products include the repeated free 1-GB refill.
 A verified current S/M/L or legacy Unlimited tariff may therefore use the
@@ -95,14 +95,13 @@ def _free_price(text):
 
 
 def _free_offer_evidence(offer_text, tariff):
-    """Accept published free entitlement only when no local price conflicts."""
-    price_state = _price_state(offer_text)
-    if price_state in {"PAID", "UNVERIFIED"}:
-        return None
-    if price_state == "FREE":
+    """Only an explicit, well-formed zero-price offer authorizes a control.
+
+    A published tariff entitlement cannot prove the price of the specific
+    rendered control. ABSENT, PAID and UNVERIFIED prices all fail closed.
+    """
+    if _price_state(offer_text) == "FREE":
         return "explicit_free_offer"
-    if tariff in {"UNLIMITED", "CURRENT_SML"} and price_state == "ABSENT":
-        return "official_unlimited_entitlement"
     return None
 
 
