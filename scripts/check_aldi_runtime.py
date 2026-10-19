@@ -52,7 +52,7 @@ def inspect_runtime(raw_path):
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='recharges'"
         ).fetchone()
         import re
-        definition = re.sub(r'\\s+', '', row[0]).upper() if row and row[0] else ''
+        definition = re.sub(r'\s+', '', row[0]).upper() if row and row[0] else ''
         if "CHECK(STATUSIN('PENDING','UNKNOWN','SUCCESS','FAILED'))" not in definition:
             raise RuntimeError('journal_schema_invalid')
         indexes = connection.execute("PRAGMA index_list('recharges')").fetchall()
