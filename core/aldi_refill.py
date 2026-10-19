@@ -83,10 +83,12 @@ def _price_state(text):
     labelled balance amount. Unlabelled/malformed amounts and actual offer prices
     are still checked fail-closed.
     """
+    # Ignore only a standalone wallet-field line. A phrase such as
+    # "vom Guthaben 0,99 € abziehen" is a charge and must remain visible.
     text = re.sub(
-        r"(?<![\w-])(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
-        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)",
-        "", text, flags=re.I,
+        r"(?im)^[ \t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)[ \t]*$",
+        "", text,
     )
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
@@ -208,7 +210,11 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
                   active_tariff_text=None):
     tariff_text = page_text if active_tariff_text is None else active_tariff_text
     tariff_text = tariff_text or ""
-    offer_text = _normalise(offer_text)
+    # Preserve line boundaries so only a standalone wallet display can be
+    # excluded from price evaluation; flattening would blur it into offer text.
+    offer_text = "\n".join(
+        _normalise(line) for line in (offer_text or "").splitlines() if line.strip()
+    )
     button_text = _normalise(button_text)
 
     if isinstance(remaining_gb, bool) or not isinstance(remaining_gb, (int, float)):
