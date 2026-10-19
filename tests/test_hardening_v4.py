@@ -132,7 +132,7 @@ def test_main_workflow_is_credential_free_public_monitoring_only():
 
 def test_usage_mail_monitor_is_notification_only_and_has_no_provider_credentials():
     mail = Path('.github/workflows/mail-trigger.yml').read_text(encoding='utf-8')
-    assert "cron: '*/5 * * * *'" in mail
+    assert "cron: '0 * * * *'" in mail
     assert 'usage_mail_notify.py' in mail
     assert 'ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}' in mail
     assert 'ALDI_PASS:' not in mail
