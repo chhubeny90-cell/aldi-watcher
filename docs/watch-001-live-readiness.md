@@ -27,6 +27,36 @@ existence of a live provider receipt. It is deliberately not connected as an
 actor authorization switch. Audit records include evidence IDs and snapshot;
 a digest is not external append-only storage or a signature.
 
+## Schema 2: first-run readiness is not a completion result
+
+Schema 1 required `provider_receipt_verified` before LIVE_READY, which was
+circular for the operation that had not yet run. Schema 2 rejects schema 1
+instead of silently upgrading evidence. It requires independently evidenced
+`provider_completion_contract_verified` and `provider_recovery_contract_verified`
+in addition to the complete catalog, explicit authorization and account binding.
+An old receipt or a true receipt flag cannot replace either contract. LIVE_READY
+only describes readiness for the authorized attempt; it is never SUCCESS or a
+claim that the system works. The independent actor/completion verifier still
+requires the current operation's official receipt before persisting SUCCESS.
+No actor permission check is removed or connected to this pure evaluator.
+
+## Private runtime check
+
+On the actual POSIX runner, run `python scripts/check_aldi_runtime.py` with the
+existing `ALDI_JOURNAL_PATH`. The source is opened read-only and never initialized
+or repaired. The probe verifies private permissions, schema and integrity, and
+creates a private temporary backup on the same filesystem, closes/reopens it,
+checks unresolved counts, and removes its copy. It never prints paths or rows.
+Missing/corrupt/ephemeral journals and unresolved operations return exit 2.
+No provider access or credentials are used. A successful probe still reports
+BLOCKED: host-restart persistence, off-host backup and account/provider binding
+remain separate operational evidence. A passing synthetic test is not host proof.
+
+The readiness workflow can explicitly request this probe with
+`private_runtime=true`; it defaults to false and requires the configured journal
+path and private runner. A queued or skipped job proves neither runner availability
+nor a working private journal. Do not launch the refill workflow to test the host.
+
 ## Actual live blockers to inspect
 
 The existing `aldi_live_refill_contract.py` already observes portal-generated

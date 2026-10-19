@@ -11,14 +11,15 @@ URL = 'https://github.com/example/test/actions/runs/1'
 
 def ready(live=True):
     criteria = sorted(DRY.keys() | BLOCK.keys() | (LIVE.keys() if live else set()))
-    return {'schema_version': 1, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
+    return {'schema_version': 2, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
             'dry': dict.fromkeys(DRY, True), 'live': dict.fromkeys(LIVE, live),
             'blockers': [{'id': b, 'active': False} for b in sorted(BLOCK)],
             'tests': [{'id': t, 'status': 'BESTANDEN', 'reproducible': True,
                        'commit': COMMIT, 'url': URL} for t in sorted(TESTS)],
             'changes': [{'id': 'CHG-001', 'category': 'BOOKING', 'status': 'BEWERTET', 'commit': COMMIT}],
             'pending': 0, 'unknown': 0, 'unresolved': False, 'external_actions_possible': False,
-            'live_authorization': True, 'provider_receipt_verified': True, 'account_binding_verified': True,
+            'live_authorization': True, 'provider_completion_contract_verified': True,
+            'provider_recovery_contract_verified': True, 'account_binding_verified': True,
             'evidence': [{'id': f'EVID-{i:03d}', 'criterion': criterion, 'valid': True,
                           'commit': COMMIT, 'snapshot_version': SNAPSHOT, 'test_id': 'TEST-001',
                           'url': URL, 'artifact': URL, 'log': URL, 'revalidated': True,
@@ -91,7 +92,8 @@ def test_missing_live_evidence_blocks_even_when_flags_true():
     assert check(d) == 'BLOCKED'
 
 
-@pytest.mark.parametrize('flag', ['live_authorization', 'provider_receipt_verified', 'account_binding_verified'])
+@pytest.mark.parametrize('flag', ['live_authorization', 'provider_completion_contract_verified',
+                                'provider_recovery_contract_verified', 'account_binding_verified'])
 def test_live_boolean_cannot_be_omitted(flag):
     d = ready(); del d[flag]
     assert check(d) == 'BLOCKED'
@@ -121,3 +123,26 @@ def test_naive_audit_timestamp_rejected():
         audit('BLOCKED', {'status': 'DRY_RUN_READY', 'reasons': []}, commit=COMMIT,
               change_id='CHG-001', responsible='reviewer', evidence_ids=['EVID-001'],
               snapshot_version=SNAPSHOT, timestamp='2026-10-19')
+
+
+def test_first_run_readiness_does_not_fabricate_a_receipt():
+    d = ready()
+    d['provider_receipt_verified'] = False
+    assert check(d) == 'LIVE_READY'
+
+
+@pytest.mark.parametrize('flag', ['provider_completion_contract_verified',
+                                 'provider_recovery_contract_verified'])
+@pytest.mark.parametrize('value', [False, 1, 'true', None])
+def test_receipt_cannot_replace_real_completion_and_recovery_contracts(flag, value):
+    d = ready()
+    d['provider_receipt_verified'] = True
+    d[flag] = value
+    assert check(d) == 'BLOCKED'
+
+
+def test_old_receipt_based_schema_requires_explicit_migration():
+    d = ready()
+    d['schema_version'] = 1
+    d['provider_receipt_verified'] = True
+    assert check(d) == 'BLOCKED'
