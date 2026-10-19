@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 STATUSES = ('BLOCKED', 'DRY_RUN_READY', 'LIVE_READY')
+SCHEMA_VERSION = 2
 SECURITY = frozenset({'SECURITY', 'AUTH', 'SECRETS', 'BOOKING', 'JOURNAL', 'CAS'})
 DRY = {f'DRY-{i:03d}': name for i, name in enumerate((
     'external actions disabled', 'synthetic mail replay', 'legacy deduplication',
@@ -64,7 +65,7 @@ def evaluate(data, *, now=None):
     def blocked(reason):
         return {'status': 'BLOCKED', 'reasons': [reason]}
 
-    if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data.get('schema_version') != 1:
+    if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data.get('schema_version') != SCHEMA_VERSION:
         return blocked('SCHEMA_INVALID')
     commit, snapshot = data.get('commit'), data.get('snapshot_version')
     if not _sha(commit) or not _sha(snapshot) or data.get('ci_commit') != commit:
@@ -128,8 +129,12 @@ def evaluate(data, *, now=None):
     if not all(data['live'].values()):
         return {'status': 'DRY_RUN_READY', 'reasons': ['LIVE_CRITERIA_INCOMPLETE']}
     if (not set(LIVE).issubset(criteria) or any(data.get(flag) is not True for flag in (
-            'live_authorization', 'provider_receipt_verified', 'account_binding_verified'))):
+            'live_authorization', 'provider_completion_contract_verified',
+            'provider_recovery_contract_verified', 'account_binding_verified'))):
         return blocked('LIVE_PROOF_INCOMPLETE')
+    # LIVE_READY describes pre-action readiness. A receipt for the operation
+    # being authorized cannot exist yet. Its official receipt is still required
+    # by the independent completion verifier before any SUCCESS is persisted.
     return {'status': 'LIVE_READY', 'reasons': []}
 
 

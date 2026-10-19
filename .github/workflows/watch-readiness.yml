@@ -4,6 +4,12 @@ on:
   push:
     branches: ['fix/watch-001-live-readiness-20261019']
   workflow_dispatch:
+    inputs:
+      private_runtime:
+        description: Inspect existing journal on the private runner (no provider action)
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -73,3 +79,30 @@ jobs:
         run: |
           cat watch-journal-report.json
           exit 2
+
+  private_runtime:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_runtime == true && vars.ALDI_JOURNAL_PATH != ''
+    runs-on: [self-hosted, linux, aldi-journal]
+    timeout-minutes: 4
+    env:
+      AUTO_BOOK_ENABLED: 'false'
+      ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Verify existing private journal without provider access
+        run: |
+          git rev-parse HEAD
+          python scripts/check_aldi_runtime.py > watch-runtime-report.json
+      - name: Preserve sanitized private-runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: watch-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: watch-runtime-report.json
+          retention-days: 7
+          if-no-files-found: error
