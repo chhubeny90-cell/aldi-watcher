@@ -47,6 +47,7 @@ jobs:
           flags = {name.lower(): os.environ.get(name) == 'true' for name in names}
           ready = all(flags[name] for name in ('account_configured', 'expected_account_configured',
                                                'password_configured', 'journal_path_configured'))
+          ready = ready and flags['mailbox_configured'] and flags['mail_dedup_key_configured']
           ready = ready and (not flags['encryption_key_required'] or flags['encryption_key_configured'])
           print(json.dumps({'configuration': flags, 'manual_refill_configured': ready,
                             'runner_available': 'unverified', 'live_booking_verified': False,
