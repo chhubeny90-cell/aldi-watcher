@@ -144,7 +144,8 @@ def enqueue_consumed(message_key, signal, *, legacy_message_key=None):
         if len(events) >= MAX_EVENTS:
             archive_completed()
             sha, events = _load()
-            if key in events:
+            _, tombstones = _archive()
+            if aliases.intersection(events) or aliases.intersection(tombstones):
                 return False
         reservation = reserve(None, key, signal)
         updated = dict(events)
