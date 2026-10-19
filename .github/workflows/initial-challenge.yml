@@ -37,7 +37,7 @@ jobs:
         run: python aldi_initial_challenge_probe.py
       - name: Preserve sanitized report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aldi-initial-challenge-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-initial-challenge.json

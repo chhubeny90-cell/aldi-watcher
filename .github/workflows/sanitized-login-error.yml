@@ -44,7 +44,7 @@ jobs:
         run: python aldi_sanitized_error_probe.py
       - name: Preserve sanitized report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aldi-sanitized-login-error-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-sanitized-login-error.json

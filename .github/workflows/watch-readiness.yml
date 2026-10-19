@@ -66,7 +66,7 @@ jobs:
         run: python mail_actor_preflight.py > watch-journal-report.json
       - name: Preserve sanitized prerequisites
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: watch-readiness-${{ github.sha }}
           path: |
@@ -100,7 +100,7 @@ jobs:
           python scripts/check_aldi_runtime.py > watch-runtime-report.json
       - name: Preserve sanitized private-runtime evidence
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: watch-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: watch-runtime-report.json
