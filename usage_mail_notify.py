@@ -20,7 +20,7 @@ from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
 from core.mail_handoff_queue import enqueue_consumed
-from usage_mail_bridge import _mailboxes, _message_key, _signal
+from usage_mail_bridge import _mailboxes, _message_key, _legacy_message_key, _signal
 
 
 REPORT_PATH = os.getenv("ALDI_MAIL_NOTIFY_REPORT", "aldi-usage-alert.json")
@@ -61,7 +61,8 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
             if signal == "consumed":
                 # Reserve the actionable event durably before reporting it.
                 # No provider action is dispatched from this monitor.
-                is_new = enqueue(message_key, signal)
+                is_new = enqueue(message_key, signal,
+                                 legacy_message_key=_legacy_message_key(message, raw))
             else:
                 is_new = claim(message_key)
             if is_new:

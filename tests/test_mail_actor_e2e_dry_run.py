@@ -39,6 +39,9 @@ class FakeImap:
 
 @pytest.fixture
 def remote_state(monkeypatch):
+    monkeypatch.setenv("ALDI_RECOVERY_KEY", "synthetic-test-key")
+    monkeypatch.setattr(queue, "_archive", lambda: (None, {}))
+    monkeypatch.setattr(queue, "_legacy_seen", lambda *args: False)
     state = {"sha": None, "events": {}}
 
     def load():
@@ -56,10 +59,12 @@ def remote_state(monkeypatch):
     monkeypatch.setattr(queue, "_persist", persist)
     monkeypatch.setattr(queue, "_fingerprint", lambda _: "b" * 64)
     monkeypatch.setattr(monitor.imaplib, "IMAP4_SSL", FakeImap)
-    monkeypatch.setattr(preflight, "_load", load)
+    monkeypatch.setattr(preflight, "_load", load, raising=False)
     monkeypatch.setattr(preflight, "_get_state", lambda: (
         "journal-sha", {"unresolved": []}
-    ))
+    ), raising=False)
+    monkeypatch.setattr(preflight, "consistent_mail_snapshot", lambda: (
+        "a" * 40, load()[1], preflight._get_state()))
     return state
 
 

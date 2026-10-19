@@ -1,6 +1,13 @@
 from email.message import EmailMessage
 
+import pytest
+
 import usage_mail_notify as monitor
+
+
+@pytest.fixture(autouse=True)
+def mail_key(monkeypatch):
+    monkeypatch.setenv("ALDI_RECOVERY_KEY", "synthetic-test-key")
 
 
 class FakeImap:
@@ -33,7 +40,7 @@ def test_consumed_mail_is_queued_not_legacy_claimed(monkeypatch):
     alerts = monitor._poll_one(
         1, "imap.example.invalid", 993, "user", "pass",
         claim=forbidden_claim,
-        enqueue=lambda key, signal: queued.append((key, signal)) or True,
+        enqueue=lambda key, signal, **kwargs: queued.append((key, signal)) or True,
     )
     assert len(queued) == 1
     assert queued[0][1] == "consumed"
@@ -42,7 +49,7 @@ def test_consumed_mail_is_queued_not_legacy_claimed(monkeypatch):
 
 def test_queue_failure_is_not_reported_as_success(monkeypatch):
     monkeypatch.setattr(monitor.imaplib, "IMAP4_SSL", FakeImap)
-    def failed_queue(*args):
+    def failed_queue(*args, **kwargs):
         raise RuntimeError("remote_state_unavailable")
     try:
         monitor._poll_one(

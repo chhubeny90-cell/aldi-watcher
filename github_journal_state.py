@@ -177,9 +177,10 @@ def _encode_state(operations, auth_retry_after=None):
     return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _get_state():
-    _ensure_branch()
-    branch = quote(_branch(), safe="")
+def _get_state(ref=None):
+    if ref is None:
+        _ensure_branch()
+    branch = quote(ref if ref is not None else _branch(), safe="")
     path = quote(_state_path(), safe="/")
     response = requests.get(
         _url(f"contents/{path}?ref={branch}"), headers=_headers(), timeout=20,
@@ -196,6 +197,27 @@ def _get_state():
     except Exception as exc:
         raise RuntimeError("github_state_content_invalid") from exc
     return payload["sha"], _parse_state(content)
+
+
+def _snapshot_version():
+    payload = _request("GET", f"git/ref/heads/{quote(_branch(), safe='')}")
+    obj = payload.get("object", {}) if isinstance(payload, dict) else {}
+    sha = obj.get("sha")
+    if (obj.get("type") != "commit" or not isinstance(sha, str) or len(sha) != 40
+            or any(c not in "0123456789abcdef" for c in sha)):
+        raise RuntimeError("snapshot_version_invalid")
+    return sha
+
+
+def consistent_mail_snapshot():
+    """Read-only, pinned to one commit; fail closed if the branch advances."""
+    from core.mail_handoff_queue import _load
+    version = _snapshot_version()
+    _, events = _load(ref=version)
+    journal = _get_state(ref=version)
+    if _snapshot_version() != version:
+        raise RuntimeError("snapshot_changed")
+    return version, events, journal
 
 
 def _put_state(state, current_sha=None, message="Persist ALDI refill guard state"):
