@@ -34,6 +34,33 @@ def inspect_runtime(raw_path):
             raise RuntimeError('journal_integrity_failed')
         connection.execute('SELECT recharge_id, provider, username, status, '
                            'created_at, updated_at FROM recharges LIMIT 0')
+        # Fail closed on partial lookalike tables; the actor requires all seven
+        # columns and integrity constraints, not just a readable SELECT.
+        cols = connection.execute("PRAGMA table_info('recharges')").fetchall()
+        expected = [
+            ('recharge_id', 'TEXT', 0, 1),
+            ('provider', 'TEXT', 1, 0),
+            ('username', 'TEXT', 1, 0),
+            ('status', 'TEXT', 1, 0),
+            ('error_message', 'TEXT', 0, 0),
+            ('created_at', 'TEXT', 1, 0),
+            ('updated_at', 'TEXT', 1, 0),
+        ]
+        if [(c[1], c[2].upper(), c[3], c[5]) for c in cols] != expected:
+            raise RuntimeError('journal_schema_invalid')
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='recharges'"
+        ).fetchone()
+        import re
+        definition = re.sub(r'\\s+', '', row[0]).upper() if row and row[0] else ''
+        if "CHECK(STATUSIN('PENDING','UNKNOWN','SUCCESS','FAILED'))" not in definition:
+            raise RuntimeError('journal_schema_invalid')
+        indexes = connection.execute("PRAGMA index_list('recharges')").fetchall()
+        if not any(
+            [c[2] for c in connection.execute('PRAGMA index_info("' + i[1] + '")')]
+            == ['provider', 'username', 'status', 'created_at'] for i in indexes
+        ):
+            raise RuntimeError('journal_schema_invalid')
         rows = connection.execute('SELECT status, COUNT(*) FROM recharges GROUP BY status').fetchall()
         if any(status not in {'PENDING', 'UNKNOWN', 'SUCCESS', 'FAILED'} for status, _ in rows):
             raise RuntimeError('journal_status_invalid')
