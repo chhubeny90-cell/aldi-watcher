@@ -67,3 +67,17 @@ All fixtures are synthetic. No IMAP account, ALDI login or live booking is used.
 
 The Python compatibility workflow prints its exact HEAD and runs the requested
 old-mail regression, hardening selection and full suite in the same step.
+
+## Follow-up after merge: legacy 80% warnings
+
+Starting point: main `bca7dc9482c747cc53482d4314a08bc5394ec227`.
+PR #109 review `discussion_r4310599334` identified a missing migration check
+for non-consumed alerts in `usage_mail_notify.py`. Both warning and consumed
+paths now preserve and consult retained trigger history before acknowledgement.
+Warnings still never enter the actor queue. State read/write failures abort
+before claiming or reporting a warning. Regression fixtures cover old-warning
+migration followed by ledger eviction, new-warning deduplication through the
+real trigger ledger, and both migration read and write failures.
+
+Historical identities evicted before migration remain unreconstructable.
+Overall status remains BLOCKED. No provider login, booking, or tariff change.

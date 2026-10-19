@@ -217,3 +217,88 @@ def test_legacy_bridge_read_failure_is_not_unseen(monkeypatch):
     monkeypatch.setattr(bridge, '_trigger_state', fail)
     with pytest.raises(RuntimeError, match='state_unavailable'):
         _already_seen('key')
+
+
+class WarningImap:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def login(self, *args):
+        return 'OK', []
+
+    def select(self, *args, **kwargs):
+        assert kwargs['readonly'] is True
+        return 'OK', []
+
+    def search(self, *args):
+        return 'OK', [b'1']
+
+    def fetch(self, *args):
+        mail = message()
+        mail['Subject'] = 'ALDI TALK: 80% Datenvolumen verbraucht'
+        return 'OK', [(b'1', mail.as_bytes())]
+
+
+def test_old_warning_not_retriggered_after_ledger_eviction(stores, monkeypatch):
+    import usage_mail_notify as monitor
+    mail = message()
+    mail['Subject'] = 'ALDI TALK: 80% Datenvolumen verbraucht'
+    old = queue._mac('trigger', _legacy_message_key(mail, mail.as_bytes()))
+    monkeypatch.setattr(queue, '_trigger_state', lambda: ('old', {'keys': [old]}))
+    monkeypatch.setattr(monitor.imaplib, 'IMAP4_SSL', WarningImap)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('historical warning must not be claimed or queued')
+
+    def poll():
+        return monitor._poll_one(1, 'imap.example.invalid', 993, 'fake', 'fake',
+                                 claim=forbidden, enqueue=forbidden)
+
+    assert poll() == []
+    monkeypatch.setattr(queue, '_trigger_state', lambda: ('later', {'keys': []}))
+    assert poll() == []
+    assert stores[1] == [queue._aux_path('legacy-trigger-history')]
+
+
+def test_new_warning_claimed_once_with_real_trigger_ledger(stores, monkeypatch):
+    import github_hardening_state as state
+    import usage_mail_notify as monitor
+    monkeypatch.setattr(state, '_read_json', queue._read_json)
+    monkeypatch.setattr(state, '_write_json', queue._write_json)
+    monkeypatch.setattr(queue, '_trigger_state', state._trigger_state)
+    monkeypatch.setattr(monitor.imaplib, 'IMAP4_SSL', WarningImap)
+
+    def poll():
+        return monitor._poll_one(1, 'imap.example.invalid', 993, 'fake', 'fake',
+                                 claim=state.claim_trigger_key,
+                                 enqueue=lambda *a, **k: pytest.fail('warning queued'))
+
+    assert poll() == [{'mailbox': 1, 'signal': '80_percent', 'actionable': False}]
+    assert poll() == []
+    # The second poll permanently preserved the v2 fingerprint too.
+    stores[0].pop(queue._aux_path('triggers'))
+    assert poll() == []
+
+
+@pytest.mark.parametrize('failure', ['read', 'write'])
+def test_warning_migration_failure_aborts_before_claim(stores, monkeypatch, failure):
+    import usage_mail_notify as monitor
+    monkeypatch.setattr(monitor.imaplib, 'IMAP4_SSL', WarningImap)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError('migration_unavailable')
+
+    if failure == 'read':
+        monkeypatch.setattr(queue, '_trigger_state', fail)
+    else:
+        monkeypatch.setattr(queue, '_trigger_state', lambda: (None, {'keys': ['a' * 64]}))
+        monkeypatch.setattr(queue, '_write_json', fail)
+    with pytest.raises(RuntimeError, match='migration_unavailable'):
+        monitor._poll_one(1, 'imap.example.invalid', 993, 'fake', 'fake',
+                          claim=lambda *a: pytest.fail('claim after migration failure'))
