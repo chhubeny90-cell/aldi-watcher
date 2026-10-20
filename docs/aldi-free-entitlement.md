@@ -22,12 +22,12 @@ independently verified provider eligibility contract would need a separate chang
    generic free wording do not satisfy this deliberately strict parser policy.
 5. No positive, malformed or conflicting price, paid option or tariff-change terms.
 
-A separately labelled wallet balance is excluded only on a real independent
-rendered block line. The composed DOM reader preserves block and BR boundaries
-across open shadow roots/slots; it never invents boundaries between inline spans.
-Ambiguous flattened balances block. The context search climbs from the button
-until a priced local context is found; it stops at a multi-control container or
-body/html rather than borrowing another offer's price. No observed real-account
-DOM has yet been verified by these synthetic fixtures.
+A separately labelled wallet balance can be excluded only on a real independent
+rendered block line. This parsing helper does not authorize reading arbitrary
+ancestors: the Selenium locator now uses ONLY the control's rendered subtree.
+Unpriced buttons cannot borrow a zero from a sibling card or page-level wrapper.
+A sibling-price layout remains BLOCKED until an actual provider-scoped offer
+relationship has been observed and independently reviewed. Generic card classes,
+one-control ancestry, and a configured selector alone are not identity proof.
 
 The classifier does not authorize login or booking. Current rollout remains BLOCKED.

@@ -38,7 +38,10 @@ not a completed live integration or a substitute for the missing implementations
 `scripts/check_aldi_runtime.py` then checks the existing private journal and local
 backup/reopen. `open_live_journal()` independently enforces the same schema before
 opening the actor. Nullable IDs, incomplete status rules, partial lookup indexes
-and triggers on the safety table block execution. No automatic migration or
+and triggers on the safety table block execution. The exact canonical table grammar
+rejects additional allowed states and alternative CHECK expressions. The initializer
+now applies this same read-only validation BEFORE touching any existing journal;
+legacy nullable-ID files are rejected unchanged instead of reporting ready. No automatic migration or
 replacement of an existing journal is permitted. A local copy/reopen is not proof
 of restart persistence or off-host backup; those need separate real-host evidence.
 
