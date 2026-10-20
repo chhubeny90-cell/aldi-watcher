@@ -197,3 +197,39 @@ def test_live_actor_rejects_legacy_nullable_id_before_browser(journal, monkeypat
     assert live.main() == 2
     browser.assert_not_called()
     assert journal.read_bytes() == before
+
+
+@pytest.mark.parametrize('condition', [
+    "status IN ('PENDING','UNKNOWN','SUCCESS','FAILED','CANCELLED')",
+    "status IN ('PENDING','UNKNOWN','SUCCESS','FAILED') OR status='CANCELLED'",
+    "status != 'BOGUS'",
+    "status IN ('PENDING','UNKNOWN','SUCCESS','FAILED') COLLATE NOCASE",
+])
+def test_status_domain_must_be_exact_not_just_reject_one_sentinel(tmp_path, monkeypatch, condition):
+    import aldi_live_refill as live
+    from core.journal_validation import RECHARGES_TABLE_SQL
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    path = tmp_path / 'extra-status.sqlite'
+    schema = RECHARGES_TABLE_SQL.replace("status IN ('PENDING','UNKNOWN','SUCCESS','FAILED')", condition)
+    with sqlite3.connect(path) as conn:
+        conn.execute(schema)
+        conn.execute('CREATE INDEX idx_recharges_account_status ON recharges(provider,username,status,created_at)')
+    path.chmod(0o600)
+    monkeypatch.setenv('ALDI_JOURNAL_PATH', str(path))
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        inspect_runtime(str(path))
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        live.open_live_journal()
+    assert path.read_bytes() == before
+
+
+def test_canonical_schema_accepts_real_comments_but_not_commented_fake_constraints(tmp_path, monkeypatch):
+    from core.journal_validation import RECHARGES_TABLE_SQL
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    path = tmp_path / 'commented.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute(RECHARGES_TABLE_SQL.replace('status TEXT', '/* reviewed */ status TEXT'))
+        conn.execute('CREATE INDEX idx_recharges_account_status ON recharges(provider,username,status,created_at)')
+    path.chmod(0o600)
+    assert inspect_runtime(str(path))['schema_and_integrity_verified'] is True

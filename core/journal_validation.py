@@ -1,7 +1,52 @@
 """Read-only journal checks shared by the runtime probe and live actor."""
 from contextlib import closing
 import os
+import re
 import sqlite3
+
+
+RECHARGES_TABLE_SQL = """CREATE TABLE recharges (
+    recharge_id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL,
+    username TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('PENDING','UNKNOWN','SUCCESS','FAILED')),
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)"""
+
+
+def _schema_tokens(sql):
+    """Accept only the canonical table grammar, never substring/sentinel proofs.
+
+    Consume the complete SQL. Comments/spacing do not matter; string literals
+    remain case-sensitive. Extra CHECK alternatives, collations, expressions or
+    constraints are rejected, even if a few behavioral probes would pass.
+    """
+    if not isinstance(sql, str) or len(sql) > 65536:
+        raise RuntimeError('journal_schema_invalid')
+    token = re.compile(
+        r"(?P<space>\s+)|(?P<comment>--[^\n]*(?:\n|$)|/\*.*?\*/)|"
+        r"(?P<string>'(?:[^']|'')*')|(?P<word>[A-Za-z_][A-Za-z_0-9]*)|"
+        r'(?P<quoted>"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\])|(?P<symbol>[(),;])',
+        re.S,
+    )
+    result, pos = [], 0
+    while pos < len(sql):
+        match = token.match(sql, pos)
+        if match is None:
+            raise RuntimeError('journal_schema_invalid')
+        pos = match.end()
+        kind, value = match.lastgroup, match.group()
+        if kind in {'space', 'comment'}:
+            continue
+        if kind == 'word': value = value.lower()
+        elif kind == 'quoted': value = value[1:-1].replace('""', '"').lower()
+        result.append(value)
+    if result[-1:] == [';']: result.pop()
+    if result[:5] == ['create', 'table', 'if', 'not', 'exists']:
+        del result[2:5]
+    return result
 
 
 def validate_journal(connection):
@@ -22,6 +67,11 @@ def validate_journal(connection):
         ('updated_at', 'TEXT', 1, 0),
     ]
     if [(c[1], c[2].upper(), c[3], c[5]) for c in cols] != expected:
+        raise RuntimeError('journal_schema_invalid')
+    schema = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='recharges'"
+    ).fetchone()
+    if schema is None or _schema_tokens(schema[0]) != _schema_tokens(RECHARGES_TABLE_SQL):
         raise RuntimeError('journal_schema_invalid')
     # Triggers could delete/rewrite a successfully inserted reservation. Unknown
     # behavior on the actor's safety table is never accepted as durable storage.
