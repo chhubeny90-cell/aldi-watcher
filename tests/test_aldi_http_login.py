@@ -185,6 +185,13 @@ def test_generic_lock_word_is_not_proof(message):
     assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is False
 
 
+def test_maintenance_help_script_is_not_a_provider_outage():
+    result = {"callbacks": [{"type": "TextOutputCallback", "output": [
+        {"name": "message", "value": "<script>var maintenance = 'Wartungsarbeiten';</script>"},
+    ]}]}
+    assert result_diagnostics(result)["provider_indications"]["maintenance"] is False
+
+
 @pytest.mark.parametrize("message", ["Dein Konto ist gesperrt.", "Account locked", "custom.alditalk.accountLock"])
 def test_explicit_lock_message_is_detected(message):
     assert result_diagnostics({"message": message})["provider_indications"]["account_locked"] is True
