@@ -38,7 +38,7 @@ def inspect_runtime(raw_path):
         # columns and integrity constraints, not just a readable SELECT.
         cols = connection.execute("PRAGMA table_info('recharges')").fetchall()
         expected = [
-            ('recharge_id', 'TEXT', 0, 1),
+            ('recharge_id', 'TEXT', 1, 1),
             ('provider', 'TEXT', 1, 0),
             ('username', 'TEXT', 1, 0),
             ('status', 'TEXT', 1, 0),
@@ -81,6 +81,7 @@ def inspect_runtime(raw_path):
                 probe.execute('RELEASE aldi_status_schema_probe')
         indexes = connection.execute("PRAGMA index_list('recharges')").fetchall()
         if not any(
+            i[4] == 0 and
             [c[2] for c in connection.execute('PRAGMA index_info("' + i[1] + '")')]
             == ['provider', 'username', 'status', 'created_at'] for i in indexes
         ):
