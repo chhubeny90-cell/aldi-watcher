@@ -131,3 +131,25 @@ def test_sensor_is_separate_and_cannot_dispatch_a_live_actor():
     assert 'workflow_dispatch' in text
     assert 'repository_dispatch' not in text
     assert 'persist-credentials: false' in text
+
+
+def test_live_credentials_exist_only_in_final_actor_step_after_blocking_gates():
+    text = _workflow('free-refill.yml')
+    refill = text.split('\n  refill:\n', 1)[1]
+    before_actor, actor = refill.split('      - name: Validate target and execute one guarded free refill', 1)
+    after_actor = actor.split('      - name: Preserve sanitized completion report', 1)
+    for key in ('ALDI_EXPECTED_ACCOUNT','ALDI_USER','ALDI_USER_ENC','ALDI_LOGIN_USER',
+                'ALDI_PASS','ALDI_PASS_ENC','CREDENTIAL_ENCRYPTION_KEY'):
+        assert key + ':' not in before_actor
+        assert key + ':' in after_actor[0]
+        assert key + ':' not in after_actor[1]
+
+
+def test_mail_credentials_are_scoped_to_sensor_step_only():
+    text = _workflow('mail-trigger.yml')
+    before_sensor, sensor = text.split('      - name: Poll usage mailboxes without ALDI portal access', 1)
+    after_sensor = sensor.split('      - name: Preserve sanitized usage-alert report', 1)
+    for key in ('GITHUB_TOKEN', 'ALDI_RECOVERY_KEY', 'MAILBOX_1_USER', 'MAILBOX_1_PASS', 'MAILBOX_2_PASS'):
+        assert key + ':' not in before_sensor
+        assert key + ':' in after_sensor[0]
+        assert key + ':' not in after_sensor[1]

@@ -15,10 +15,18 @@ def verify_ack(task, comment, *, expected_author):
         return blocked('interface_unavailable_or_no_receipt')
     if not isinstance(task, dict) or not re.fullmatch(r'[0-9a-f]{40}', str(task.get('commit', ''))):
         return blocked('invalid_task_commit')
+    # Both identities must originate from the authenticated transport. An absent
+    # sender is not evidence that the commenter is an independent counterpart.
+    identity = r'[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?'
+    if (not isinstance(task.get('sender_login'), str)
+            or re.fullmatch(identity, task['sender_login']) is None
+            or not isinstance(expected_author, str)
+            or re.fullmatch(identity, expected_author) is None):
+        return blocked('handoff_identity_unverified')
     author = comment.get('author') or comment.get('user')
     if not isinstance(author, dict) or author.get('login') != expected_author:
         return blocked('counterpart_identity_mismatch')
-    if expected_author == task.get('sender_login'):
+    if expected_author.casefold() == task['sender_login'].casefold():
         return blocked('sender_readback_is_not_counterpart_ack')
     url = comment.get('html_url') or comment.get('url')
     base = 'https://github.com/' + str(task.get('repository', '')) + '/'

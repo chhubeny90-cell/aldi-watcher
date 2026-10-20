@@ -37,3 +37,16 @@ def test_counterpart_ack_is_not_review_approval_or_task_completion():
 
 def test_wrong_author_cannot_claim_delivery():
     assert verify_ack(task(), receipt(), expected_author='different')['status'] == 'NOT_ACKNOWLEDGED'
+
+
+@pytest.mark.parametrize('sender', [None, '', ' ', 1, [], 'sender/other'])
+def test_unknown_sender_never_allows_own_readback_as_ack(sender):
+    data = task()
+    if sender is None: data.pop('sender_login')
+    else: data['sender_login'] = sender
+    assert verify_ack(data, receipt(), expected_author='counterpart')['reason'] == 'handoff_identity_unverified'
+
+
+def test_sender_case_variation_is_still_self_ack():
+    data = task(); data['sender_login'] = 'CounterPart'
+    assert verify_ack(data, receipt(), expected_author='counterpart')['reason'] == 'sender_readback_is_not_counterpart_ack'
