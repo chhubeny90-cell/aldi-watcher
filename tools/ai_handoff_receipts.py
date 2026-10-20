@@ -28,9 +28,20 @@ def verify_ack(task, comment, *, expected_author):
         return blocked('counterpart_identity_mismatch')
     if expected_author.casefold() == task['sender_login'].casefold():
         return blocked('sender_readback_is_not_counterpart_ack')
+    # Bind the ACK to the exact PR/issue where the task was delivered.
+    # A matching nonce posted to another repository thread is not a receipt.
+    repository = task.get('repository')
+    kind = task.get('thread_kind')
+    number = task.get('thread_number')
+    if (not isinstance(repository, str)
+            or re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository) is None
+            or kind not in ('issues', 'pull')
+            or type(number) is not int or number < 1):
+        return blocked('handoff_thread_unverified')
     url = comment.get('html_url') or comment.get('url')
-    base = 'https://github.com/' + str(task.get('repository', '')) + '/'
-    if not isinstance(url, str) or not url.startswith(base) or '#issuecomment-' not in url:
+    expected = f'https://github.com/{repository}/{kind}/{number}#issuecomment-'
+    if (not isinstance(url, str)
+            or re.fullmatch(re.escape(expected) + r'[1-9][0-9]*', url) is None):
         return blocked('receipt_location_unverified')
     try:
         payload = json.loads(comment.get('body', ''))
