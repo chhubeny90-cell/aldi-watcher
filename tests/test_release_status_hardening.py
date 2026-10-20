@@ -1,7 +1,7 @@
 """Synthetic release proofs are test fixtures, never operational certificates."""
 from datetime import datetime, timezone, timedelta
 import pytest
-from core.release_status import DRY, LIVE, BLOCK, TESTS, evaluate, audit
+from core.release_status import DRY, LIVE, BLOCK, TESTS, SCHEMA_VERSION, evaluate, audit
 
 NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 COMMIT = 'a' * 40
@@ -11,7 +11,7 @@ URL = 'https://github.com/example/test/actions/runs/1'
 
 def ready(live=True):
     criteria = sorted(DRY.keys() | BLOCK.keys() | (LIVE.keys() if live else set()))
-    return {'schema_version': 2, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
+    return {'schema_version': SCHEMA_VERSION, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
             'dry': dict.fromkeys(DRY, True), 'live': dict.fromkeys(LIVE, live),
             'blockers': [{'id': b, 'active': False} for b in sorted(BLOCK)],
             'tests': [{'id': t, 'status': 'BESTANDEN', 'reproducible': True,
