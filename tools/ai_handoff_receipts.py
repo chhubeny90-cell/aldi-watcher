@@ -15,11 +15,16 @@ def verify_ack(task, comment, *, expected_author):
         return blocked('interface_unavailable_or_no_receipt')
     if not isinstance(task, dict) or not re.fullmatch(r'[0-9a-f]{40}', str(task.get('commit', ''))):
         return blocked('invalid_task_commit')
+    sender_login = task.get('sender_login')
+    if (not isinstance(sender_login, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\\[bot\\])?', sender_login)
+            or not isinstance(expected_author, str)
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\\[bot\\])?', expected_author)):
+        return blocked('counterpart_identity_unverified')
+    if expected_author.casefold() == sender_login.casefold():
+        return blocked('sender_readback_is_not_counterpart_ack')
     author = comment.get('author') or comment.get('user')
     if not isinstance(author, dict) or author.get('login') != expected_author:
         return blocked('counterpart_identity_mismatch')
-    if expected_author == task.get('sender_login'):
-        return blocked('sender_readback_is_not_counterpart_ack')
     url = comment.get('html_url') or comment.get('url')
     base = 'https://github.com/' + str(task.get('repository', '')) + '/'
     if not isinstance(url, str) or not url.startswith(base) or '#issuecomment-' not in url:
