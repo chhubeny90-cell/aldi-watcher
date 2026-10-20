@@ -122,6 +122,32 @@ def test_annual_tariff_remains_blocked_even_with_low_wallet_balance():
     assert result['refill_reason'] == 'active_tariff_unverified'
 
 
+@pytest.mark.parametrize('candidate_count', [
+    True, False, 1.0, 1.5, '1', None, -1, [], {},
+])
+def test_invalid_candidate_counts_fail_closed_without_conversion(candidate_count):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_candidate_count_unverified'
+    assert result['refill_candidate_count'] == 0
+
+
+@pytest.mark.parametrize(('candidate_count', 'expected'), [
+    (0, 0), (2, 2), (3, 3),
+])
+def test_non_single_integer_candidate_counts_remain_ambiguous(candidate_count, expected):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_control_ambiguous'
+    assert result['refill_candidate_count'] == expected
+
+
+def test_exact_one_integer_candidate_is_still_eligible():
+    result = eligible(candidate_count=1)
+    assert result['refill_eligible'] is True
+    assert result['refill_candidate_count'] == 1
+
+
 def test_multiple_candidate_controls_are_rejected():
     result = eligible(candidate_count=2)
     assert result['refill_eligible'] is False
