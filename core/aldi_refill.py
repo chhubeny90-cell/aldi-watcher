@@ -275,36 +275,17 @@ def _composed_parent(driver, element):
 
 
 def _offer_context(driver, control):
-    from browser_dom import rendered_offer_text, find_visible_elements
+    """Never borrow a price from an unverified ancestor/card.
 
-    current = control
-    best = ""
-    for _ in range(8):
-        try:
-            if str(current.tag_name).lower() in {'body', 'html'}:
-                break
-            if current != control:
-                controls = find_visible_elements(
-                    driver, "button,a,[role='button'],input[type='submit']", scope=current,
-                )
-                if len(controls) != 1 or controls[0] != control:
-                    return ''
-            text = rendered_offer_text(driver, current)
-        except Exception:
-            text = ""
-        if text:
-            best = text
-            if (re.search(r"(?<![\d.,])1(?:[.,]0+)?\s*GB\b", text, re.I)
-                    and re.search(r"\b(?:nachbuch\w*|kostenlos|highspeed|datenvolumen)\b", text, re.I)
-                    and re.search(r"€|\b(?:EUR|Euro)\b", text, re.I)):
-                return text
-        try:
-            current = _composed_parent(driver, current)
-        except Exception:
-            break
-        if current is None:
-            break
-    return best
+    Until the actual portal provides a verified scoped offer relationship, only
+    the action's own rendered subtree is price evidence. An unpriced button in
+    a wrapper with an unrelated free field therefore remains unavailable.
+    """
+    from browser_dom import rendered_offer_text
+    try:
+        return rendered_offer_text(driver, control)
+    except Exception:
+        return ''
 
 
 def locate_selenium(driver, remaining_gb):

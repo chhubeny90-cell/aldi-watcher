@@ -44,18 +44,32 @@ def test_shadow_and_slot_keep_real_wallet_block_separation(page):
     assert assess_refill('Tarif S Unlimited', text, '1 GB nachbuchen', True, 1, 0.4)['refill_eligible']
 
 
-def test_button_context_climbs_to_sibling_price_but_not_past_ambiguous_card(monkeypatch):
+def test_unpriced_button_cannot_borrow_sibling_or_page_wrapper_price(monkeypatch):
     import browser_dom
     class Node:
-        def __init__(self, text, tag, parent=None):
-            self.text, self.tag_name, self.parent = text, tag, parent
-    card = Node('0,00 €\n1 GB nachbuchen', 'section')
-    button = Node('1 GB nachbuchen', 'button', card)
-    class Driver:
-        def execute_script(self, _, node):
-            return node.parent
+        def __init__(self, text): self.text = text
+    button = Node('1 GB nachbuchen')
     monkeypatch.setattr(browser_dom, 'rendered_offer_text', lambda _, n: n.text)
-    monkeypatch.setattr(browser_dom, 'find_visible_elements', lambda *_, **__: [button])
-    assert _offer_context(Driver(), button) == card.text
-    monkeypatch.setattr(browser_dom, 'find_visible_elements', lambda *_, **__: [button, Node('other', 'button')])
-    assert _offer_context(Driver(), button) == ''
+    class Driver:
+        def execute_script(self, *_):
+            pytest.fail('ancestor search must not run')
+    context = _offer_context(Driver(), button)
+    assert context == '1 GB nachbuchen'
+    assert not assess_refill('Tarif S Unlimited', context, button.text, True, 1, .4)['refill_eligible']
+
+
+def test_priced_control_uses_only_its_own_rendered_subtree(monkeypatch):
+    import browser_dom
+    button = object()
+    monkeypatch.setattr(browser_dom, 'rendered_offer_text', lambda _, n: '1 GB nachbuchen 0,00 €' if n is button else pytest.fail('wrong scope'))
+    context = _offer_context(object(), button)
+    assert assess_refill('Tarif S Unlimited', context, '1 GB nachbuchen', True, 1, .4)['refill_eligible']
+
+
+def test_real_dom_unrelated_free_field_is_not_an_offer_price(page):
+    page.set_content('<main><div>Sonstige Kosten 0,00 €</div><section><button id="action">1 GB nachbuchen</button></section></main>')
+    class Driver:
+        def execute_script(self, script, _):
+            return page.evaluate('() => {' + _DOM_HELPERS + ';return renderedText(document.querySelector("#action"), true)}')
+    context = _offer_context(Driver(), object())
+    assert not assess_refill('Tarif S Unlimited', context, '1 GB nachbuchen', True, 1, .4)['refill_eligible']
