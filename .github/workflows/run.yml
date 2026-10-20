@@ -2,7 +2,7 @@ name: ALDI Watcher
 
 on:
   push:
-    branches: [main, develop, 'hardening/**', 'feature/**', 'fix/**']
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Authenticated ALDI portal automation remains disabled.
   AUTO_BOOK_ENABLED: 'false'
@@ -36,13 +40,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Verify scheduled runtime dependencies in clean environments
+        run: python scripts/check_workflow_dependencies.py
       - name: Run full test suite
         run: python -m pytest -q
 
@@ -54,19 +62,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements/mail-monitor.txt
+            requirements/public-probe.txt
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v2.2.0
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements/public-probe.txt
       - name: Inspect public portal pages without credentials
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
@@ -74,7 +88,7 @@ jobs:
         run: python portal_probe.py
       - name: Preserve public portal diagnosis
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
           path: portal-probe-report.json

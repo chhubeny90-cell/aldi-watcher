@@ -1,0 +1,4 @@
+# Credential-free Selenium probe; no Playwright, pytest or aiohttp installation.
+# The nested monitor file applies the shared root version constraints.
+-r mail-monitor.txt
+selenium
