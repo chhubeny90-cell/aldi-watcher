@@ -19,6 +19,13 @@ connector. Never feed an arbitrary user-supplied JSON file as authenticated
 transport evidence. Author identity and repository/thread must be verified at
 read time. Its positive tests are synthetic protocol tests, not real delivery.
 
+Record the exact GitHub `repository`, `thread_kind` (`issues` or `pull`),
+and positive integer `thread_number` with each assigned task. ACK receipt
+links must point to that precise thread with a valid `#issuecomment-N` anchor;
+a matching payload copied to another thread is NOT acknowledgement. The caller
+must verify author and comment URL through its authenticated GitHub connector.
+Do not treat a self-posted or user-supplied comment object as a counterpart ACK.
+
 A minimal counterpart response is JSON (fill fields from the assigned task):
 
 ```json
