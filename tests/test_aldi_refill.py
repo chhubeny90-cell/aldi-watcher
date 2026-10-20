@@ -374,3 +374,14 @@ def test_tariff_or_charge_terms_block_zero_offer(offer):
 @pytest.mark.parametrize('quantity', [None, True, -1, '1', 1.0])
 def test_noncanonical_candidate_count_blocks_without_exception(quantity):
     assert eligible(candidate_count=quantity)['refill_eligible'] is False
+
+
+@pytest.mark.parametrize('offer', [
+    '1 GB Datenvolumen nachbuchen 0,00 € + 1,99 Euro',
+    '1 GB Datenvolumen nachbuchen 0,00 € und 2 Euro',
+    '1 GB Datenvolumen nachbuchen 0,00 Euro',
+])
+def test_spelled_euro_prices_are_not_overlooked(offer):
+    result = eligible(offer_text=offer)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
