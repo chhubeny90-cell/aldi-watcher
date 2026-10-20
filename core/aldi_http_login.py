@@ -78,7 +78,7 @@ def _explicit_maintenance(messages):
     indicators = (
         "wartungsarbeiten", "vorübergehend nicht verfügbar",
         "voruebergehend nicht verfuegbar", "temporarily unavailable",
-        "service unavailable", "maintenance",
+        "service unavailable", "maintenance", "wartung",
     )
     for message in messages:
         if not isinstance(message, str):
