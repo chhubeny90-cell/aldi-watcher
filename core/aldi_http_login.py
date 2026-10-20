@@ -222,6 +222,14 @@ class AldiHttpLogin:
         self._get(OVERVIEW)
         self.report["phase"] = "auth_challenge"
         challenge = self._authenticate({})
+        # Provider lock/maintenance can be reported before credentials are sent.
+        # Never submit a password when the initial challenge already forbids it.
+        self.report.update(result_diagnostics(challenge))
+        indications = self.report.get("provider_indications") or {}
+        if indications.get("account_locked") is True:
+            raise LoginError("account_locked")
+        if indications.get("maintenance") is True:
+            raise LoginError("provider_maintenance")
         self.report["phase"] = "prepare_callbacks"
         payload = prepare_callbacks(challenge, phone, password)
         self.report["phase"] = "credential_submit"
