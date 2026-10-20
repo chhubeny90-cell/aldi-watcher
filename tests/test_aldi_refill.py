@@ -136,7 +136,7 @@ def test_tarif_s_paid_one_gb_offer_is_rejected():
         button_text='+1 GB',
     )
     assert result['refill_eligible'] is False
-    assert result['refill_reason'] == 'price_unverified_or_paid'
+    assert result['refill_reason'] == 'not_unlimited_tariff'
 
 
 def test_annual_tariff_and_generic_unlimited_hint_are_rejected():
