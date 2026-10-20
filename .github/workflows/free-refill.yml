@@ -1,10 +1,6 @@
 name: ALDI Guarded Free Refill
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/free-refill.yml'
   workflow_dispatch:
     inputs:
       mode:
@@ -13,9 +9,21 @@ on:
         default: preflight
         type: choice
         options: [preflight, refill]
+      authorization_id:
+        description: Reference to the current explicit one-shot approval (AUTH-...), never a secret
+        required: false
+        type: string
+      approved_commit:
+        description: Full reviewed commit approved for this one-shot attempt
+        required: false
+        type: string
 
 permissions:
   contents: read
+
+env:
+  DRY_RUN: 'true'
+  AUTO_BOOK_ENABLED: 'false'
 
 concurrency:
   group: aldi-guarded-free-refill
@@ -61,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
@@ -70,13 +80,14 @@ jobs:
 
   refill:
     needs: [preflight, test]
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'refill' && needs.preflight.outputs.ready == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'refill' && github.ref == 'refs/heads/main' && inputs.approved_commit == github.sha && startsWith(inputs.authorization_id, 'AUTH-') && needs.preflight.outputs.ready == 'true'
+    environment: aldi-live
     runs-on: [self-hosted, linux, aldi-journal]
     timeout-minutes: 8
     env:
-      AUTO_BOOK_ENABLED: 'true'
+      AUTO_BOOK_ENABLED: 'false'
       ALDI_MAX_REFILLS_PER_RUN: '1'
-      ALDI_REQUIRED_TARGET_SUFFIX: '1869'
+      ALDI_REQUIRED_TARGET_SUFFIX: ${{ vars.ALDI_REQUIRED_TARGET_SUFFIX }}
       ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
       ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
       ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER || secrets.ALDI_USER }}
@@ -86,13 +97,24 @@ jobs:
       ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
       CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
       ALDI_LIVE_REPORT: aldi-live-refill.json
+      ALDI_READINESS_EVIDENCE_PATH: ${{ vars.ALDI_READINESS_EVIDENCE_PATH }}
+      ALDI_AUTHORIZATION_ID: ${{ inputs.authorization_id }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
+      - name: Require current evidence and implemented mail/recovery/auth contracts
+        run: python scripts/check_live_workflow.py
+      - name: Validate existing private journal before any login
+        run: python scripts/check_aldi_runtime.py
       - name: Validate target and execute one guarded free refill
+        env:
+          DRY_RUN: 'false'
+          AUTO_BOOK_ENABLED: 'true'
         run: |
           python - <<'PY'
           import os

@@ -7,7 +7,7 @@ PR107's old evaluator is not treated as verified or silently merged.
 ## WATCH-001 correction
 
 `core/release_status.py` replaces arbitrary truthy live criteria with a versioned
-catalog: DRY-001..009, LIVE-001..009, BLOCK-001..028 and TEST-001..004. All IDs
+catalog: DRY-001..009, LIVE-001..010, BLOCK-001..028 and TEST-001..004. All IDs
 have explicit meanings in the source. This is a proposed repository policy,
 not a claim that an unseen KI-Box document contains these exact definitions.
 TEST-001 is full regressions, TEST-002 release hardening, TEST-003 mail migration,
@@ -27,7 +27,20 @@ existence of a live provider receipt. It is deliberately not connected as an
 actor authorization switch. Audit records include evidence IDs and snapshot;
 a digest is not external append-only storage or a signature.
 
-## Schema 2: first-run readiness is not a completion result
+## Schema 3: independent recovery evidence
+
+The active wire schema is **3**, not 2. Schema 2 payloads must be rebuilt and
+independently revalidated; do not relabel old evidence. Exact LIVE-001..010
+coverage is mandatory. LIVE-007 requires completion-contract proof and LIVE-010
+requires its own recovery-contract proof. Reusing one evidence record for both
+criteria is rejected. The pure evaluator does not fetch or authenticate URLs.
+
+`LIVE_VERIFIED` is reserved as an operational reporting state for the exact
+completed authorized event after independent official receipt, private durable
+journal and replay guard verification. The pure pre-action evaluator deliberately
+never emits it; no such operational verification exists yet.
+
+## Historical schema 2: first-run readiness is not a completion result
 
 Schema 1 required `provider_receipt_verified` before LIVE_READY, which was
 circular for the operation that had not yet run. Schema 2 rejects schema 1

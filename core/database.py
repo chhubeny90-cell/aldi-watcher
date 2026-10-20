@@ -123,7 +123,7 @@ class Database:
             """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS recharges (
-                    recharge_id TEXT PRIMARY KEY,
+                    recharge_id TEXT PRIMARY KEY NOT NULL,
                     provider TEXT NOT NULL,
                     username TEXT NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('PENDING','UNKNOWN','SUCCESS','FAILED')),
@@ -207,6 +207,14 @@ class Database:
                 (recharge_id, provider, username, status, error_message, created_at, updated_at)
                 VALUES (?, ?, ?, 'PENDING', NULL, ?, ?)
             """, (recharge_id, provider, username, now, now))
+            # An unexpected trigger must not erase/rebind the durable guard while
+            # begin_recharge reports a successful reservation to the browser.
+            if conn.execute(
+                'SELECT provider, username, status FROM recharges WHERE recharge_id = ?',
+                (recharge_id,),
+            ).fetchall() != [(provider, username, 'PENDING')]:
+                conn.rollback()
+                raise RechargeLockedError('reservation_not_persisted')
             conn.commit()
             return recharge_id
         finally:

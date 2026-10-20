@@ -11,6 +11,11 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
+import sys
+
+# Support the documented direct script invocation from a fresh checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.journal_validation import validate_journal
 
 
 def inspect_runtime(raw_path):
@@ -29,19 +34,9 @@ def inspect_runtime(raw_path):
                 or path.resolve().is_relative_to(Path(workspace).resolve())):
             raise RuntimeError('durable_runner_required')
 
-    def validate(connection):
-        if connection.execute('PRAGMA quick_check').fetchall() != [('ok',)]:
-            raise RuntimeError('journal_integrity_failed')
-        connection.execute('SELECT recharge_id, provider, username, status, '
-                           'created_at, updated_at FROM recharges LIMIT 0')
-        rows = connection.execute('SELECT status, COUNT(*) FROM recharges GROUP BY status').fetchall()
-        if any(status not in {'PENDING', 'UNKNOWN', 'SUCCESS', 'FAILED'} for status, _ in rows):
-            raise RuntimeError('journal_status_invalid')
-        return dict(rows)
-
     # mode=ro refuses a missing source and cannot create or normalize it.
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as source:
-        counts = validate(source)
+        counts = validate_journal(source)
         with tempfile.TemporaryDirectory(prefix='.aldi-journal-check-', dir=path.parent) as temp:
             backup = Path(temp) / 'backup.sqlite'
             fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
@@ -51,7 +46,7 @@ def inspect_runtime(raw_path):
             with backup.open('rb') as stream:
                 os.fsync(stream.fileno())
             with closing(sqlite3.connect(backup.as_uri() + '?mode=ro', uri=True)) as restored:
-                if validate(restored) != counts:
+                if validate_journal(restored) != counts:
                     raise RuntimeError('journal_changed_during_probe')
     return {
         'status': 'BLOCKED', 'journal_present': True, 'private_permissions_verified': True,

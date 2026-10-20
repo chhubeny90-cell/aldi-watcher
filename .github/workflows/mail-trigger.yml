@@ -3,10 +3,10 @@ name: ALDI Usage Mail Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: aldi-usage-mail-monitor
@@ -14,9 +14,13 @@ concurrency:
 
 jobs:
   monitor:
+    permissions:
+      contents: write  # CAS-only state-branch persistence by the mail sensor
     runs-on: ubuntu-latest
     timeout-minutes: 4
     env:
+      DRY_RUN: 'true'
+      AUTO_BOOK_ENABLED: 'false'
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
       ALDI_STATE_PATH: .aldi-state/profile-1.json
@@ -31,6 +35,8 @@ jobs:
       ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'

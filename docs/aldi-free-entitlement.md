@@ -1,28 +1,33 @@
-# ALDI TALK: kostenlose Unlimited-1-GB-Nachbuchung
+# ALDI TALK offer classification
 
-Stand: 2026-10-12
+Policy updated 2026-10-20. This describes the repository's conservative gate;
+it is not a claim about the user's authenticated subscription.
 
-## Verifizierte Anbieterregel
+The public provider page describes repeatable free 1-GB refill for eligible
+Unlimited tariffs. Checked 2026-10-20:
+https://www.alditalk.de/tarife-unlimited-gb-nachbuchen
 
-ALDI TALK beschreibt für die Unlimited-on-Demand-Tarife die kostenlose Nachbuchung von jeweils 1 GB, sobald das verbleibende Highspeed-Datenvolumen unter 1 GB liegt. Die Nachbuchung kann wiederholt genutzt werden.
+The website says below 1 GB; an older published price list uses at most 1 GB:
+https://media.medion.com/cms/medion/alditalkde/ALDI-TALK-Tarif-S-M-L-Unlimited-GB-nachbuchen-Preisliste-0625.pdf
+The current detector deliberately uses the stricter below-1-GB boundary. An
+independently verified provider eligibility contract would need a separate change.
 
-Offizielle Quelle:
-- https://www.alditalk.de/tarife-unlimited-gb-nachbuchen
+`core/aldi_refill.py` requires all of:
 
-## Entscheidung im Watcher
+1. Verified finite nonnegative remaining volume below 1 GB.
+2. Exactly one explicit Unlimited tariff heading; plain Tarif S/M/L is insufficient.
+3. Exactly one enabled local refill control; candidate count must be a strict int,
+   equal to 1. Booleans, floats, strings, zero and negative counts are rejected.
+4. Exactly 1 GB and a local literal `0,00 €` price. `0 €`, `EUR`, absent price and
+   generic free wording do not satisfy this deliberately strict parser policy.
+5. No positive, malformed or conflicting price, paid option or tariff-change terms.
 
-`core/aldi_refill.py` darf ein lokales 1-GB-Angebot ohne sichtbare `0,00 €`-Angabe nur dann als kostenlos einstufen, wenn gleichzeitig:
+A separately labelled wallet balance is excluded only on a real independent
+rendered block line. The composed DOM reader preserves block and BR boundaries
+across open shadow roots/slots; it never invents boundaries between inline spans.
+Ambiguous flattened balances block. The context search climbs from the button
+until a priced local context is found; it stops at a multi-control container or
+body/html rather than borrowing another offer's price. No observed real-account
+DOM has yet been verified by these synthetic fixtures.
 
-1. weniger als 1 GB Restvolumen verifiziert ist,
-2. genau ein aktiver Unlimited-Tarif erkannt ist,
-3. genau ein aktivierter 1-GB-Nachbuchungs-Button lokal zugeordnet ist,
-4. derselbe lokale Angebotskontext ausdrücklich `Unlimited` oder `On Demand` und Nachbuchung erkennen lässt,
-5. keine positive, widersprüchliche oder nicht eindeutig parsebare Preisangabe vorhanden ist.
-
-Ein generisches `1 GB nachbuchen` ohne Preis bleibt gesperrt. Ebenso bleiben Jahrespakete, Basistarife, unklare Tarife, mehrere Kandidaten und deaktivierte Buttons gesperrt. Ein positiver Preis blockiert immer, auch wenn gleichzeitig `gratis`, `kostenlos` oder `0,00 €` im Kontext steht.
-
-`Tarif S` ohne Unlimited-Nachweis erhält keine implizite Kostenfrei-Freigabe und benötigt weiterhin einen sauber parsebaren lokalen `0 €`-/`0,00 €`-Preisnachweis.
-
-## Keine Live-Freigabe
-
-Diese Erkennung entscheidet nur, ob ein Angebot als kostenlos und passend klassifiziert werden darf. Sie aktiviert keine Live-Buchung und ändert die bestehenden Sperren für fehlende Reconciliation, Journal-/Runner-Konfiguration oder ungeklärten Loginstatus nicht.
+The classifier does not authorize login or booking. Current rollout remains BLOCKED.
