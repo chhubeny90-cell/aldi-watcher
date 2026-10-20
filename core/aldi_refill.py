@@ -84,17 +84,17 @@ def _price_state(text):
     if not isinstance(text, str):
         return "UNVERIFIED"
     sanitized = re.sub(
-        r"(?im)^[ \\t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\\s*:?\\s*"
-        r"\\d+(?:[.,]\\d{1,2})?\\s*(?:€|EUR\\b)[ \\t]*$",
+        r"(?im)^[ \t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)[ \t]*$",
         "", text,
     )
-    if re.search(r"[+\\-−]\\s*\\d[\\d.,]*\\s*(?:€|EUR\\b)", sanitized, re.I):
+    if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", sanitized, re.I):
         return "UNVERIFIED"
     prices = re.findall(
-        r"(?<![\\w.,+\\-])([+\\-]?[\\d][\\d.,]*)\\s*(€|EUR\\b)",
+        r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(€|EUR\b)",
         sanitized, re.I,
     )
-    mentions = re.findall(r"€|(?<![A-Za-z])EUR\\b", sanitized, re.I)
+    mentions = re.findall(r"€|(?<![A-Za-z])EUR\b", sanitized, re.I)
     if not prices:
         return "UNVERIFIED" if mentions else "ABSENT"
     if len(prices) != len(mentions):
