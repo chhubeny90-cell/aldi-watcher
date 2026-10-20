@@ -228,9 +228,13 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     if tariff is None:
         return unavailable("active_tariff_unverified")
 
+    # bool is an int subclass in Python: True == 1. Only a genuine,
+    # non-negative integer from the observed DOM count may authorize a refill.
+    if type(candidate_count) is not int or candidate_count < 0:
+        return unavailable("refill_candidate_count_unverified")
     if candidate_count != 1:
         result = unavailable("refill_control_ambiguous")
-        result["refill_candidate_count"] = int(candidate_count)
+        result["refill_candidate_count"] = candidate_count
         return result
     if not _exact_one_gb(offer_text):
         return unavailable("not_exactly_one_gb")
