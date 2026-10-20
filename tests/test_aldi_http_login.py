@@ -111,6 +111,30 @@ def test_verified_login_requires_redirects_and_protected_account_json():
     assert PASSWORD not in json.dumps(client.report)
 
 
+
+@pytest.mark.parametrize(("message", "expected"), [
+    ("Dein Konto ist gesperrt.", "account_locked"),
+    ("Der Dienst ist wegen Wartungsarbeiten vorübergehend nicht verfügbar.", "provider_maintenance"),
+])
+def test_initial_challenge_blocks_password_submit_on_lock_or_maintenance(message, expected):
+    transport = session()
+    transport.get.return_value = response()
+    initial = challenge()
+    initial["callbacks"].append({
+        "type": "TextOutputCallback",
+        "output": [{"name": "message", "value": message}],
+    })
+    transport.post.return_value = response(payload=initial)
+    client = AldiHttpLogin(transport)
+
+    with pytest.raises(LoginError, match=expected):
+        client.login(PHONE, PASSWORD)
+    assert transport.post.call_count == 1  # Anonymous challenge only.
+    assert client.report["credential_submissions"] == 0
+    assert client.report["login_ok"] is False
+    assert PASSWORD not in json.dumps(client.report)
+
+
 def test_account_mismatch_never_reads_other_subscription():
     transport = session()
     transport.cookies.clear()
