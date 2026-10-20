@@ -11,7 +11,7 @@ URL = 'https://github.com/example/test/actions/runs/1'
 
 def ready(live=True):
     criteria = sorted(DRY.keys() | BLOCK.keys() | (LIVE.keys() if live else set()))
-    return {'schema_version': 2, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
+    return {'schema_version': 3, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
             'dry': dict.fromkeys(DRY, True), 'live': dict.fromkeys(LIVE, live),
             'blockers': [{'id': b, 'active': False} for b in sorted(BLOCK)],
             'tests': [{'id': t, 'status': 'BESTANDEN', 'reproducible': True,
@@ -161,4 +161,11 @@ def test_completion_contract_cannot_be_reused_as_recovery():
     completion = next(e for e in d['evidence'] if e['criterion'] == 'LIVE-007')
     recovery = next(e for e in d['evidence'] if e['criterion'] == 'LIVE-010')
     recovery['criterion'] = completion['criterion']
+    assert check(d) == 'BLOCKED'
+
+
+def test_previous_live_catalog_requires_explicit_v3_migration():
+    d = ready()
+    d['schema_version'] = 2
+    # v2 has no independent LIVE-010 recovery proof; reject without migration.
     assert check(d) == 'BLOCKED'
