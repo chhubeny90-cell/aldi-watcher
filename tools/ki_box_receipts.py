@@ -12,19 +12,25 @@ import os
 import re
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 PROVIDERS = ("copilot", "gemini", "perplexity", "openai")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-IDENTITY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\\[bot\\])?")
+IDENTITY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?")
 CHALLENGE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 TASK_RE = re.compile(r"[A-Za-z0-9_-]{4,100}")
 
 
 class HandoffError(ValueError):
     pass
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects before forwarding the GitHub bearer token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise HandoffError("redirect_not_allowed")
 
 
 def validate_task(task: dict) -> dict:
@@ -143,9 +149,9 @@ def fetch_authenticated_comments(task: dict, token: str) -> list[dict]:
             "User-Agent": "aldi-watcher-ki-box-receipts",
         })
         try:
-            with urlopen(req, timeout=15) as response:
-                if urlsplit(response.url).hostname != "api.github.com":
-                    raise HandoffError("unexpected_api_host")
+            with build_opener(_NoRedirectHandler).open(req, timeout=15) as response:
+                if response.url != url:
+                    raise HandoffError("unexpected_api_url")
                 page_data = json.load(response)
         except (HTTPError, URLError, TimeoutError, ValueError) as exc:
             raise HandoffError("github_comments_unavailable") from exc
