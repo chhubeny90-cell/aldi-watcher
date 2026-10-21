@@ -57,16 +57,15 @@ OBVIOUS_SECRET_PATTERNS = (
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
     re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bpplx-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
     re.compile(
         r"\b(?:authorization|proxy-authorization|cookie|set-cookie)\b"
-        r"[\"']?\s*:\s*(?:\"[^\"\r\n]+\"|'[^'\r\n]+'|[^\s\"'<>]+)",
+        r"[\"']?\s*:\s*\S",
         re.IGNORECASE,
     ),
     re.compile(
         r"\b(?:[a-z0-9]+_)*(?:api[_-]?key|password|passwd|pass|client[_-]?secret|"
-        r"(?:access|refresh)[_-]?token)\b[\"']?\s*[:=]\s*"
-        r"(?:\"[^\"\r\n]+\"|'[^'\r\n]+'|[^\s\"'<>]+)",
+        r"(?:access|refresh)[_-]?token)\b[\"']?\s*[:=]\s*\S",
         re.IGNORECASE,
     ),
 )
@@ -97,6 +96,9 @@ class ReviewTask:
 def _reject_obvious_secrets(text: str) -> None:
     # Defense in depth only: callers must supply public, reviewed context.
     # Arbitrary passwords cannot be recognized by their content alone.
+    # Reject any nonempty value after a credential label, at its first
+    # non-whitespace character. No quoting or redaction-placeholder exception:
+    # real values may contain those characters too.
     for pattern in OBVIOUS_SECRET_PATTERNS:
         if pattern.search(text):
             raise ReviewError("obvious_secret_detected")

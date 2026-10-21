@@ -1,6 +1,6 @@
 import copy
 from email.message import Message
-from http.client import BadStatusLine, IncompleteRead
+from http.client import BadStatusLine, HTTPResponse, IncompleteRead
 import io
 import json
 from urllib.error import HTTPError, URLError
@@ -233,6 +233,10 @@ class MemoryResponse(io.BytesIO):
         super().__init__(data)
         self.url = url
         self.status = status
+        self.headers = Message()
+
+    def getheader(self, name, default=None):
+        return self.headers.get(name, default)
 
 
 def install_pages(monkeypatch, pages):
@@ -269,6 +273,137 @@ def test_fetch_requests_only_canonical_github_get_and_assesses_real_response(tas
     assert timeout == 15
 
 
+@pytest.mark.parametrize("repository", ["owner/.github", "owner/.hidden-repo", "owner/repo.name"])
+def test_valid_dot_prefixed_repository_uses_canonical_api_path(task, monkeypatch, repository):
+    task["repository"] = repository
+    calls = install_pages(monkeypatch, [[]])
+    assert receipts.fetch_authenticated_comments(task, "synthetic-test-token") == []
+    assert calls[0][0].full_url == (
+        f"https://api.github.com/repos/{repository}/issues/321/comments?per_page=100&page=1"
+    )
+
+
+def memory_http_response(request, wire_body, headers):
+    """Real http.client framing over a finite byte stream, with no socket I/O."""
+    entries = headers.items() if isinstance(headers, dict) else headers
+    wire = b"HTTP/1.1 200 OK\r\n" + b"".join(
+        f"{name}: {value}\r\n".encode("ascii") for name, value in entries
+    ) + b"\r\n" + wire_body
+
+    class FakeSocket:
+        def makefile(self, mode):
+            assert mode == "rb"
+            return io.BytesIO(wire)
+
+    response = HTTPResponse(FakeSocket(), method="GET")
+    response.begin()
+    response.url = request.full_url
+    return response
+
+
+@pytest.mark.parametrize("contains_ack", [False, True])
+@pytest.mark.parametrize("later_page", [False, True])
+def test_short_content_length_valid_json_never_produces_audit_success(
+        task, monkeypatch, tmp_path, capsys, contains_ack, later_page):
+    # read(amt) silently returns these syntactically complete JSON bytes even
+    # though HTTPResponse still expects more bytes from the declared body.
+    body = json.dumps([acknowledgement(task)] if contains_ack else []).encode()
+    pages = []
+    if later_page:
+        pages.append([acknowledgement(task)] + [{"id": n} for n in range(99)])
+    pages.append(lambda request: memory_http_response(
+        request, body, {"Content-Length": len(body) + 999}
+    ))
+    calls = install_pages(monkeypatch, pages)
+    path = tmp_path / "task.json"
+    path.write_text(json.dumps(task), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_TOKEN", "synthetic-test-token")
+    assert receipts.main(["--task", str(path)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "ki-box-receipts: receipt_audit_failed\n"
+    assert len(calls) == (2 if later_page else 1)
+
+
+@pytest.mark.parametrize("framing", ["content_length", "close_delimited", "chunked", "uppercase_chunked"])
+def test_real_http_response_complete_framing_preserves_valid_receipt(task, monkeypatch, framing):
+    body = json.dumps([acknowledgement(task)]).encode()
+    if framing == "content_length":
+        headers = {"Content-Length": len(body)}
+        wire_body = body
+    elif framing in ("chunked", "uppercase_chunked"):
+        headers = {"Transfer-Encoding": "CHUNKED" if framing == "uppercase_chunked" else "chunked"}
+        wire_body = f"{len(body):x}\r\n".encode() + body + b"\r\n0\r\n\r\n"
+    else:
+        headers = {"Connection": "close"}
+        wire_body = body
+    calls = install_pages(monkeypatch, [lambda request: memory_http_response(request, wire_body, headers)])
+    comments = receipts.fetch_authenticated_comments(task, "synthetic-test-token")
+    assert status(task, comments) == "ACKNOWLEDGED"
+    assert len(calls) == 1
+
+
+def test_truncated_chunked_valid_json_body_is_rejected(task, monkeypatch):
+    # JSON alone is complete, but the required terminal HTTP chunk never arrived.
+    body = b"2\r\n[]\r\n"
+    calls = install_pages(monkeypatch, [lambda request: memory_http_response(
+        request, body, {"Transfer-Encoding": "chunked"}
+    )])
+    with pytest.raises(HandoffError, match="^github_comments_unavailable$"):
+        receipts.fetch_authenticated_comments(task, "synthetic-test-token")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("size,accepted", [(32, True), (33, False)])
+def test_real_http_response_enforces_exact_json_size_boundary(task, monkeypatch, size, accepted):
+    monkeypatch.setattr(receipts, "MAX_JSON_BYTES", 32)
+    body = b"[]" + b" " * (size - 2)
+    calls = install_pages(monkeypatch, [lambda request: memory_http_response(
+        request, body, {"Content-Length": size}
+    )])
+    if accepted:
+        assert receipts.fetch_authenticated_comments(task, "synthetic-test-token") == []
+    else:
+        with pytest.raises(HandoffError, match="^github_comments_unavailable$"):
+            receipts.fetch_authenticated_comments(task, "synthetic-test-token")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("headers", [
+    [("Content-Length", "2"), ("Content-Length", "2")],
+    [("Content-Length", "2"), ("Content-Length", "999")],
+    [("Content-Length", "2"), ("Transfer-Encoding", "chunked")],
+    [("Content-Length", "2,2")], [("Content-Length", "+2")],
+    [("Content-Length", "-2")], [("Content-Length", "")],
+])
+def test_ambiguous_or_invalid_http_content_length_fails_closed(task, monkeypatch, headers):
+    calls = install_pages(monkeypatch, [lambda request: memory_http_response(request, b"[]", headers)])
+    with pytest.raises(HandoffError, match="^github_comments_unavailable$"):
+        receipts.fetch_authenticated_comments(task, "synthetic-test-token")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("headers", [
+    [("Transfer-Encoding", "gzip")],
+    [("Transfer-Encoding", "gzip"), ("Transfer-Encoding", "chunked")],
+    [("Transfer-Encoding", "chunked"), ("Transfer-Encoding", "gzip")],
+    [("Transfer-Encoding", "chunked"), ("Transfer-Encoding", "chunked")],
+    [("Transfer-Encoding", "gzip, chunked")],
+    [("Transfer-Encoding", "chunked, gzip")],
+    [("Transfer-Encoding", "chunked,chunked")],
+    [("Transfer-Encoding", "chunked ")],
+    [("Transfer-Encoding", "chunked\t")],
+])
+def test_unsupported_or_ambiguous_transfer_encoding_rejects_complete_raw_json(task, monkeypatch, headers):
+    # In particular, http.client does not decode a "chunked " value as chunks.
+    # Accepting that value after stripping whitespace would trust raw JSON that
+    # never had the required HTTP chunk framing.
+    calls = install_pages(monkeypatch, [lambda request: memory_http_response(request, b"[]", headers)])
+    with pytest.raises(HandoffError, match="^github_comments_unavailable$"):
+        receipts.fetch_authenticated_comments(task, "synthetic-test-token")
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("total", [0, 99, 100, 999, 1000, 1001])
 def test_pagination_exhaustion_and_1000_comment_boundary(task, monkeypatch, total):
     comments = [{"id": n} for n in range(total)]
@@ -298,7 +433,7 @@ def test_invalid_token_never_constructs_transport(task, monkeypatch, bad_token):
 
 
 @pytest.mark.parametrize("repository", [
-    "owner/../user", "owner/..", "../repo", "./repo", "owner/repo?query=yes",
+    "owner/../user", "owner/.", "owner/..", "../repo", "./repo", "owner/repo?query=yes",
     "owner/repo#fragment", "owner/repo/../../user", "https://evil.example/repo",
 ])
 def test_network_boundary_rejects_path_query_injection(task, monkeypatch, repository):

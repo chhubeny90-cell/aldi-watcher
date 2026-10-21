@@ -69,6 +69,33 @@ def test_external_review_cannot_echo_mailbox_address():
         )
 
 
+QUOTED_MULTILINE_CREDENTIALS = [
+    'PASSWORD="\nsynthetic-private-value\n"',
+    "password='\r\nsynthetic-private-value\r\n'",
+    '"api_key": "\nsynthetic-private-value\n"',
+    '"Authorization": "\nBearer synthetic-private-value\n"',
+    'Proxy-Authorization: "\r\nBasic synthetic-private-value\r\n"',
+    '"Cookie": "\nsession=synthetic-private-value\n"',
+    '"Set-Cookie": "\nsession=synthetic-private-value\n"',
+    'password="""\nsynthetic-private-value\n"""',
+    'password="\nsynthetic-private-value',
+]
+
+MULTILINE_PRIVATE_KEYS = [
+    f"-----BEGIN {kind}PRIVATE KEY-----\nsynthetic-private-value\n-----END {kind}PRIVATE KEY-----"
+    for kind in ("", "RSA ", "EC ", "DSA ", "OPENSSH ", "ENCRYPTED ")
+]
+
+ANGLE_BRACKET_CREDENTIALS = [
+    "PASSWORD=<synthetic-private-value>",
+    "ALDI_PASS=<synthetic-private-value>",
+    "Cookie: <synthetic-private-value>",
+    "Authorization: <redacted>",
+    "password=<redacted>",
+    "api_key=>synthetic-private-value",
+    "Set-Cookie:\n  <redacted>",
+]
+
 SECRET_LITERALS = [
     "github_pat_" + "a" * 70,
     "AIza" + "a" * 35,
@@ -85,7 +112,7 @@ SECRET_LITERALS = [
     '"Authorization":\n "Bearer synthetic-private-value"',
     "password:\n  synthetic-private-value",
     '"api_key"\n:\n "synthetic-private-value"',
-]
+] + QUOTED_MULTILINE_CREDENTIALS + MULTILINE_PRIVATE_KEYS + ANGLE_BRACKET_CREDENTIALS
 
 
 def review():
@@ -132,6 +159,21 @@ def test_aggregation_cannot_bypass_review_publication_guard():
         aggregate_reviews([data])
 
 
+@pytest.mark.parametrize("secret", QUOTED_MULTILINE_CREDENTIALS + MULTILINE_PRIVATE_KEYS
+                         + ANGLE_BRACKET_CREDENTIALS)
+def test_aggregation_rejects_credential_literals_before_normalization(secret):
+    data = review()
+    data["summary"] = secret
+    with pytest.raises(ReviewError, match="obvious_secret_detected"):
+        aggregate_reviews([data])
+
+
+@pytest.mark.parametrize("literal", ['password=""', "password=''", 'Authorization: ""'])
+def test_quoted_credential_introducers_fail_closed_even_when_empty(literal):
+    with pytest.raises(ReviewError, match="obvious_secret_detected"):
+        build_prompt(ReviewTask("copilot", "a" * 40, "Review", literal))
+
+
 @pytest.mark.parametrize("data", [[], None, "untrusted", 42])
 def test_nonobject_review_is_rejected_without_attribute_error(data):
     with pytest.raises(ReviewError, match="review_root_not_object"):
@@ -171,7 +213,9 @@ def test_parser_recursion_failure_is_sanitized_across_python_versions(tmp_path, 
 
 @pytest.mark.parametrize("secret", ["Authorization: Bearer synthetic-private-value",
                                   '"Authorization":\n "Bearer synthetic-private-value"',
-                                  "password:\n  synthetic-private-value"])
+                                  "password:\n  synthetic-private-value"]
+                         + QUOTED_MULTILINE_CREDENTIALS + MULTILINE_PRIVATE_KEYS
+                         + ANGLE_BRACKET_CREDENTIALS)
 @pytest.mark.parametrize("command", ["prepare", "validate", "aggregate"])
 def test_cli_rejects_secret_publication_without_output(tmp_path, capsys, command, secret):
     marker = "synthetic-private-value"

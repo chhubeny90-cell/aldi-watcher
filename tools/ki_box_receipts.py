@@ -17,7 +17,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 PROVIDERS = ("copilot", "gemini", "perplexity", "openai")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
-REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}")
+REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}")
 IDENTITY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?")
 CHALLENGE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 TASK_RE = re.compile(r"[A-Za-z0-9_-]{4,100}")
@@ -50,6 +50,8 @@ def validate_task(task: dict) -> dict:
     ):
         if not isinstance(task.get(key), str) or pattern.fullmatch(task[key]) is None:
             raise HandoffError("invalid_" + key)
+    if task["repository"].split("/")[1] in (".", ".."):
+        raise HandoffError("invalid_repository")
     if type(task.get("thread_number")) is not int or task["thread_number"] < 1:
         raise HandoffError("invalid_thread_number")
     if task.get("thread_kind") not in ("issues", "pull"):
@@ -186,9 +188,27 @@ def fetch_authenticated_comments(task: dict, token: str) -> list[dict]:
             with opener.open(req, timeout=15) as response:
                 if response.url != url or response.status != 200:
                     raise HandoffError("unexpected_api_url")
+                lengths = response.headers.get_all("Content-Length", [])
+                encodings = response.headers.get_all("Transfer-Encoding", [])
+                if (len(lengths) > 1 or len(encodings) > 1 or (lengths and encodings)
+                        # Match http.client's decoder selection exactly.
+                        or (encodings and encodings[0].lower() != "chunked")):
+                    raise HandoffError("ambiguous_response_length")
+                expected_length = None
+                if lengths:
+                    raw_length = lengths[0].strip()
+                    if re.fullmatch(r"[0-9]{1,16}", raw_length) is None:
+                        raise HandoffError("invalid_response_length")
+                    expected_length = int(raw_length)
+                    if expected_length > MAX_JSON_BYTES:
+                        raise HandoffError("github_response_too_large")
                 body = response.read(MAX_JSON_BYTES + 1)
                 if len(body) > MAX_JSON_BYTES:
                     raise HandoffError("github_response_too_large")
+                # HTTPResponse.read(amt) may silently return short valid JSON.
+                # A bounded read must still satisfy the declared HTTP framing.
+                if expected_length is not None and len(body) != expected_length:
+                    raise HandoffError("incomplete_github_response")
                 page_data = _load_unique_json(body)
         except (HTTPError, URLError, OSError, HTTPException, ValueError) as exc:
             raise HandoffError("github_comments_unavailable") from exc
