@@ -1,0 +1,433 @@
+name: KI-Box Gemini smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'Make ONE real Gemini request (requires separate setup)'
+        type: boolean
+        default: false
+      publish:
+        description: 'Post validated live receipt to issue 126'
+        type: boolean
+        default: false
+
+permissions: {}
+concurrency:
+  group: ki-box-gemini-smoke
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'chhubeny90-cell/aldi-watcher' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
+      vars.KI_BOX_ACTIONS_ZERO_COST_VERIFIED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      task: ${{ steps.task.outputs.task }}
+    steps:
+      - name: Prepare nonsecret task (NO network or model call)
+        id: task
+        shell: python
+        env:
+          LIVE: ${{ inputs.live }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          import json, os, re
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+          def strict_json(raw):
+              def unique(pairs):
+                  obj = {}
+                  for key, value in pairs:
+                      if key in obj:
+                          raise ValueError()
+                      obj[key] = value
+                  return obj
+              def invalid(value):
+                  raise ValueError()
+              return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid)
+
+          def task_context(raw=None):
+              if (os.environ['GITHUB_REPOSITORY'] != 'chhubeny90-cell/aldi-watcher'
+                      or os.environ['GITHUB_EVENT_NAME'] != 'workflow_dispatch'
+                      or os.environ['GITHUB_REF'] != 'refs/heads/main'
+                      or os.environ['GITHUB_RUN_ATTEMPT'] != '1'):
+                  raise ValueError()
+              run_id, commit = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_SHA']
+              if not re.fullmatch(r'[1-9][0-9]{0,19}', run_id) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+                  raise ValueError()
+              binding = dict(repository='chhubeny90-cell/aldi-watcher', thread_number=126,
+                             commit=commit, task_id='GEMINI-SMOKE-' + run_id,
+                             run_id=run_id, run_attempt=1)
+              if raw is None:
+                  return binding
+              task = strict_json(raw)
+              if (not isinstance(task, dict) or set(task) != set(binding) | {'challenge'}
+                      or any(canonical(task.get(k)) != canonical(v) for k, v in binding.items())
+                      or not isinstance(task['challenge'], str)
+                      or not re.fullmatch(r'[0-9a-f]{48}', task['challenge'])):
+                  raise ValueError()
+              return task
+          import secrets
+
+          try:
+              if any(os.environ[name] not in ('true', 'false') for name in ('LIVE', 'PUBLISH')):
+                  raise ValueError()
+              if os.environ['PUBLISH'] == 'true' and os.environ['LIVE'] != 'true':
+                  raise ValueError()
+              task = task_context()
+              task['challenge'] = secrets.token_hex(24)
+              encoded = canonical(task)
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('task=' + encoded + '\n')
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+                  f.write('PREPARED only. No Gemini delivery or ACK. ALDI remains BLOCKED.\n\n')
+                  f.write('```json\n' + encoded + '\n```\n')
+          except Exception:
+              raise SystemExit('BLOCKED: task preparation failed; no request made') from None
+
+  generate:
+    needs: prepare
+    if: >-
+      inputs.live && github.run_attempt == 1 && github.ref == 'refs/heads/main' &&
+      vars.KI_BOX_ACTIONS_ZERO_COST_VERIFIED == 'true' &&
+      vars.KI_BOX_GEMINI_FREE_TIER_VERIFIED == 'true'
+    environment: ki-box-gemini-test
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      receipt: ${{ steps.gemini.outputs.receipt }}
+    steps:
+      - name: One fixed REST request; no tools, no checkout, no retries
+        id: gemini
+        shell: python
+        env:
+          TASK: ${{ needs.prepare.outputs.task }}
+          MODEL: ${{ vars.KI_BOX_GEMINI_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          import json, os, re
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+          def strict_json(raw):
+              def unique(pairs):
+                  obj = {}
+                  for key, value in pairs:
+                      if key in obj:
+                          raise ValueError()
+                      obj[key] = value
+                  return obj
+              def invalid(value):
+                  raise ValueError()
+              return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid)
+
+          def task_context(raw=None):
+              if (os.environ['GITHUB_REPOSITORY'] != 'chhubeny90-cell/aldi-watcher'
+                      or os.environ['GITHUB_EVENT_NAME'] != 'workflow_dispatch'
+                      or os.environ['GITHUB_REF'] != 'refs/heads/main'
+                      or os.environ['GITHUB_RUN_ATTEMPT'] != '1'):
+                  raise ValueError()
+              run_id, commit = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_SHA']
+              if not re.fullmatch(r'[1-9][0-9]{0,19}', run_id) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+                  raise ValueError()
+              binding = dict(repository='chhubeny90-cell/aldi-watcher', thread_number=126,
+                             commit=commit, task_id='GEMINI-SMOKE-' + run_id,
+                             run_id=run_id, run_attempt=1)
+              if raw is None:
+                  return binding
+              task = strict_json(raw)
+              if (not isinstance(task, dict) or set(task) != set(binding) | {'challenge'}
+                      or any(canonical(task.get(k)) != canonical(v) for k, v in binding.items())
+                      or not isinstance(task['challenge'], str)
+                      or not re.fullmatch(r'[0-9a-f]{48}', task['challenge'])):
+                  raise ValueError()
+              return task
+
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  raise ValueError()
+
+          def response_json(response, url, status, limit):
+              if response.url != url or response.status != status:
+                  raise ValueError()
+              lengths = response.headers.get_all('Content-Length', [])
+              encodings = response.headers.get_all('Transfer-Encoding', [])
+              if (len(lengths) > 1 or len(encodings) > 1 or (lengths and encodings)
+                      or (encodings and encodings[0].lower() != 'chunked')
+                      or response.headers.get('Content-Encoding', 'identity').lower() != 'identity'):
+                  raise ValueError()
+              size = None
+              if lengths:
+                  if not re.fullmatch(r'[0-9]{1,16}', lengths[0].strip()):
+                      raise ValueError()
+                  size = int(lengths[0])
+                  if size > limit:
+                      raise ValueError()
+              raw = response.read(limit + 1)
+              if len(raw) > limit or (size is not None and size != len(raw)):
+                  raise ValueError()
+              return strict_json(raw)
+
+          def credential(value):
+              if not re.fullmatch(r'[A-Za-z0-9_.-]{16,4096}', value):
+                  raise ValueError()
+              return value
+
+          try:
+              task = task_context(os.environ['TASK'])
+              model, key = os.environ['MODEL'], credential(os.environ['GEMINI_API_KEY'])
+              if not re.fullmatch(r'gemini-[A-Za-z0-9._-]{1,100}', model):
+                  raise ValueError()
+              expected = dict(task, type='KI_BOX_SMOKE_V1', provider='gemini')
+              prompt = 'Return exactly this JSON object, with no other text: ' + canonical(expected)
+              payload = {'contents': [{'parts': [{'text': prompt}]}],
+                         'generationConfig': {'temperature': 0, 'maxOutputTokens': 1024,
+                                              'responseMimeType': 'application/json'}}
+              url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent'
+              req = urllib.request.Request(url, data=canonical(payload).encode(), method='POST',
+                  headers={'Content-Type': 'application/json', 'Accept': 'application/json',
+                           'x-goog-api-key': key})
+              with urllib.request.build_opener(NoRedirect).open(req, timeout=60) as response:
+                  result = response_json(response, url, 200, 65536)
+              candidates = result['candidates']
+              if (not isinstance(candidates, list) or len(candidates) != 1
+                      or candidates[0].get('finishReason') != 'STOP'
+                      or candidates[0]['content'].get('role') != 'model'):
+                  raise ValueError()
+              parts = candidates[0]['content']['parts']
+              if (not isinstance(parts, list) or len(parts) != 1 or set(parts[0]) != {'text'}
+                      or canonical(strict_json(parts[0]['text'])) != canonical(expected)):
+                  raise ValueError()
+              meta = {k: result[k] for k in ('responseId', 'modelVersion')}
+              if (not isinstance(meta['responseId'], str)
+                      or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', meta['responseId'])
+                      or meta['modelVersion'] != model):
+                  raise ValueError()
+              receipt = dict(expected, requested_model=model, api_metadata=meta,
+                  run_url='https://github.com/' + task['repository'] + '/actions/runs/' + task['run_id'])
+              encoded = canonical(receipt)
+              if key in encoded:
+                  raise ValueError()
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('receipt=' + encoded + '\n')
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+                  f.write('MODEL_ECHO_VALIDATED; not KI_ACK_V1, not release approval.\n\n')
+                  f.write('```json\n' + encoded + '\n```\n')
+          except Exception:
+              raise SystemExit('BLOCKED: Gemini request/validation failed; request may have completed; '
+                               'no retry; raw data withheld') from None
+
+  publish:
+    needs: [prepare, generate]
+    if: >-
+      inputs.live && inputs.publish && github.run_attempt == 1 && github.ref == 'refs/heads/main' &&
+      vars.KI_BOX_ACTIONS_ZERO_COST_VERIFIED == 'true' &&
+      vars.KI_BOX_GEMINI_FREE_TIER_VERIFIED == 'true' &&
+      vars.KI_BOX_GEMINI_PUBLISH_ENABLED == 'true'
+    environment: ki-box-gemini-publish
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Create repository-scoped app token (issues only)
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3, Node 24
+        with:
+          app-id: ${{ vars.KI_BOX_GEMINI_APP_ID }}
+          private-key: ${{ secrets.KI_BOX_GEMINI_APP_PRIVATE_KEY }}
+          owner: chhubeny90-cell
+          repositories: aldi-watcher
+          permission-issues: write
+          skip-token-revoke: false
+      - name: Post deterministic receipt, then read exact comment back
+        shell: python
+        env:
+          TASK: ${{ needs.prepare.outputs.task }}
+          MODEL: ${{ vars.KI_BOX_GEMINI_MODEL }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          EXPECTED_BOT: ${{ vars.KI_BOX_GEMINI_BOT_LOGIN }}
+          EXPECTED_BOT_ID: ${{ vars.KI_BOX_GEMINI_BOT_ID }}
+          EXPECTED_APP_ID: ${{ vars.KI_BOX_GEMINI_APP_ID }}
+          RECEIPT: ${{ needs.generate.outputs.receipt }}
+        run: |
+          import json, os, re
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+          def strict_json(raw):
+              def unique(pairs):
+                  obj = {}
+                  for key, value in pairs:
+                      if key in obj:
+                          raise ValueError()
+                      obj[key] = value
+                  return obj
+              def invalid(value):
+                  raise ValueError()
+              return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid)
+
+          def task_context(raw=None):
+              if (os.environ['GITHUB_REPOSITORY'] != 'chhubeny90-cell/aldi-watcher'
+                      or os.environ['GITHUB_EVENT_NAME'] != 'workflow_dispatch'
+                      or os.environ['GITHUB_REF'] != 'refs/heads/main'
+                      or os.environ['GITHUB_RUN_ATTEMPT'] != '1'):
+                  raise ValueError()
+              run_id, commit = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_SHA']
+              if not re.fullmatch(r'[1-9][0-9]{0,19}', run_id) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+                  raise ValueError()
+              binding = dict(repository='chhubeny90-cell/aldi-watcher', thread_number=126,
+                             commit=commit, task_id='GEMINI-SMOKE-' + run_id,
+                             run_id=run_id, run_attempt=1)
+              if raw is None:
+                  return binding
+              task = strict_json(raw)
+              if (not isinstance(task, dict) or set(task) != set(binding) | {'challenge'}
+                      or any(canonical(task.get(k)) != canonical(v) for k, v in binding.items())
+                      or not isinstance(task['challenge'], str)
+                      or not re.fullmatch(r'[0-9a-f]{48}', task['challenge'])):
+                  raise ValueError()
+              return task
+
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  raise ValueError()
+
+          def response_json(response, url, status, limit):
+              if response.url != url or response.status != status:
+                  raise ValueError()
+              lengths = response.headers.get_all('Content-Length', [])
+              encodings = response.headers.get_all('Transfer-Encoding', [])
+              if (len(lengths) > 1 or len(encodings) > 1 or (lengths and encodings)
+                      or (encodings and encodings[0].lower() != 'chunked')
+                      or response.headers.get('Content-Encoding', 'identity').lower() != 'identity'):
+                  raise ValueError()
+              size = None
+              if lengths:
+                  if not re.fullmatch(r'[0-9]{1,16}', lengths[0].strip()):
+                      raise ValueError()
+                  size = int(lengths[0])
+                  if size > limit:
+                      raise ValueError()
+              raw = response.read(limit + 1)
+              if len(raw) > limit or (size is not None and size != len(raw)):
+                  raise ValueError()
+              return strict_json(raw)
+
+          def credential(value):
+              if not re.fullmatch(r'[A-Za-z0-9_.-]{16,4096}', value):
+                  raise ValueError()
+              return value
+
+          try:
+              task = task_context(os.environ['TASK'])
+              receipt = strict_json(os.environ['RECEIPT'])
+              model = os.environ['MODEL']
+              if not re.fullmatch(r'gemini-[A-Za-z0-9._-]{1,100}', model):
+                  raise ValueError()
+              expected = dict(task, type='KI_BOX_SMOKE_V1', provider='gemini', requested_model=model,
+                  run_url='https://github.com/' + task['repository'] + '/actions/runs/' + task['run_id'])
+              if (not isinstance(receipt, dict) or set(receipt) != set(expected) | {'api_metadata'}
+                      or any(canonical(receipt.get(k)) != canonical(v) for k, v in expected.items())):
+                  raise ValueError()
+              meta = receipt['api_metadata']
+              if (not isinstance(meta, dict) or set(meta) != {'responseId', 'modelVersion'}
+                      or not isinstance(meta['responseId'], str)
+                      or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', meta['responseId'])
+                      or meta['modelVersion'] != model):
+                  raise ValueError()
+              token, bot, slug = credential(os.environ['APP_TOKEN']), os.environ['EXPECTED_BOT'], os.environ['APP_SLUG']
+              if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,99}', slug)
+                      or bot != slug + '[bot]'):
+                  raise ValueError()
+              id_text, app_text = os.environ['EXPECTED_BOT_ID'], os.environ['EXPECTED_APP_ID']
+              if not re.fullmatch(r'[1-9][0-9]{0,19}', id_text) or not re.fullmatch(r'[1-9][0-9]{0,19}', app_text):
+                  raise ValueError()
+              bot_id, app_id = int(id_text), int(app_text)
+              marker = '<!-- ki-box-gemini-smoke:' + task['run_id'] + ' -->'
+              body = (marker + '\nKI-BOX GEMINI SMOKE RECEIPT (not KI_ACK_V1)\n\n```json\n'
+                      + json.dumps(receipt, sort_keys=True, indent=2, allow_nan=False)
+                      + '\n```\n\nALDI-Watcher remains BLOCKED. Model echo only; no review or release approval.')
+              if token in body:
+                  raise ValueError()
+              base = 'https://api.github.com'
+              repo_path = '/repos/chhubeny90-cell/aldi-watcher'
+              issue_path = repo_path + '/issues/126'
+              issue_url = base + issue_path
+              issue_html = 'https://github.com/chhubeny90-cell/aldi-watcher/issues/126'
+              opener = urllib.request.build_opener(NoRedirect)
+
+              def api(path, data=None):
+                  # All paths are built below from constants or validated positive integers.
+                  url = base + path
+                  req = urllib.request.Request(url, method='GET' if data is None else 'POST',
+                      data=None if data is None else canonical(data).encode(),
+                      headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
+                               'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'})
+                  with opener.open(req, timeout=30) as response:
+                      return response_json(response, url, 200 if data is None else 201, 8 * 1024 * 1024)
+
+              identity = api('/users/' + slug + '%5Bbot%5D')
+              if (type(identity['id']) is not int or identity['id'] != bot_id
+                      or identity['login'].casefold() != bot.casefold() or identity['type'] != 'Bot'):
+                  raise ValueError()
+              issue = api(issue_path)
+              if (issue['state'] != 'open' or 'pull_request' in issue or issue['locked'] is not False
+                      or type(issue['number']) is not int or issue['number'] != 126
+                      or issue['url'] != issue_url or issue['html_url'] != issue_html):
+                  raise ValueError()
+
+              def verify_comment(comment):
+                  cid, user, app = comment['id'], comment['user'], comment['performed_via_github_app']
+                  if (type(cid) is not int or cid <= 0 or comment['body'] != body
+                          or type(user['id']) is not int or user['id'] != bot_id
+                          or user['login'].casefold() != bot.casefold() or user['type'] != 'Bot'
+                          or type(app['id']) is not int or app['id'] != app_id or app['slug'] != slug
+                          or comment['issue_url'] != issue_url
+                          or comment['html_url'] != issue_html + '#issuecomment-' + str(cid)):
+                      raise ValueError()
+                  return cid
+
+              matches = []
+              for page in range(1, 12):
+                  comments = api(issue_path + '/comments?per_page=100&page=' + str(page))
+                  if not isinstance(comments, list) or len(comments) > 100 or (page == 11 and comments):
+                      raise ValueError()
+                  for comment in comments:
+                      if not isinstance(comment, dict) or not isinstance(comment.get('body'), str):
+                          raise ValueError()
+                      if marker in comment['body']:
+                          matches.append(verify_comment(comment))
+                          if len(matches) > 1:
+                              raise ValueError()
+                  if len(comments) < 100:
+                      break
+              if matches:
+                  comment_id, state = matches[0], 'ALREADY_POSTED_AND_READ_BACK'
+              else:
+                  # Exactly one mutation; an ambiguous result must never be retried.
+                  posted = api(issue_path + '/comments', {'body': body})
+                  comment_id, state = verify_comment(posted), 'POSTED_AND_READ_BACK'
+              readback = api(repo_path + '/issues/comments/' + str(comment_id))
+              if verify_comment(readback) != comment_id:
+                  raise ValueError()
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+                  f.write(state + ': ' + readback['html_url'] + '\nNot KI_ACK_V1. ALDI remains BLOCKED.\n')
+          except Exception:
+              raise SystemExit('BLOCKED: publish/readback failed; comment may already exist; '
+                               'inspect run; do NOT retry blindly; raw data withheld') from None
