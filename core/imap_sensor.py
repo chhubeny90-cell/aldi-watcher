@@ -126,6 +126,14 @@ class SensorStore:
             conn.execute('UPDATE mailboxes SET blocked=1 WHERE mailbox=?', (mailbox,))
             conn.commit()
 
+    def has_unresolved_candidate(self, mailbox):
+        """Persist candidate visibility across restarts without authorizing dispatch."""
+        with closing(self.connect()) as conn:
+            return conn.execute(
+                "SELECT 1 FROM messages WHERE mailbox=? AND outcome='BLOCKED' LIMIT 1",
+                (mailbox,),
+            ).fetchone() is not None
+
     def attach(self, mailbox, epoch):
         epoch = positive_uid(str(epoch))
         with closing(self.connect()) as conn:
@@ -153,12 +161,15 @@ class SensorStore:
                                (mailbox,epoch,uid)).fetchone()
             if old and old[0] != message:
                 raise SensorBlocked('immutable_uid_content_changed')
-            if uid <= row[1]:
+            if old:
                 return False
+            # A concurrent observer may have committed a higher UID first.
+            # Preserve this lower UID delivery instead of silently losing it.
             new = conn.execute('INSERT OR IGNORE INTO messages VALUES (?,?,?)',
                                (mailbox,message,outcome)).rowcount == 1
             conn.execute('INSERT INTO deliveries VALUES (?,?,?,?)', (mailbox,epoch,uid,message))
-            conn.execute('UPDATE mailboxes SET last_uid=? WHERE mailbox=?', (uid,mailbox))
+            if uid > row[1]:
+                conn.execute('UPDATE mailboxes SET last_uid=? WHERE mailbox=?', (uid,mailbox))
             conn.commit()
             return new
 
