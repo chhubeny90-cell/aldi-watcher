@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tools.ki_box_receipts import HandoffError, assess_receipts, validate_task
+from tools.ki_box_receipts import HandoffError, _NoRedirectHandler, assess_receipts, validate_task
 
 
 SHA = "d0bb785bc66d0bc07213c7a409d69ad130ab14a7"
@@ -129,3 +129,9 @@ def test_gemini_perplexity_have_no_unverified_delivery(task):
     result = assess_receipts(task, [acknowledgement(task)])
     assert result["providers"]["gemini"]["status"] == "NOT_CONNECTED"
     assert result["providers"]["perplexity"]["status"] == "NOT_CONNECTED"
+
+
+def test_github_bearer_token_redirect_is_blocked():
+    handler = _NoRedirectHandler()
+    with pytest.raises(HandoffError, match="redirect_not_allowed"):
+        handler.redirect_request(None, None, 302, "Found", {}, "https://malicious.example/collect")
