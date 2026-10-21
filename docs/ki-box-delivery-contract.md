@@ -28,10 +28,18 @@ Existing external AI text is untrusted data. Use `tools/ai_review_hub.py` to pre
 Commit a public **nonsecret** task JSON on a feature branch, with:
 `repository`, `thread_kind` = `issues` or `pull`, positive `thread_number`,
 `commit` = full 40-hex SHA, `task_id`, `challenge` = unique 16–128 character
-nonsecret random string, `sender_login`, and a `recipients` map with
+nonsecret random string, `sender_login`, positive integer `sender_id`, and a `recipients` map with
 exactly `copilot`, `gemini`, `perplexity`, `openai`.
-Each value is the verified GitHub account permitted to acknowledge that
-provider, or `null` when no authenticated bridge has been installed.
+Each value is an object such as
+`{"login": "chatgpt-codex-connector[bot]", "id": 199175422}`, or `null` when no
+authenticated bridge has been installed. Obtain IDs from authenticated GitHub
+API metadata, never from the comment body. The committed sender and Codex IDs
+were verified against PR #127's GitHub API author metadata. Match both the
+immutable numeric ID and case-insensitive login; renamed accounts require an
+explicitly reviewed envelope update. Reclaimed logins never inherit authority.
+Sender and recipients must have distinct IDs and logins, and each provider must
+have its own recipient. Old login-only envelopes are rejected without migration.
+Duplicate JSON keys at any depth and non-finite numbers are rejected.
 
 Do not fill an identity based solely on an AI's claimed name or a comment body.
 If a provider sends no authenticated comment, leave it `NOT_CONNECTED` or
@@ -72,9 +80,47 @@ Without a supported connector or token there is no claim of a completed audit.
 
 1. Keep a single GitHub issue as the inbox for model task envelopes; PRs are used for code reviews. Do not imply GitHub issue mentions directly ping Gemini or Perplexity.
 2. Install and configure genuine provider bridges **only if a cost-free, authorized transport is available**. New secrets belong to protected runtime configuration, never a repo/issue/prompt. No consumer subscription implies metered API entitlement.
-3. For each bridge, set its authenticated GitHub account as `recipients[provider]`; fetch signed-in comments via GitHub REST; verify task + commit + challenge + exact thread.
+3. For each bridge, set its verified GitHub login and immutable ID as `recipients[provider]`; fetch signed-in comments via GitHub REST; verify task + commit + challenge + exact thread and comment ID.
 4. Route `ACKNOWLEDGED` to `tools/ai_review_hub.py validate` for findings; reconcile differences with code and tests. Never let model consensus promote a release.
 5. Report `NOT_CONNECTED`, `AWAITING_ACK`, `REVIEWED` and `COMPLETED` separately. Only measured actions may move states. Missing access must be recorded as a blocker.
+
+## Network, credentials and replay boundaries
+
+The audit accepts only validated canonical `https://api.github.com/repos/...`
+comment URLs. Validation runs at the public fetch function as well as the CLI.
+All redirects are blocked before another request can forward authorization,
+including same-host redirects and HTTPS downgrades. Only HTTP 200 at the exact
+requested URL is accepted. Requests are GET-only, with a 15-second timeout and
+zero automatic retries. Authentication, throttling, protocol and JSON failures
+stop the audit with a fixed error message; exception bodies and file paths are
+never printed. Responses are bounded to 8 MiB per page, with at most 1,000
+comments and one additional empty-page probe. Overflow fails the whole audit.
+
+`GITHUB_TOKEN` is exclusively a least-privilege GitHub read credential. It is
+never sent to Gemini, Perplexity, OpenAI or ALDI. There are no provider adapters,
+callback endpoints, dispatchers or task-execution workers in this integration.
+Introducing a bridge requires separately provisioned credentials per service,
+a dedicated verified GitHub identity and independent upstream authentication;
+shared owner credentials are not acceptable evidence. No provider credential is
+loaded or provisioned by this patch, and disconnected providers remain disabled.
+
+Task ID + provider + full commit + unique challenge + exact thread bind an ACK
+to one request. Issue a new ID and random challenge for every new task; never
+reuse the envelope for different work. A duplicate ACK or repeated audit is an
+idempotent read of historical evidence: it cannot execute or enqueue anything.
+This audit is not an exactly-once worker. Before a future worker can be enabled,
+it needs durable atomic task claiming, a consumed-ID journal, bounded retries
+and authenticated upstream delivery evidence. These are outstanding bridge
+requirements, not capabilities claimed by this read-only checker.
+
+The offline review hub rejects recognizable GitHub, OpenAI, Gemini and
+Perplexity token formats, credential headers and credential assignments before
+preparing prompts, validating reviews or aggregating outputs. CLI failures use
+fixed messages. These checks provide defense in depth; arbitrary passwords and
+unknown credential formats cannot be identified reliably by a text pattern.
+Only independently checked public context may enter the hub. Review JSON is
+untrusted content, even after validation; it carries no provider authentication
+or permission to run a task. Duplicate JSON keys are rejected there as well.
 
 ## Safety and scope
 

@@ -6,8 +6,9 @@
   "task_id": "WATCH-KIBOX-HANDOFF-20261021-126",
   "challenge": "eYo_ks4uFZHBCP-br8m10mP5so-4N0p0",
   "sender_login": "chhubeny90-cell",
+  "sender_id": 259501947,
   "recipients": {
-    "copilot": "chatgpt-codex-connector[bot]",
+    "copilot": {"login": "chatgpt-codex-connector[bot]", "id": 199175422},
     "gemini": null,
     "perplexity": null,
     "openai": null

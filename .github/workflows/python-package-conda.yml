@@ -6,19 +6,39 @@ permissions:
   contents: read
 
 jobs:
-  build-linux:
+  python-versions:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    name: Python ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v7.0.0
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements.txt
+      - name: KI-Box security regression tests (offline)
+        run: python -m pytest tests/test_ki_box_receipts.py tests/test_ai_review_hub.py --tb=short -q
       - name: Commit-bound regression evidence (no provider actions)
         run: |
           git rev-parse HEAD
           python -m pytest -k test_old_mail_not_retriggered --tb=short -q
           python -m pytest -k hardening --tb=short -q
           python -m pytest --tb=short -q
+
+  # Preserve the existing required check name; every matrix entry must pass.
+  build-linux:
+    if: always()
+    needs: python-versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every Python version to pass
+        env:
+          MATRIX_RESULT: ${{ needs.python-versions.result }}
+        run: test "$MATRIX_RESULT" = success
