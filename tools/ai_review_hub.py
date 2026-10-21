@@ -54,7 +54,21 @@ ROLE_FOCUS = {
 OBVIOUS_SECRET_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bpplx-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(
+        r"\b(?:authorization|proxy-authorization|cookie|set-cookie)\b"
+        r"[\"']?\s*:\s*(?:\"[^\"\r\n]+\"|'[^'\r\n]+'|[^\s\"'<>]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:[a-z0-9]+_)*(?:api[_-]?key|password|passwd|pass|client[_-]?secret|"
+        r"(?:access|refresh)[_-]?token)\b[\"']?\s*[:=]\s*"
+        r"(?:\"[^\"\r\n]+\"|'[^'\r\n]+'|[^\s\"'<>]+)",
+        re.IGNORECASE,
+    ),
 )
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 GERMAN_MOBILE_PATTERN = re.compile(
@@ -66,6 +80,12 @@ class ReviewError(ValueError):
     pass
 
 
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # argparse's default error includes raw arguments, which may be secrets.
+        raise ReviewError("invalid_arguments")
+
+
 @dataclass(frozen=True)
 class ReviewTask:
     provider: str
@@ -75,6 +95,8 @@ class ReviewTask:
 
 
 def _reject_obvious_secrets(text: str) -> None:
+    # Defense in depth only: callers must supply public, reviewed context.
+    # Arbitrary passwords cannot be recognized by their content alone.
     for pattern in OBVIOUS_SECRET_PATTERNS:
         if pattern.search(text):
             raise ReviewError("obvious_secret_detected")
@@ -94,9 +116,11 @@ def _reject_external_private_identifiers(text: str) -> None:
 
 def build_prompt(task: ReviewTask) -> str:
     if task.provider not in PROVIDERS:
-        raise ReviewError(f"unsupported_provider:{task.provider}")
-    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", task.target_commit):
+        raise ReviewError("unsupported_provider")
+    if not isinstance(task.target_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{7,40}", task.target_commit):
         raise ReviewError("invalid_target_commit")
+    if not isinstance(task.question, str) or not isinstance(task.context, str):
+        raise ReviewError("invalid_task_text")
     _reject_obvious_secrets(task.question)
     _reject_obvious_secrets(task.context)
 
@@ -155,6 +179,9 @@ def _claim_fingerprint(category: str, claim: str) -> str:
 
 def validate_review(data: dict[str, Any], expected_provider: str | None = None,
                     expected_commit: str | None = None) -> dict[str, Any]:
+    """Validate untrusted review content; this does not authenticate a provider."""
+    if not isinstance(data, dict):
+        raise ReviewError("review_root_not_object")
     provider = data.get("provider")
     target_commit = data.get("target_commit")
     summary = data.get("summary")
@@ -223,6 +250,8 @@ def _similarity(a: str, b: str) -> float:
 def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
     if not reviews:
         raise ReviewError("no_reviews")
+    # Keep the public aggregation helper behind the same publication checks.
+    reviews = [validate_review(review) for review in reviews]
     commits = {review["target_commit"] for review in reviews}
     if len(commits) != 1:
         raise ReviewError("mixed_target_commits")
@@ -280,15 +309,32 @@ def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ReviewError("duplicate_json_key")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ReviewError("invalid_json_constant")
+
     with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+        try:
+            data = json.load(handle, object_pairs_hook=unique_object,
+                             parse_constant=invalid_constant)
+        except ReviewError:
+            raise
+        except (ValueError, RecursionError) as exc:
+            raise ReviewError("invalid_review_json") from exc
     if not isinstance(data, dict):
         raise ReviewError("review_root_not_object")
     return data
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = _SafeArgumentParser(prog="ai-review-hub", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     prepare = sub.add_parser("prepare", help="build a provider-specific prompt")
@@ -305,8 +351,8 @@ def main(argv: list[str] | None = None) -> int:
     aggregate = sub.add_parser("aggregate", help="aggregate validated provider responses")
     aggregate.add_argument("inputs", nargs="+", type=Path)
 
-    args = parser.parse_args(argv)
     try:
+        args = parser.parse_args(argv)
         if args.command == "prepare":
             context = args.context_file.read_text(encoding="utf-8") if args.context_file else ""
             print(build_prompt(ReviewTask(args.provider, args.commit, args.question, context)))
@@ -318,8 +364,9 @@ def main(argv: list[str] | None = None) -> int:
         reviews = [validate_review(_load_json(path)) for path in args.inputs]
         print(json.dumps(aggregate_reviews(reviews), indent=2, ensure_ascii=False))
         return 0
-    except (ReviewError, OSError, json.JSONDecodeError) as exc:
-        print(f"ai-review-hub: {exc}", file=sys.stderr)
+    except (ReviewError, OSError, ValueError, TypeError, RecursionError):
+        # Never publish paths, arbitrary exception details, or raw arguments.
+        print("ai-review-hub: operation_rejected", file=sys.stderr)
         return 2
 
 
