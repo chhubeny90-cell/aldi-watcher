@@ -36,10 +36,9 @@ def _aux_path(kind):
 
 
 def _secret_key():
-    value = (os.environ.get("ALDI_RECOVERY_KEY")
-             or os.environ.get("ALDI_PASS_ENC")
-             or os.environ.get("ALDI_PASS"))
-    if not value:
+    # Password rotation must never silently change event fingerprints.
+    value = os.environ.get("ALDI_RECOVERY_KEY", "")
+    if not value.strip():
         raise RuntimeError("recovery_key_unavailable")
     return value.encode("utf-8")
 

@@ -43,7 +43,7 @@ def test_main_workflow_has_no_authenticated_live_refill():
 
 
 def test_policy_safe_24_7_workflow_cadence_is_preserved():
-    assert "cron: '0 * * * *'" in _workflow("mail-trigger.yml")
+    assert "cron: '17 * * * *'" in _workflow("mail-trigger.yml")
     assert "cron: '7-59/15 * * * *'" in _workflow("run.yml")
     assert "schedule:" not in _workflow("watchdog.yml")
     assert "schedule:" not in _workflow("accounts.yml")
@@ -108,3 +108,48 @@ def test_manual_diagnostic_selection_never_fans_out_into_other_jobs():
                     active.append(name)
             expected = [selected] if event == "workflow_dispatch" and selected in options else []
             assert active == expected
+
+
+def test_live_workflow_requires_offline_gate_before_journal_and_provider():
+    text = _workflow('free-refill.yml')
+    assert 'environment: aldi-live' in text
+    assert 'runs-on: [self-hosted, linux, aldi-journal]' in text
+    assert "github.ref == 'refs/heads/main'" in text
+    assert 'inputs.approved_commit == github.sha' in text
+    assert text.index('python scripts/check_live_workflow.py') < text.index('python scripts/check_aldi_runtime.py') < text.index('import aldi_live_refill_contract')
+    assert "DRY_RUN: 'true'" in text
+    assert 'schedule:' not in text
+    assert '  push:' not in text
+    assert 'continue-on-error:' not in text
+
+
+def test_sensor_is_separate_and_cannot_dispatch_a_live_actor():
+    text = _workflow('mail-trigger.yml')
+    assert "AUTO_BOOK_ENABLED: 'false'" in text
+    assert "DRY_RUN: 'true'" in text
+    assert 'aldi_live_refill' not in text
+    assert 'workflow_dispatch' in text
+    assert 'repository_dispatch' not in text
+    assert 'persist-credentials: false' in text
+
+
+def test_live_credentials_exist_only_in_final_actor_step_after_blocking_gates():
+    text = _workflow('free-refill.yml')
+    refill = text.split('\n  refill:\n', 1)[1]
+    before_actor, actor = refill.split('      - name: Validate target and execute one guarded free refill', 1)
+    after_actor = actor.split('      - name: Preserve sanitized completion report', 1)
+    for key in ('ALDI_EXPECTED_ACCOUNT','ALDI_USER','ALDI_USER_ENC','ALDI_LOGIN_USER',
+                'ALDI_PASS','ALDI_PASS_ENC','CREDENTIAL_ENCRYPTION_KEY'):
+        assert key + ':' not in before_actor
+        assert key + ':' in after_actor[0]
+        assert key + ':' not in after_actor[1]
+
+
+def test_mail_credentials_are_scoped_to_sensor_step_only():
+    text = _workflow('mail-trigger.yml')
+    before_sensor, sensor = text.split('      - name: Poll usage mailboxes without ALDI portal access', 1)
+    after_sensor = sensor.split('      - name: Preserve sanitized usage-alert report', 1)
+    for key in ('GITHUB_TOKEN', 'ALDI_RECOVERY_KEY', 'MAILBOX_1_USER', 'MAILBOX_1_PASS', 'MAILBOX_2_PASS'):
+        assert key + ':' not in before_sensor
+        assert key + ':' in after_sensor[0]
+        assert key + ':' not in after_sensor[1]

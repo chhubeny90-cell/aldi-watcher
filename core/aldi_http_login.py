@@ -72,6 +72,25 @@ def _explicit_account_lock(messages):
     return False
 
 
+
+def _explicit_maintenance(messages):
+    """Ignore incidental maintenance words inside login scripts or HTML help."""
+    indicators = (
+        "wartungsarbeiten", "vorübergehend nicht verfügbar",
+        "voruebergehend nicht verfuegbar", "temporarily unavailable",
+        "service unavailable", "maintenance", "wartung",
+    )
+    for message in messages:
+        if not isinstance(message, str):
+            continue
+        value = message.casefold().strip()
+        if "<" in value or "function" in value or "var " in value:
+            continue
+        if any(indicator in value for indicator in indicators):
+            return True
+    return False
+
+
 def result_diagnostics(result):
     """Reduce provider messages to indications, never persist their contents."""
     callbacks = result.get("callbacks")
@@ -82,11 +101,7 @@ def result_diagnostics(result):
     text = " ".join(m.casefold() for m in messages if isinstance(m, str))
     known_types = {"NameCallback", "PasswordCallback", "HiddenValueCallback",
                    "TextOutputCallback", "ConfirmationCallback", "ChoiceCallback"}
-    maintenance = any(s in text for s in (
-        "wartungsarbeiten", "wartung", "maintenance", "temporarily unavailable",
-        "vorübergehend nicht verfügbar", "voruebergehend nicht verfuegbar",
-        "service unavailable",
-    ))
+    maintenance = _explicit_maintenance(messages)
     return {
         "returned_callback_count": len(callbacks),
         "returned_callback_types": sorted({c.get("type") if c.get("type") in known_types
@@ -222,6 +237,14 @@ class AldiHttpLogin:
         self._get(OVERVIEW)
         self.report["phase"] = "auth_challenge"
         challenge = self._authenticate({})
+        # Provider lock/maintenance can be reported before credentials are sent.
+        # Never submit a password when the initial challenge already forbids it.
+        self.report.update(result_diagnostics(challenge))
+        indications = self.report.get("provider_indications") or {}
+        if indications.get("account_locked") is True:
+            raise LoginError("account_locked")
+        if indications.get("maintenance") is True:
+            raise LoginError("provider_maintenance")
         self.report["phase"] = "prepare_callbacks"
         payload = prepare_callbacks(challenge, phone, password)
         self.report["phase"] = "credential_submit"

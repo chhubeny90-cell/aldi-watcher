@@ -47,13 +47,20 @@ def open_live_journal():
         raise RuntimeError('persistent_journal_unavailable')
     if os.name != 'posix' or path.stat().st_mode & 0o077:
         raise RuntimeError('private_posix_journal_required')
+    if any(parent.is_symlink() for parent in path.parents):
+        raise RuntimeError('journal_parent_symlink_rejected')
+    if path.parent.stat().st_mode & 0o022:
+        raise RuntimeError('private_journal_permissions_required')
     if os.environ.get('GITHUB_ACTIONS') == 'true':
         workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
         if (os.environ.get('RUNNER_ENVIRONMENT') != 'self-hosted'
                 or path.resolve().is_relative_to(workspace)):
             raise RuntimeError('durable_runner_required')
-    with sqlite3.connect(path.as_uri() + '?mode=rw', uri=True) as conn:
-        conn.execute('SELECT recharge_id, status FROM recharges LIMIT 0')
+    from contextlib import closing
+    from core.journal_validation import validate_journal
+    # Validate before Database can create/normalize any part of a legacy schema.
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
+        validate_journal(conn)
     return Database(str(path))
 
 
@@ -221,16 +228,17 @@ def main():
             return 3
 
         account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
-        # Deployment guard runs before opening the journal or starting a browser.
-        target_suffix = os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', '')
-        if target_suffix:
-            from core.aldi_target import require_refill_target
-            try:
-                require_refill_target(account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
-                                      target_suffix)
-            except ValueError as exc:
-                report['outcome'] = str(exc)
-                return 2
+        # Mandatory fail-closed target validation BEFORE journal/browser creation.
+        # An unset suffix is not an opt-out; empty/mismatched profiles are blocked.
+        from core.aldi_target import require_refill_target
+        try:
+            require_refill_target(
+                account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
+                os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', ''),
+            )
+        except ValueError as exc:
+            report['outcome'] = str(exc)
+            return 2
         db = open_live_journal()
         try:
             unresolved = _unresolved_aldi(db, account)

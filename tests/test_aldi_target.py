@@ -57,3 +57,26 @@ def test_invalid_deployment_stops_before_journal_and_browser(monkeypatch, tmp_pa
     assert report["booking_clicks"] == 0
     assert report["outcome"] in {"target_profile_mismatch", "expected_target_missing", "target_account_mismatch"}
     assert account not in (tmp_path / "report.json").read_text()
+
+
+@pytest.mark.parametrize("suffix,expected", [("", "01630001869"), ("1869", ""), ("1869", "01630002640")])
+def test_missing_or_mismatched_target_blocks_before_journal_browser(monkeypatch, tmp_path, suffix, expected):
+    import json
+    from unittest.mock import Mock
+    import aldi_live_refill as live
+    monkeypatch.setenv("AUTO_BOOK_ENABLED", "true")
+    monkeypatch.setenv("ALDI_REQUIRED_TARGET_SUFFIX", suffix)
+    monkeypatch.setenv("ALDI_EXPECTED_ACCOUNT", expected)
+    monkeypatch.setattr(live.watcher, "configure_credentials", lambda _: True)
+    monkeypatch.setattr(live.watcher, "ALDI_ACCOUNT_USER", "01630001869")
+    monkeypatch.setattr(live, "REPORT_PATH", str(tmp_path / "report.json"))
+    journal = Mock(side_effect=AssertionError("journal must not open"))
+    browser = Mock(side_effect=AssertionError("browser must not start"))
+    monkeypatch.setattr(live, "open_live_journal", journal)
+    monkeypatch.setattr(live.watcher, "build_driver", browser)
+    assert live.main() == 2
+    journal.assert_not_called()
+    browser.assert_not_called()
+    report_text = (tmp_path / "report.json").read_text()
+    assert json.loads(report_text)["booking_clicks"] == 0
+    assert "01630001869" not in report_text

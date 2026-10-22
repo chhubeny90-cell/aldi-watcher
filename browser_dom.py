@@ -47,7 +47,7 @@ function queryDeep(root, selector) {
     return found;
 }
 
-function renderedText(root) {
+function renderedText(root, preserveBlocks = false) {
     const parts = [];
     const seen = new Set();
     function visit(node) {
@@ -68,19 +68,33 @@ function renderedText(root) {
             // Form values and template/script source are not rendered page text.
             if (['SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT', 'INPUT', 'TEXTAREA'].includes(node.tagName) ||
                 !renderedStyle(node)) return;
+            if (preserveBlocks && node.tagName === 'BR') {
+                parts.push('\n');
+                return;
+            }
+            const block = preserveBlocks && /^(block|flex|grid|table|list-item)/.test(
+                getComputedStyle(node).display);
+            if (block) parts.push('\n');
             if (node.tagName === 'SLOT') {
                 const assigned = node.assignedNodes({flatten: true});
                 for (const child of assigned.length ? assigned : node.childNodes) visit(child);
+                if (block) parts.push('\n');
                 return;
             }
             if (node.shadowRoot) {
                 visit(node.shadowRoot);
+                if (block) parts.push('\n');
                 return;
             }
+            for (const child of node.childNodes) visit(child);
+            if (block) parts.push('\n');
+            return;
         }
         for (const child of node.childNodes) visit(child);
     }
     visit(root);
+    if (preserveBlocks) return parts.join(' ').split('\n').map(
+        line => line.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
     return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -125,6 +139,13 @@ def rendered_text(driver, scope=None):
     """Return visible composed text once, excluding hidden templates/form values."""
     return driver.execute_script(
         _DOM_HELPERS + '\nreturn renderedText(arguments[0] || document.body);', scope,
+    )
+
+
+def rendered_offer_text(driver, scope):
+    """Preserve real block boundaries for local price/wallet discrimination."""
+    return driver.execute_script(
+        _DOM_HELPERS + '\nreturn renderedText(arguments[0], true);', scope,
     )
 
 

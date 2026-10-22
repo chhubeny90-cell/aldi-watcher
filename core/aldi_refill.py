@@ -6,13 +6,13 @@ all of these are simultaneously proven from the rendered page:
 - remaining high-speed volume is less than 1 GB,
 - the authenticated page identifies a verified eligible tariff/context,
 - exactly one enabled refill control is associated with exactly 1 GB,
-- no positive, conflicting, or unparsed local price is present.
+- the active tariff heading explicitly identifies Unlimited,
+- the exact local 1-GB offer includes a verified 0,00 € price.
 
-Current ALDI TALK Tarif S/M/L products include the repeated free 1-GB refill.
-A verified current S/M/L or legacy Unlimited tariff may therefore use the
-published tariff entitlement when the local exact 1-GB refill control carries
-no price label. Explicit positive or malformed prices remain blocked.
-Jahres-Paket/Jahrestarif and Basis-Tarif remain blocked.
+Prepaid wallet balance is not an offer price, but only a separately labelled
+standalone wallet field can be excluded from local price evaluation. Missing,
+ambiguous, malformed or paid offers, tariff changes, annual and basic tariffs
+fail closed. This pure detector does no login, journal write or booking.
 """
 
 import base64
@@ -76,18 +76,32 @@ def _exact_one_gb(text):
 
 
 def _price_state(text):
-    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text."""
-    if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
+    """Require exact 0,00 € offer price; ignore only standalone wallet fields.
+
+    Rendered text may flatten DOM field boundaries. A balance merged into an
+    offer sentence is intentionally NOT stripped, and therefore blocks.
+    """
+    if not isinstance(text, str):
         return "UNVERIFIED"
-    prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
-    mentions = re.findall(r"€|(?<![A-Za-z])EUR\b", text, re.I)
-    if mentions:
-        if not prices or len(prices) != len(mentions):
-            return "UNVERIFIED"
-        if any(not re.fullmatch(r"0(?:[.,]0{1,2})?", p) for p in prices):
-            return "PAID"
-        return "FREE"
-    return "ABSENT"
+    sanitized = re.sub(
+        r"(?im)^[ \t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b|Euro\b)[ \t]*$",
+        "", text,
+    )
+    if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b|Euro\b)", sanitized, re.I):
+        return "UNVERIFIED"
+    prices = re.findall(
+        r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(€|EUR\b)",
+        sanitized, re.I,
+    )
+    mentions = re.findall(r"€|(?<![A-Za-z])(?:EUR|Euro)\b", sanitized, re.I)
+    if not prices:
+        return "UNVERIFIED" if mentions else "ABSENT"
+    if len(prices) != len(mentions):
+        return "UNVERIFIED"
+    if any(value != "0,00" or unit != "€" for value, unit in prices):
+        return "PAID" if any(value not in {"0", "0,0", "0,00", "0.00"} for value, _ in prices) else "UNVERIFIED"
+    return "FREE"
 
 
 def _free_price(text):
@@ -95,15 +109,10 @@ def _free_price(text):
 
 
 def _free_offer_evidence(offer_text, tariff):
-    """Accept published free entitlement only when no local price conflicts."""
-    price_state = _price_state(offer_text)
-    if price_state in {"PAID", "UNVERIFIED"}:
+    """Tariff is necessary but cannot replace local zero-price evidence."""
+    if tariff != "UNLIMITED":
         return None
-    if price_state == "FREE":
-        return "explicit_free_offer"
-    if tariff in {"UNLIMITED", "CURRENT_SML"} and price_state == "ABSENT":
-        return "official_unlimited_entitlement"
-    return None
+    return "explicit_free_offer" if _price_state(offer_text) == "FREE" else None
 
 
 def _portal_origin(driver):
@@ -196,8 +205,12 @@ def tariff_identity_selenium(driver):
 def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, remaining_gb,
                   active_tariff_text=None):
     tariff_text = page_text if active_tariff_text is None else active_tariff_text
-    tariff_text = tariff_text or ""
-    offer_text = _normalise(offer_text)
+    if not all(isinstance(value, str) for value in (tariff_text, offer_text, button_text)):
+        return unavailable("offer_unverified")
+    # Preserve only explicit line boundaries, never invent field separation.
+    offer_text = "\n".join(
+        _normalise(line) for line in offer_text.splitlines() if line.strip()
+    )
     button_text = _normalise(button_text)
 
     if isinstance(remaining_gb, bool) or not isinstance(remaining_gb, (int, float)):
@@ -210,10 +223,12 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     tariff = _eligible_tariff(tariff_text)
     if tariff is None:
         return unavailable("active_tariff_unverified")
+    if tariff != "UNLIMITED":
+        return unavailable("not_unlimited_tariff")
 
-    if candidate_count != 1:
+    if type(candidate_count) is not int or candidate_count != 1:
         result = unavailable("refill_control_ambiguous")
-        result["refill_candidate_count"] = int(candidate_count)
+        result["refill_candidate_count"] = candidate_count if type(candidate_count) is int and candidate_count >= 0 else 0
         return result
     if not _exact_one_gb(offer_text):
         return unavailable("not_exactly_one_gb")
@@ -225,7 +240,7 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     free_evidence = _free_offer_evidence(offer_text, tariff)
     if free_evidence is None:
         return unavailable("price_unverified_or_paid")
-    if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
+    if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung|tarifwechsel|tarif wechseln|tarif ändern|zahlungspflichtig|gebühr|abbuchen|abziehen)\b", offer_text, re.I):
         return unavailable("conflicting_terms")
     if not re.search(
             r"\b(?:nachbuchen|buchen|weiter|bestätigen|bestaetigen)\b"
@@ -260,27 +275,17 @@ def _composed_parent(driver, element):
 
 
 def _offer_context(driver, control):
-    from browser_dom import rendered_text
+    """Never borrow a price from an unverified ancestor/card.
 
-    current = control
-    best = ""
-    for _ in range(8):
-        try:
-            text = rendered_text(driver, current)
-        except Exception:
-            text = ""
-        if text:
-            best = text
-            if (re.search(r"(?<![\d.,])1(?:[.,]0+)?\s*GB\b", text, re.I)
-                    and re.search(r"\b(?:nachbuch\w*|kostenlos|highspeed|datenvolumen)\b", text, re.I)):
-                return text
-        try:
-            current = _composed_parent(driver, current)
-        except Exception:
-            break
-        if current is None:
-            break
-    return best
+    Until the actual portal provides a verified scoped offer relationship, only
+    the action's own rendered subtree is price evidence. An unpriced button in
+    a wrapper with an unrelated free field therefore remains unavailable.
+    """
+    from browser_dom import rendered_offer_text
+    try:
+        return rendered_offer_text(driver, control)
+    except Exception:
+        return ''
 
 
 def locate_selenium(driver, remaining_gb):
