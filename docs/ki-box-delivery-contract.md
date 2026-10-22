@@ -95,6 +95,14 @@ zero automatic retries. Authentication, throttling, protocol and JSON failures
 stop the audit with a fixed error message; exception bodies and file paths are
 never printed. Responses are bounded to 8 MiB per page, with at most 1,000
 comments and one additional empty-page probe. Overflow fails the whole audit.
+Declared Content-Length must match the complete bounded body; duplicate length
+headers or mixed Content-Length/Transfer-Encoding framing fail closed. Chunked
+payload framing is checked by the HTTP decoder; unknown, duplicate or unsupported
+Transfer-Encoding values are rejected. Declared payload truncation containing
+valid JSON is never sufficient evidence. The standard decoder's tolerance for
+missing optional trailer termination after a complete zero chunk is unchanged;
+trailers do not authenticate receipts. Dot-prefixed repository names such as `.github`
+are supported; the exact `.` and `..` path segments are forbidden.
 
 `GITHUB_TOKEN` is exclusively a least-privilege GitHub read credential. It is
 never sent to Gemini, Perplexity, OpenAI or ALDI. There are no provider adapters,
@@ -118,6 +126,10 @@ Perplexity token formats, credential headers and credential assignments before
 preparing prompts, validating reviews or aggregating outputs. CLI failures use
 fixed messages. These checks provide defense in depth; arbitrary passwords and
 unknown credential formats cannot be identified reliably by a text pattern.
+Quoted credential assignments and headers are rejected as soon as the quoted
+value begins, including multiline, empty and incomplete quoted values.
+Recognizable credential labels also reject any other nonempty value, including
+angle-bracket literals and redaction placeholders; there is no placeholder bypass.
 Only independently checked public context may enter the hub. Review JSON is
 untrusted content, even after validation; it carries no provider authentication
 or permission to run a task. Duplicate JSON keys are rejected there as well.
