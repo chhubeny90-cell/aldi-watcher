@@ -13,4 +13,4 @@ jobs:
       - name: Provider policy guard
         run: |
           echo "Authenticated ALDI account automation is disabled."
-          echo "ALDI TALK stated on 2026-10-13 that automated scripts/browser control of the customer portal are not authorized."
+          echo "Provider authorization for authenticated scripted access is unverified in the available evidence; retain the disabled workflow pending review."
