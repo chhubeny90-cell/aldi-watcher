@@ -45,6 +45,27 @@ the observed Date-header timestamps, never copies personal mailbox contents,
 and verifies that message deduplication alone would create eight candidates.
 It also verifies warnings cannot enqueue and the monitor does not book.
 
-This PR deliberately does NOT implement a speculative event ID, merge provider
-identities, alter production booking permissions, mark any refill successful or
-assert that the account is accessible.
+## Implemented in this draft PR (not production-approved)
+- `core/mail_cycle_guard.py`: CAS-backed, HMAC-only profile-scoped ledger.
+  First consumed candidate is `UNVERIFIED`; seven more for the same explicitly
+  configured profile do not open another candidate. `UNKNOWN` never auto-retries.
+  A different message ID or passage of time cannot clear this guard.
+- `usage_mail_notify.py`: when `ALDI_MAILBOX_N_PROFILE_BINDING` is explicitly
+  configured, report `cycle_candidate` and `unverified_cycle_candidates`.
+  Existing per-message notifications and legacy `actionable_alerts` are
+  preserved for compatibility. They must not be mistaken for booking permission.
+- A profile binding is a *configuration label*, NOT authenticated SIM identity.
+  No binding is inferred from the mailbox. Without explicit configuration,
+  the guard does not claim a verified profile or create a cycle candidate.
+- Queue entries remain per-message for forensic dedupe. Candidate reporting
+  and mail queue are separate remote files: a partial failure must be reconciled
+  before considering any actor handoff. The actor remains blocked.
+- `reserve_verified_provider_cycle` explicitly rejects all calls until an
+  actual authenticated provider-cycle verifier is implemented. There is no
+  time-based automatic release, and a genuine new cycle cannot be accepted
+  without a future verified reset mechanism.
+
+This PR does NOT implement a speculative provider event ID, merge provider
+identities, change live booking permissions, mark any refill successful or
+assert that the account is accessible. Do not enable a live mail actor based
+on this ledger alone.
