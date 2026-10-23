@@ -81,13 +81,11 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
                     reserve_unverified_candidate(profile, message_key)
                     if signal == "consumed" and profile else False
                 )
-                alerts.append({
-                    "mailbox": index,
-                    "signal": signal,
-                    "actionable": signal == "consumed",  # legacy notification field
-                    "cycle_candidate": cycle_candidate,
-                    "provider_action": False,
-                })
+                alert = {"mailbox": index, "signal": signal,
+                         "actionable": signal == "consumed"}
+                if signal == "consumed":
+                    alert["cycle_candidate"] = cycle_candidate
+                alerts.append(alert)
     return alerts
 
 
