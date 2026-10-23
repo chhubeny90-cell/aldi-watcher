@@ -1,102 +1,71 @@
-> **Statuskorrektur 14.10.2026:** Die nachfolgenden Angaben zur Workflow-Aktivierung
-> sind historisch und nicht der aktuelle Betriebsstand. Auf main sind authentifizierte
-> ALDI-Workflows deaktiviert; ein offizieller Buchungsnachweis fehlt.
-> Maßgeblich: [Betriebsprüfung](operations-audit-2026-10-14.md).
+# Controlled refill rollout
 
-# Conditional free-refill execution
+Current implementation status: **BLOCKED**. CI is not provider evidence.
+The reference workflow is `.github/workflows/free-refill.yml`.
 
-The source switches for the configured account checks and the separate manual
-live-refill job are enabled. `all` and scheduled account checks remain read-only.
-The manual `live-refill` job runs only on main after tests pass and requires a
-configured persistent journal and a private self-hosted Linux runner labelled
-`aldi-journal`. A prerequisite report exposes only configuration booleans, never
-the journal path or credentials.
+## Two stages
 
-## Conditions checked for each NEW booking
+| Stage | Runner and state | Allowed action |
+| --- | --- | --- |
+| Mail sensor | GitHub hosted runner; CAS-backed remote state branch | Hourly IMAP check, 80% warning, reserve consumed events; no ALDI credentials/browser |
+| Controlled actor | Private self-hosted Linux runner labelled `aldi-journal`; existing private SQLite journal outside checkout | One separately authorized free 1-GB attempt only after all gates |
 
-- Selected SIM matches the configured account, with a protected navigation-list
-  response in the same browser session.
-- The visible eligible tariff and protected subscription signature remain the
-  same before the action, any confirmation, and the refreshed volume check.
-- Remaining volume is strictly below 1 GB and exactly one enabled local offer
-  displays exactly 1 GB.
-- A local `0 €` / `0,00 €` price is sufficient free-price evidence. When that
-  numeric zero-price label is absent, only a uniquely identified active
-  Unlimited tariff plus the same local Unlimited/On-Demand refill context may
-  use ALDI's published free-refill entitlement. Generic `1 GB nachbuchen`,
-  generic `kostenlos` wording, positive prices and unparsed currency markers
-  remain blocked.
-- No prior unresolved ALDI operation exists. Unknown account/provider mappings
-  block execution rather than hide old reservations.
-- One durable reservation is committed before clicking. The workflow performs
-  at most one refill; a confirmation is repriced and revalidated before its click.
-- A fresh protected volume increase greater than zero and no more than 1 GB is
-  currently used only for the NEW same-session operation. Historical operations
-  are not reconciled from volume or button state.
+The sensor's cron is minute 17 each hour, UTC. GitHub schedules are best effort;
+they are not an exact hourly SLA. A reliable host timer and independent heartbeat
+would be needed for a strict cadence. Remote state failure is not empty history.
+Do not replace the original HMAC key or clear prior events to start a test.
 
-A journal-wide executor lock plus the per-account lock prevent concurrent local
-bookings. All workers must share the same durable journal; independent hosts or
-journals are unsupported. The runner never replaces a lost or corrupt journal.
+Observed scheduled run 39396855864 (2026-10-20 08:55 UTC) stopped with
+`dedup_key_missing` before checking mail. This establishes a missing runtime
+`ALDI_RECOVERY_KEY` in that run, not the absence of consumer Gmail access.
+https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/39396855864
 
-## Durable journal bootstrap
+## Manual workflow gates
 
-Create the journal once on the private POSIX host that will run the
-`aldi-journal` self-hosted runner:
+Default is preflight with `DRY_RUN=true`, `AUTO_BOOK_ENABLED=false`.
+Refill dispatch requires main, the exact approved commit and a specific `AUTH-`
+reference, successful offline tests/config presence checks, and the `aldi-live`
+environment. Its administrator must configure required reviewers and main-only
+deployment protection. Declaring the environment name does not prove protection.
 
-```bash
-python scripts/init_aldi_journal.py /absolute/private/path/aldi-live.sqlite
-```
+Before any login, `scripts/check_live_workflow.py` rejects missing or stale
+commit-bound schema-v3 evidence and the known incomplete mail-to-private-actor,
+operation-recovery and Selenium pre-auth contracts. These are factual code gaps,
+not repository variables to toggle. Even a fabricated all-true readiness payload
+cannot bypass them. This gate currently always blocks: it is rollout scaffolding,
+not a completed live integration or a substitute for the missing implementations.
 
-The bootstrap creates a missing SQLite journal with mode `0600`, initializes the
-schema, validates an existing journal without replacing it, and rejects relative
-paths, symlinks, broad file permissions and group/world-writable parent
-directories. Configure the same absolute path as the repository variable
-`ALDI_JOURNAL_PATH`. The file must remain outside the GitHub checkout so a new
-checkout cannot replace runtime state.
+`scripts/check_aldi_runtime.py` then checks the existing private journal and local
+backup/reopen. `open_live_journal()` independently enforces the same schema before
+opening the actor. Nullable IDs, incomplete status rules, partial lookup indexes
+and triggers on the safety table block execution. The exact canonical table grammar
+rejects additional allowed states and alternative CHECK expressions. The initializer
+now applies this same read-only validation BEFORE touching any existing journal;
+legacy nullable-ID files are rejected unchanged instead of reporting ready. No automatic migration or
+replacement of an existing journal is permitted. A local copy/reopen is not proof
+of restart persistence or off-host backup; those need separate real-host evidence.
 
-## Historical recovery
+## Offer and completion contracts
 
-`ALDI_RECONCILIATION_VERIFIED` remains false. No verified ALDI provider endpoint
-has been found that maps the watcher's local operation ID to an authoritative
-provider receipt. Old PENDING/UNKNOWN records therefore remain blocked; neither
-present volume nor a reoffered button clears them. A provider receipt/status
-lookup or another operation-bound authoritative signal is still required after
-an uncertain or crashed booking.
+See [exact offer policy](aldi-free-entitlement.md). Before clicking, revalidate
+full account, tariff, offer and zero price. PENDING must be committed and retained;
+reservation deletion/rebinding is rejected. A crash or uncertain request outcome
+remains PENDING/UNKNOWN and prevents automatic retry after restart.
 
-Public research checked the official ALDI tariff pages and public automation
-implementations again on 2026-10-12. They confirm the repeated free 1-GB action
-below 1 GB, but the public implementations found only automate the UI button and
-do not expose an authoritative per-booking receipt/status API.
+The existing `aldi_live_refill_contract.py` observes `updateUnlimited` exchanges.
+Its synthetic parser tests do not establish the current provider response schema.
+Only an official operation-bound terminal receipt can establish SUCCESS. A volume
+increase, generic banner, email, green CI or AI agreement cannot substitute.
+The queue's COMPLETED transition remains intentionally blocked pending verified
+receipt-to-event integration. Historical recovery remains unverified.
 
-## Current authentication evidence
+## Required external evidence
 
-The initial no-submit challenge probe on main captured the normal login challenge
-without typing or submitting credentials. Proof-of-work was present, but the
-provider account-lock key was not. No SMS request or portal write occurred.
+- Original stable recovery key and complete event history; exact mail/SIM/tariff binding.
+- Current restored login and real-account offer evidence, with no blind credential retry.
+- Actual protected environment, private runner, existing journal and restart/restore proof.
+- Observed completion and recovery contracts, reviewed against the exact commit.
+- New specific authorization for the one concrete live attempt.
 
-The separately controlled single credential-submit diagnostic then received the
-provider localization key `custom.alditalk.accountLock.accountLockMsg` and no
-successful portal token/session. This means the account-lock indication appeared
-as a response to credential submission rather than as part of the untouched
-initial challenge. Further automated password attempts are intentionally stopped
-until the account is restored through the normal provider flow.
-
-The existing sanitized provider diagnostics already classify `accountLock` as an
-account-lock indication without persisting provider response text or secrets.
-
-## Deployment status
-
-The controlled manual live-mode check previously passed tests but reported
-`journal_path_configured=false`; the live-refill job was skipped and runner
-availability was not established. The connected GitHub integration cannot update
-repository variables or self-hosted runner administration. Those two deployment
-items must be configured in GitHub/runner administration before the live job can
-start.
-
-PR #40 is merged on main. Its tests verify the fail-closed Unlimited entitlement
-logic, including positive/mixed prices, malformed currency markers, generic
-free-wording, exact 1.00-GB boundary, plain Tarif S and annual plans. A fresh
-successful login and a real provider-confirmed free refill have not yet been
-demonstrated.
-
-No mail-triggered live deployment is established by enabling the manual workflow.
+No provider login or booking was performed by this change. No paid options or
+plan changes are authorized. Do not run journal initialization to repair lost history.

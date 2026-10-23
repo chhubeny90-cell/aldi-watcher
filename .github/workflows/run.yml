@@ -43,7 +43,15 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Install Chrome for offline DOM fixtures
+        id: offline_chrome
+        uses: browser-actions/setup-chrome@v2.2.0
+        with:
+          chrome-version: stable
       - name: Run full test suite
+        env:
+          CHROME_BINARY: ${{ steps.offline_chrome.outputs.chrome-path }}
+          REQUIRE_OFFLINE_BROWSER: 'true'
         run: python -m pytest -q
 
   public_probe:

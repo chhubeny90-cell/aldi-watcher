@@ -92,3 +92,19 @@ def test_initialize_journal_rejects_writable_parent(tmp_path):
     path = parent / "journal.sqlite"
     with pytest.raises(RuntimeError, match="journal_parent_must_not_be_group_or_world_writable"):
         initialize_journal(str(path))
+
+
+def test_initializer_rejects_legacy_schema_without_normalization_or_history_loss(tmp_path):
+    from core.journal_validation import RECHARGES_TABLE_SQL
+    path = tmp_path / 'legacy.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute(RECHARGES_TABLE_SQL.replace('PRIMARY KEY NOT NULL', 'PRIMARY KEY'))
+        conn.execute("INSERT INTO recharges VALUES ('old-operation','alditalk','private-account','UNKNOWN',NULL,'now','now')")
+    path.chmod(0o600)
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        initialize_journal(str(path))
+    assert path.read_bytes() == before
+    with sqlite3.connect(path) as conn:
+        assert conn.execute('SELECT recharge_id,status FROM recharges').fetchall() == [('old-operation','UNKNOWN')]
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='usage_logs'").fetchall() == []

@@ -6,6 +6,7 @@ initializes the local journal path supplied by the operator.
 """
 
 import argparse
+from contextlib import closing
 import json
 import os
 import sqlite3
@@ -19,6 +20,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from core.database import Database
+from core.journal_validation import validate_journal
 
 
 def initialize_journal(raw_path: str):
@@ -32,7 +34,7 @@ def initialize_journal(raw_path: str):
         raise RuntimeError("journal_symlink_rejected")
     if not path.parent.is_dir():
         raise RuntimeError("journal_parent_missing")
-    if path.parent.is_symlink():
+    if any(parent.is_symlink() for parent in path.parents):
         raise RuntimeError("journal_parent_symlink_rejected")
     # A group/world-writable parent lets another local process replace the file
     # between checks even when the SQLite file itself is mode 0600.
@@ -47,6 +49,10 @@ def initialize_journal(raw_path: str):
         # Deployment mistakes must be visible instead of silently repaired.
         if path.stat().st_mode & 0o777 != 0o600:
             raise RuntimeError("journal_permissions_must_be_0600")
+        # Existing history is inspected read-only before any constructor can
+        # normalize it. Legacy schemas require an explicit offline migration.
+        with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
+            validate_journal(conn)
 
     # Database creates a missing file with 0600 and initializes the schema.
     db = Database(str(path))
@@ -56,13 +62,8 @@ def initialize_journal(raw_path: str):
     if mode != 0o600:
         raise RuntimeError("journal_permissions_must_be_0600")
 
-    # Validate the exact table/column contract expected by aldi_live_refill.py.
-    with sqlite3.connect(path.as_uri() + "?mode=rw", uri=True) as conn:
-        columns = [row[1] for row in conn.execute("PRAGMA table_info(recharges)")]
-        conn.execute("SELECT recharge_id, provider, username, status FROM recharges LIMIT 0")
-    required = {"recharge_id", "provider", "username", "status", "created_at", "updated_at"}
-    if not required.issubset(columns):
-        raise RuntimeError("journal_schema_unexpected")
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
+        validate_journal(conn)
 
     return {
         "journal_ready": True,

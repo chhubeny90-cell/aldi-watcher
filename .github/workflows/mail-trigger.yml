@@ -3,10 +3,10 @@ name: ALDI Usage Mail Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: aldi-usage-mail-monitor
@@ -14,23 +14,19 @@ concurrency:
 
 jobs:
   monitor:
+    permissions:
+      contents: write  # CAS-only state-branch persistence by the mail sensor
     runs-on: ubuntu-latest
     timeout-minutes: 4
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
+      DRY_RUN: 'true'
+      AUTO_BOOK_ENABLED: 'false'
       ALDI_STATE_PATH: .aldi-state/profile-1.json
-      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
-      MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
-      MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
-      MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
-      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
-      MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
-      MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
-      MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
       ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
@@ -39,6 +35,17 @@ jobs:
         run: pip install -r requirements.txt
       - name: Poll usage mailboxes without ALDI portal access
         id: monitor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
+          MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
+          MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
+          MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
+          MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
+          MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
+          MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
+          MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
+          MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
         continue-on-error: true
         run: python usage_mail_notify.py
       - name: Preserve sanitized usage-alert report

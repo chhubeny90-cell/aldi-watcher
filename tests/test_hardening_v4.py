@@ -1,3 +1,4 @@
+import pytest
 import json
 import uuid
 from email.message import EmailMessage
@@ -132,7 +133,7 @@ def test_main_workflow_is_credential_free_public_monitoring_only():
 
 def test_usage_mail_monitor_is_notification_only_and_has_no_provider_credentials():
     mail = Path('.github/workflows/mail-trigger.yml').read_text(encoding='utf-8')
-    assert "cron: '0 * * * *'" in mail
+    assert "cron: '17 * * * *'" in mail
     assert 'usage_mail_notify.py' in mail
     assert 'ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}' in mail
     assert 'ALDI_PASS:' not in mail
@@ -149,3 +150,14 @@ def test_authenticated_status_probe_and_live_watchdog_remain_disabled():
     assert 'Authenticated ALDI status probing is disabled.' in status
     assert 'ALDI Watcher Watchdog (paused)' in watchdog
     assert 'Live runner intentionally disabled' in watchdog
+
+
+@pytest.mark.parametrize('key', ['', ' ', None])
+def test_auxiliary_state_never_uses_a_password_as_recovery_key(monkeypatch, key):
+    from github_hardening_state import _secret_key
+    if key is None: monkeypatch.delenv('ALDI_RECOVERY_KEY', raising=False)
+    else: monkeypatch.setenv('ALDI_RECOVERY_KEY', key)
+    monkeypatch.setenv('ALDI_PASS', 'synthetic-password')
+    monkeypatch.setenv('ALDI_PASS_ENC', 'synthetic-encrypted-password')
+    with pytest.raises(RuntimeError, match='recovery_key_unavailable'):
+        _secret_key()
