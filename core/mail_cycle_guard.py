@@ -32,7 +32,7 @@ def _load():
     for key, record in profiles.items():
         if (not _digest(key) or not isinstance(record, dict)
                 or set(record) != {"state", "first_message"}
-                or record["state"] not in _VALID_STATES
+                or type(record["state"]) is not str or record["state"] not in _VALID_STATES
                 or not _digest(record["first_message"])):
             raise HandoffBlocked("cycle_guard_invalid")
     return sha, profiles
