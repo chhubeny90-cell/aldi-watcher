@@ -1,31 +1,47 @@
 name: ALDI HTTP Login
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+    inputs:
+      manual_login_verified:
+        description: 'Confirm a successful official browser/app login and correct SIM; no booking'
+        type: boolean
+        required: true
+        default: false
 permissions:
-  contents: read
+  contents: none
 concurrency:
   group: aldi-live-refill-profile-1
   cancel-in-progress: false
 jobs:
   login:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[http-login]')
+    if: >-
+      github.repository == 'chhubeny90-cell/aldi-watcher' &&
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write # Persist the existing public-safe auth guard before ALDI I/O.
+    env:
+      AUTO_BOOK_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Try one browser-free phone and password login
+      - name: Reserve and try one manually verified read-only login
         env:
-          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER || secrets.ALDI_USER }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ALDI_MANUAL_LOGIN_VERIFIED: ${{ inputs.manual_login_verified }}
+          ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
+          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ALDI_HTTP_REPORT: aldi-http-login.json
