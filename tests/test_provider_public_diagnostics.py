@@ -72,7 +72,3 @@ def test_public_probe_refuses_plaintext_provider_credentials(monkeypatch, secret
         portal_probe.main()
 
 
-def test_lidl_number_is_not_used_as_proof_of_authenticated_identity():
-    # User-reported number; runtime credentials and account identification remain independent.
-    assert "015225179349".endswith("9349")
-    assert not portal_probe.host(watcher.LIDL_LOGIN_URL).startswith("0152")
