@@ -81,3 +81,38 @@ def test_monitor_does_not_call_provider_for_consumed_messages(monkeypatch):
     # This demonstrates the missing cycle-level dedupe. These are candidates,
     # NOT eight independently authorized provider bookings.
     assert len(seen) == 8
+
+
+def test_configured_profile_only_opens_one_unverified_candidate(monkeypatch):
+    """Eight mail candidates never imply eight independent consumption cycles."""
+    class FakeIMAP:
+        def __init__(self, *_args, **_kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def login(self, *_args): pass
+        def select(self, *_args, **_kwargs): return "OK", []
+        def search(self, *_args): return "OK", [b"1 2 3 4 5 6 7 8"]
+        def fetch(self, identifier, *_args):
+            return "OK", [(b"BODY[]", _mail(int(identifier) - 1).as_bytes())]
+
+    monkeypatch.setattr(monitor.imaplib, "IMAP4_SSL", FakeIMAP)
+    monkeypatch.setenv("ALDI_MAILBOX_1_PROFILE_BINDING", "synthetic-profile")
+    monkeypatch.setattr(monitor, "_message_key", lambda message, raw: message["Message-ID"])
+    monkeypatch.setattr(monitor, "_legacy_message_key", lambda message, raw: "old:" + message["Message-ID"])
+    seen, cycle = set(), set()
+    def enqueue(key, signal, *, legacy_message_key=None):
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+    def reserve(profile, key):
+        assert profile == "synthetic-profile"
+        if profile in cycle:
+            return False
+        cycle.add(profile)
+        return True
+    monkeypatch.setattr(monitor, "reserve_unverified_candidate", reserve)
+    alerts = monitor._poll_one(1, "synthetic.invalid", 993, "synthetic", "synthetic", enqueue=enqueue)
+    assert len(alerts) == 8  # legacy notification reports remain visible
+    assert sum(a["cycle_candidate"] for a in alerts) == 1
+    assert all(a["provider_action"] is False for a in alerts)
