@@ -83,6 +83,7 @@ def test_verified_cycle_not_supported_without_provider_evidence(remote):
 
 
 def test_corrupt_remote_guard_fails_closed(monkeypatch):
+    monkeypatch.setattr(guard, "_mac", lambda *_: "a" * 64)
     monkeypatch.setattr(guard, "_read_json", lambda *args: (
         "sha", {"version": 1, "profiles": {"invalid": {"state": "UNVERIFIED", "first_message": "a"*64}}}))
     with pytest.raises(HandoffBlocked, match="cycle_guard_invalid"):
