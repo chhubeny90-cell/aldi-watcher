@@ -21,7 +21,7 @@ jobs:
     env:
       AUTO_BOOK_ENABLED: 'false'
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - uses: actions/setup-python@v7.0.0
@@ -88,7 +88,7 @@ jobs:
       AUTO_BOOK_ENABLED: 'false'
       ALDI_JOURNAL_PATH: ${{ vars.ALDI_JOURNAL_PATH }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - uses: actions/setup-python@v7.0.0
