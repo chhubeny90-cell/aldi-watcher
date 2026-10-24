@@ -6,7 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 STATUSES = ('BLOCKED', 'DRY_RUN_READY', 'LIVE_READY')
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SECURITY = frozenset({'SECURITY', 'AUTH', 'SECRETS', 'BOOKING', 'JOURNAL', 'CAS'})
 DRY = {f'DRY-{i:03d}': name for i, name in enumerate((
     'external actions disabled', 'synthetic mail replay', 'legacy deduplication',
@@ -16,8 +16,9 @@ LIVE = {f'LIVE-{i:03d}': name for i, name in enumerate((
     'current authenticated account and tariff', 'current explicit zero-price 1GB offer',
     'mailbox to SIM binding', 'durable private host and journal',
     'no pending or unknown operation', 'exact-commit CI and review',
-    'real provider completion and recovery contract', 'one-shot authorization',
-    'complete historical deduplication and durable audit'), 1)}
+    'real provider completion contract', 'one-shot authorization',
+    'complete historical deduplication and durable audit',
+    'independent provider recovery contract'), 1)}
 BLOCK = {f'BLOCK-{i:03d}': name for i, name in enumerate((
     'missing criterion catalog', 'unknown criterion ID', 'unreviewed change',
     'stale security evidence', 'missing evidence URL', 'missing artifact',

@@ -11,7 +11,7 @@ URL = 'https://github.com/example/test/actions/runs/1'
 
 def ready(live=True):
     criteria = sorted(DRY.keys() | BLOCK.keys() | (LIVE.keys() if live else set()))
-    return {'schema_version': 2, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
+    return {'schema_version': 3, 'commit': COMMIT, 'ci_commit': COMMIT, 'snapshot_version': SNAPSHOT,
             'dry': dict.fromkeys(DRY, True), 'live': dict.fromkeys(LIVE, live),
             'blockers': [{'id': b, 'active': False} for b in sorted(BLOCK)],
             'tests': [{'id': t, 'status': 'BESTANDEN', 'reproducible': True,
@@ -145,4 +145,27 @@ def test_old_receipt_based_schema_requires_explicit_migration():
     d = ready()
     d['schema_version'] = 1
     d['provider_receipt_verified'] = True
+    assert check(d) == 'BLOCKED'
+
+
+def test_recovery_contract_requires_separate_live_evidence():
+    d = ready()
+    d['evidence'] = [e for e in d['evidence'] if e['criterion'] != 'LIVE-010']
+    # A true boolean and a completion contract do not prove recovery.
+    assert d['provider_recovery_contract_verified'] is True
+    assert check(d) == 'BLOCKED'
+
+
+def test_completion_contract_cannot_be_reused_as_recovery():
+    d = ready()
+    completion = next(e for e in d['evidence'] if e['criterion'] == 'LIVE-007')
+    recovery = next(e for e in d['evidence'] if e['criterion'] == 'LIVE-010')
+    recovery['criterion'] = completion['criterion']
+    assert check(d) == 'BLOCKED'
+
+
+def test_previous_live_catalog_requires_explicit_v3_migration():
+    d = ready()
+    d['schema_version'] = 2
+    # v2 has no independent LIVE-010 recovery proof; reject without migration.
     assert check(d) == 'BLOCKED'
