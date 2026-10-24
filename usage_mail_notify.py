@@ -20,6 +20,7 @@ from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
 from core.mail_handoff_queue import enqueue_consumed, _legacy_seen
+from core.mail_cycle_guard import reserve_unverified_candidate
 from usage_mail_bridge import _mailboxes, _message_key, _legacy_message_key, _signal
 
 
@@ -70,11 +71,21 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
                     message_key, _legacy_message_key(message, raw)
                 ) and claim(message_key))
             if is_new:
-                alerts.append({
-                    "mailbox": index,
-                    "signal": signal,
-                    "actionable": signal == "consumed",
-                })
+                # Optional profile-scoped suppression of *candidate* reports.
+                # This is NOT SIM authentication and never enables a booking.
+                # Queue reservation precedes this guard: a remote failure
+                # fails closed instead of pretending a candidate was accepted.
+                profile = os.environ.get(
+                    f"ALDI_MAILBOX_{index}_PROFILE_BINDING", "").strip()
+                cycle_candidate = (
+                    reserve_unverified_candidate(profile, message_key)
+                    if signal == "consumed" and profile else False
+                )
+                alert = {"mailbox": index, "signal": signal,
+                         "actionable": signal == "consumed"}
+                if signal == "consumed":
+                    alert["cycle_candidate"] = cycle_candidate
+                alerts.append(alert)
     return alerts
 
 
@@ -94,6 +105,7 @@ def main():
         "configuration_error": None,
         "new_alerts": 0,
         "actionable_alerts": 0,
+        "unverified_cycle_candidates": 0,
         "early_warnings": 0,
         "alerts": [],
         "failed_mailboxes": [],
@@ -137,6 +149,9 @@ def main():
         report["actionable_alerts"] = sum(
             1 for item in report["alerts"] if item.get("actionable") is True
         )
+        report["unverified_cycle_candidates"] = sum(
+            1 for item in report["alerts"] if item.get("cycle_candidate") is True
+        )
         report["early_warnings"] = sum(
             1 for item in report["alerts"] if item.get("signal") == "80_percent"
         )
@@ -150,6 +165,7 @@ def main():
             "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
             "actionable_alerts": report["actionable_alerts"],
+            "unverified_cycle_candidates": report["unverified_cycle_candidates"],
             "early_warnings": report["early_warnings"],
             "failed_mailboxes": len(report["failed_mailboxes"]),
             "trigger_policy": report["trigger_policy"],
