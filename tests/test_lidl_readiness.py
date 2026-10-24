@@ -40,3 +40,46 @@ def test_all_claims_still_need_independent_review():
 
 def test_input_invalid_type_stays_blocked():
     assert readiness(None)["status"] == "BLOCKED"
+
+@pytest.mark.parametrize("stage", STAGES)
+@pytest.mark.parametrize("value", [False, None, 0, 1, "true", "", [], {}])
+def test_each_stage_requires_literal_true(stage, value):
+    data = dict.fromkeys(STAGES, True)
+    data[stage] = value
+    result = readiness(data)
+    assert result["status"] == "BLOCKED"
+    assert result["blockers"] == [stage]
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_step"),
+    [
+        ("portal_access", "public_diagnostic"),
+        ("authenticated_account", "manual_read_only_login"),
+        ("active_tariff", "read_only_offer_inspection"),
+        ("exact_free_offer", "read_only_offer_inspection"),
+        ("operation_journal", "journal_and_receipt_review"),
+        ("provider_receipt", "journal_and_receipt_review"),
+    ],
+)
+def test_first_missing_stage_controls_next_step(stage, expected_step):
+    data = dict.fromkeys(STAGES, True)
+    missing = STAGES[STAGES.index(stage):]
+    for key in missing:
+        del data[key]
+    result = readiness(data)
+    assert result == {
+        "status": "BLOCKED",
+        "blockers": list(missing),
+        "next_step": expected_step,
+    }
+
+
+def test_evidence_is_not_mutated_and_results_do_not_leak_state():
+    data = dict.fromkeys(STAGES, True)
+    data["provider_receipt"] = None
+    original = data.copy()
+    first = readiness(data)
+    first["blockers"].clear()
+    assert data == original
+    assert readiness(data)["blockers"] == ["provider_receipt"]
