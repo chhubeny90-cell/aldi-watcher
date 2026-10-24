@@ -47,3 +47,24 @@ def test_account_lock_is_terminal_and_not_reported_as_generic_auth_failure():
     assert client.report["provider_indications"]["account_locked"] is True
     assert client.report["credential_submissions"] == 1
     assert transport.post.call_count == 2  # initial empty challenge + one credential submit
+
+
+def test_lock_in_initial_challenge_prevents_even_the_first_credential_submit():
+    transport = Mock(headers={})
+    transport.cookies = requests.cookies.RequestsCookieJar()
+    transport.get.return_value = _response()
+    challenge = _challenge()
+    challenge["callbacks"].append({
+        "type": "TextOutputCallback",
+        "output": [{"name": "message", "value": "custom.alditalk.accountLock"}],
+    })
+    transport.post.return_value = _response(challenge)
+    client = AldiHttpLogin(transport)
+
+    with pytest.raises(LoginError, match="^account_locked$"):
+        client.login(PHONE, PASSWORD)
+
+    assert client.report["provider_indications"]["account_locked"] is True
+    assert client.report["credential_submissions"] == 0
+    assert transport.post.call_count == 1
+    assert transport.post.call_args.kwargs["json"] == {}

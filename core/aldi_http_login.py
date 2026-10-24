@@ -222,6 +222,9 @@ class AldiHttpLogin:
         self._get(OVERVIEW)
         self.report["phase"] = "auth_challenge"
         challenge = self._authenticate({})
+        self.report.update(result_diagnostics(challenge))
+        if self.report["provider_indications"]["account_locked"]:
+            raise LoginError("account_locked")
         self.report["phase"] = "prepare_callbacks"
         payload = prepare_callbacks(challenge, phone, password)
         self.report["phase"] = "credential_submit"
