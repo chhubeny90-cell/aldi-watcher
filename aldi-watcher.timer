@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly public portal diagnosis only
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=60
+Persistent=false
+Unit=aldi-watcher.service
+
+[Install]
+WantedBy=timers.target

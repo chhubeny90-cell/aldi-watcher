@@ -36,3 +36,10 @@ Thumbs.db
 
 .venv/
 monitoring-report.json
+
+# SQLite sidecars and private local reports
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+portal-probe-report.json

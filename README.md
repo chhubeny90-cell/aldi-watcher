@@ -58,6 +58,14 @@ diese Sperre stellt keinen betriebsbereiten Nachbuchungsablauf her.
 Die folgenden Installations- und Pluginbeispiele beschreiben vorhandene
 Codepfade, nicht eine freigegebene oder nachgewiesene ALDI-Live-Konfiguration.
 
+## Konfigurationsdateien und Linux Vorbereitung
+
+Die [lokale Konfigurationsanleitung](docs/local-configuration.md) beschreibt
+`install.sh`, die korrigierte `.env.example` und die vorbereiteten systemd-Units.
+`bash install.sh` erhält eine vorhandene `.env` und startet nichts.
+Der optionale stündliche Dienst prüft ausschließlich öffentliche Portalseiten,
+ohne Zugangsdaten, Anmeldung oder Buchung. Er ist standardmäßig nicht aktiviert.
+
 ## Quickstart (5 Minuten)
 
 ```bash

@@ -1,0 +1,27 @@
+[Unit]
+Description=ALDI and Lidl public portal diagnosis without login or booking
+Wants=network-online.target
+After=network-online.target
+# Explicit local opt-in; the installer never creates this file.
+ConditionPathExists=/etc/aldi-watcher/public-probe.enabled
+
+[Service]
+Type=oneshot
+User=aldi-watcher
+Group=aldi-watcher
+WorkingDirectory=/var/lib/aldi-watcher-public
+StateDirectory=aldi-watcher-public
+StateDirectoryMode=0700
+CacheDirectory=aldi-watcher-public
+CacheDirectoryMode=0700
+EnvironmentFile=/etc/aldi-watcher/public-probe.env
+# A clean environment excludes credentials even if accidentally put in the env file.
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin HOME=/var/cache/aldi-watcher-public PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DRY_RUN=true AUTO_BOOK_ENABLED=false SE_AVOID_STATS=true CHROME_BINARY=${CHROME_BINARY} CHROMEDRIVER_PATH=${CHROMEDRIVER_PATH} /opt/aldi-watcher/.venv/bin/python /opt/aldi-watcher/portal_probe.py
+TimeoutStartSec=180
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
