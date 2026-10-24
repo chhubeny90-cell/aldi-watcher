@@ -76,7 +76,20 @@ def _exact_one_gb(text):
 
 
 def _price_state(text):
-    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text."""
+    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
+
+    Wallet balance is not a refill charge. An ancestor DOM container may contain
+    both the 1-GB offer and a clearly labelled prepaid balance; ignore only that
+    labelled balance amount. Unlabelled/malformed amounts and actual offer prices
+    are still checked fail-closed.
+    """
+    # Ignore only a standalone wallet-field line. A phrase such as
+    # "vom Guthaben 0,99 € abziehen" is a charge and must remain visible.
+    text = re.sub(
+        r"(?im)^[ \t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)[ \t]*$",
+        "", text,
+    )
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
     prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
@@ -197,7 +210,11 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
                   active_tariff_text=None):
     tariff_text = page_text if active_tariff_text is None else active_tariff_text
     tariff_text = tariff_text or ""
-    offer_text = _normalise(offer_text)
+    # Preserve line boundaries so only a standalone wallet display can be
+    # excluded from price evaluation; flattening would blur it into offer text.
+    offer_text = "\n".join(
+        _normalise(line) for line in (offer_text or "").splitlines() if line.strip()
+    )
     button_text = _normalise(button_text)
 
     if isinstance(remaining_gb, bool) or not isinstance(remaining_gb, (int, float)):
@@ -211,9 +228,13 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     if tariff is None:
         return unavailable("active_tariff_unverified")
 
+    # bool is an int subclass in Python: True == 1. Only a genuine,
+    # non-negative integer from the observed DOM count may authorize a refill.
+    if type(candidate_count) is not int or candidate_count < 0:
+        return unavailable("refill_candidate_count_unverified")
     if candidate_count != 1:
         result = unavailable("refill_control_ambiguous")
-        result["refill_candidate_count"] = int(candidate_count)
+        result["refill_candidate_count"] = candidate_count
         return result
     if not _exact_one_gb(offer_text):
         return unavailable("not_exactly_one_gb")
