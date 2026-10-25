@@ -566,7 +566,11 @@ def test_main_only_scheduled_auth_wait_is_a_nonfailing_outcome(
 @pytest.mark.parametrize('report', [None, '{PRIVATE_BROKEN', json.dumps({
     'outcome': 'auth_backoff_active', 'retry_after': '2026-10-26T22:48:21Z',
 })])
-def test_summary_cli_works_without_installed_dependencies(tmp_path, report):
+def test_summary_cli_works_without_installed_dependencies(tmp_path, report, monkeypatch):
+    # This case exercises the local stdout fallback. CI supplies an Actions
+    # summary destination, which is tested separately and must not leak here.
+    monkeypatch.delenv('GITHUB_STEP_SUMMARY', raising=False)
+    monkeypatch.delenv('ALDI_HOSTED_REPORT', raising=False)
     script = Path(runtime.__file__).resolve()
     if report is not None:
         (tmp_path / 'aldi-hosted-report.json').write_text(report)
