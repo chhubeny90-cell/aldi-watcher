@@ -19,3 +19,11 @@ Baseline: main at `27d46e90c6ec8d640f2c75cc3abfb3af865b4e7a`. This is a read-onl
 
 ## Change record
 - 2026-10-25: Added this diagnostic/triage document on an isolated branch. No booking code, workflows, credentials, repository settings, PR states or live services changed.
+
+## Confirmed mail monitor root cause (job 121140543650)
+The 2026-10-25 [job log](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40183910537) explicitly reports `Monitor configuration incomplete: dedup_key_missing` and shows `ALDI_RECOVERY_KEY` unset. `MAILBOX_1_USER` and `MAILBOX_1_PASS` are masked/present. The report is produced, and the final step intentionally exits 2. **Do not downgrade this to green or invent a recovery key**: recover the existing durable key from a trusted private source and install it as an Actions secret after verifying continuity with the existing state. If continuity cannot be demonstrated, keep processing blocked pending a reviewed safe migration. This is not a proven successful IMAP poll or provider session.
+
+## Cross-check with Google Drive, 2026-10-25
+- [Watcher checklist](https://docs.google.com/document/d/1SpcxYbSBuSs-o0SkWoRtuKBqiRsVQtYyb9R6oCNY4kU/edit) last substantive snapshot 2026-10-19; preserves E2E BLOCKED gates.
+- [Gmail trigger analysis](https://docs.google.com/document/d/1Z4XmkB4_yazVJXEnEVIqPwzmsi-4YSyHuT5Gprgoits/edit) documents eight content-identical 100-percent mails on 21/22 October, requiring account/cycle verification; #132 remains a draft, not production validation.
+- [Canonical knowledge hub](https://docs.google.com/document/d/1GQk3HvhQ_seMnLPodcK9Db2uyKMuCuebTBSVdbvKOfg/edit) prioritizes current GitHub code evidence over old summary text. No claim of direct inter-AI communication is established.
