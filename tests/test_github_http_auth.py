@@ -82,7 +82,8 @@ def test_login_parent_domain_cookie_uses_known_www_origin():
     assert auth.inject_verified_cookies(driver, _jar(
         _cookie(), _cookie(name="sso", domain=".alditalk-kundenbetreuung.de"),
     )) == 2
-    payload = driver.calls[-1][1]
+    payload = next(payload for command, payload in driver.calls
+                   if command == "Network.setCookie" and payload["name"] == "sso")
     assert payload["domain"] == ".alditalk-kundenbetreuung.de"
     assert payload["url"] == "https://www.alditalk-kundenbetreuung.de/"
 
