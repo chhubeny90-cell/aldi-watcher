@@ -2,7 +2,15 @@
 
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
-## Aktueller Prüfstand vom 17. Oktober 2026
+## Aktueller Status — 25. Oktober 2026
+
+**Automatische Gratis-Nachbuchung ist weiterhin nicht als funktionsfähig nachgewiesen.** Die aktuelle Main-Basis ist `27d46e90` (24.10.2026). Am 25.10. war der letzte geplante [ALDI-Watcher-Lauf](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40181874217) erfolgreich, der letzte geplante [Mail-Monitor-Lauf](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40183910537) dagegen fehlgeschlagen. Der Monitor-Job scheiterte im finalen Bewertungsschritt; die genaue Ursache erfordert die Prüfung des bereinigten Laufberichts. Der aktuell eingecheckte Mail-Workflow plant stündliche Läufe (`0 * * * *`), nicht alle fünf Minuten.
+
+Die [technische Bestandsaufnahme vom 25.10.2026](docs/repository-audit-2026-10-25.md) enthält nachvollziehbare Belege, Prioritäten und verbleibende Freigabekriterien. Grün bei öffentlichen Probes oder Offline-Tests ist **kein** Nachweis für eine erfolgreiche Anmeldung, Kontozuordnung oder Buchung.
+
+Die folgenden Prüfstände vom 17. und 14. Oktober bleiben als **historische Momentaufnahmen** erhalten.
+
+## Historischer Prüfstand vom 17. Oktober 2026
 
 **Der vollständige Nachbuchungsablauf ist nicht betriebsbereit.** Auf main
 `481b0a9` meldet der Mail-Monitor weiterhin `no_mailboxes_configured`; auch der
