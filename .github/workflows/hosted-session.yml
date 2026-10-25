@@ -111,7 +111,7 @@ jobs:
         run: timeout 240s python aldi_hosted_runtime.py --mode "$ALDI_HOSTED_MODE"
       - name: Bereinigtes Ergebnis aufbewahren
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: aldi-hosted-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-hosted-report.json

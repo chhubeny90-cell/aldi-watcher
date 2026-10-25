@@ -43,7 +43,7 @@ jobs:
         run: python usage_mail_notify.py
       - name: Preserve sanitized usage-alert report
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: aldi-usage-alert-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-usage-alert.json

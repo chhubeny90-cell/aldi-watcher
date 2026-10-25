@@ -107,7 +107,7 @@ jobs:
           PY
       - name: Preserve sanitized completion report
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: guarded-free-refill-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-live-refill.json
