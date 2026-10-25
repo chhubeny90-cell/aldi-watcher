@@ -88,7 +88,7 @@ jobs:
           cache: pip
       - name: Chrome installieren
         id: chrome
-        uses: browser-actions/setup-chrome@v2.2.0
+        uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
           install-chromedriver: true
