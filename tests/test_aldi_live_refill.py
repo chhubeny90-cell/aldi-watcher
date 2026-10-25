@@ -35,6 +35,8 @@ def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
     monkeypatch.setattr(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000')
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', '01500000000')
+    monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', '0000')
     monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
     monkeypatch.setattr(live, 'CLICK_SETTLE_SECONDS', 0)
     monkeypatch.setattr(live.time, 'sleep', lambda *_: None)
@@ -333,6 +335,8 @@ def _live_crash_worker(db_path, calls_path, before_click=False, crash=True, star
         stack.enter_context(patch.dict(os.environ, {
             'AUTO_BOOK_ENABLED': 'true', 'ALDI_JOURNAL_PATH': db_path,
             'GITHUB_ACTIONS': 'false',
+            'ALDI_EXPECTED_ACCOUNT': '01500000000',
+            'ALDI_REQUIRED_TARGET_SUFFIX': '0000',
         }))
         stack.enter_context(patch.object(live, 'REPORT_PATH', db_path + '.' + str(os.getpid()) + '.json'))
         stack.enter_context(patch.object(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000'))
