@@ -46,16 +46,20 @@ jobs:
           JOURNAL_PATH_CONFIGURED: ${{ vars.ALDI_JOURNAL_PATH != '' }}
           MAILBOX_CONFIGURED: ${{ (secrets.MAILBOX_1_USER != '' && secrets.MAILBOX_1_PASS != '') || (secrets.MAILBOX_2_USER != '' && secrets.MAILBOX_2_PASS != '') }}
           MAIL_DEDUP_KEY_CONFIGURED: ${{ secrets.ALDI_RECOVERY_KEY != '' }}
+          ALDI_REQUIRED_TARGET_SUFFIX: ${{ vars.ALDI_REQUIRED_TARGET_SUFFIX }}
         run: |
           python - <<'PY'
-          import json, os
+          import json, os, re
           names = ('ACCOUNT_CONFIGURED', 'EXPECTED_ACCOUNT_CONFIGURED', 'PASSWORD_CONFIGURED',
                    'ENCRYPTION_KEY_REQUIRED', 'ENCRYPTION_KEY_CONFIGURED', 'JOURNAL_PATH_CONFIGURED',
                    'MAILBOX_CONFIGURED', 'MAIL_DEDUP_KEY_CONFIGURED')
           flags = {name.lower(): os.environ.get(name) == 'true' for name in names}
+          flags['target_suffix_valid'] = bool(re.fullmatch(
+              r'[0-9]{4}', os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', '')))
           ready = all(flags[name] for name in ('account_configured', 'expected_account_configured',
                                                'password_configured', 'journal_path_configured'))
           ready = ready and flags['mailbox_configured'] and flags['mail_dedup_key_configured']
+          ready = ready and flags['target_suffix_valid']
           ready = ready and (not flags['encryption_key_required'] or flags['encryption_key_configured'])
           print(json.dumps({'configuration': flags, 'manual_refill_configured': ready,
                             'runner_available': 'unverified', 'live_booking_verified': False,
