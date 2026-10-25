@@ -61,6 +61,12 @@ class CompletionContract:
         # Provider identifiers belong in the private durable journal, not reports.
         data["provider_operation_id"] = bool(self.provider_operation_id)
         data["provider_resource_id"] = bool(self.provider_resource_id)
+        # Provider status fields may contain unexpected free text. Preserve it
+        # only in the encrypted journal; public reports use known states alone.
+        data["provider_status"] = (
+            self.provider_status
+            if self.provider_status in TERMINAL_SUCCESS | NON_TERMINAL else None
+        )
         return data
 
 

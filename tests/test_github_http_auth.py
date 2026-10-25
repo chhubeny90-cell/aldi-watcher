@@ -68,6 +68,62 @@ def test_cookie_handoff_requires_portal_cookie():
         auth.inject_verified_cookies(driver, jar)
 
 
+@pytest.mark.parametrize("domain", ["alditalk-kundenportal.de", ".alditalk-kundenportal.de"])
+def test_portal_parent_domain_cookie_keeps_scope_and_counts_as_portal(domain):
+    driver = FakeDriver()
+    assert auth.inject_verified_cookies(driver, _jar(_cookie(domain=domain))) == 1
+    payload = driver.calls[-1][1]
+    assert payload["domain"] == domain
+    assert payload["url"] == "https://www.alditalk-kundenportal.de/"
+
+
+def test_login_parent_domain_cookie_uses_known_www_origin():
+    driver = FakeDriver()
+    assert auth.inject_verified_cookies(driver, _jar(
+        _cookie(), _cookie(name="sso", domain=".alditalk-kundenbetreuung.de"),
+    )) == 2
+    payload = driver.calls[-1][1]
+    assert payload["domain"] == ".alditalk-kundenbetreuung.de"
+    assert payload["url"] == "https://www.alditalk-kundenbetreuung.de/"
+
+
+def test_host_only_cookie_is_not_widened_to_domain_cookie():
+    driver = FakeDriver()
+    cookie = _cookie(path="/portal/auth/")
+    cookie.domain_specified = False
+    assert auth.inject_verified_cookies(driver, _jar(cookie)) == 1
+    payload = driver.calls[-1][1]
+    assert "domain" not in payload
+    assert payload["url"] == "https://www.alditalk-kundenportal.de/portal/auth/"
+    assert payload["path"] == "/portal/auth/"
+
+
+def test_explicit_domain_scope_is_preserved_without_initial_dot():
+    cookie = _cookie(domain="www.alditalk-kundenportal.de")
+    assert cookie.domain_specified is True
+    payload = auth._cookie_payload(cookie)
+    assert payload["domain"] == "www.alditalk-kundenportal.de"
+
+
+@pytest.mark.parametrize("domain", [
+    ".alditalk-kundenportal.de.attacker.invalid", "attacker.alditalk-kundenportal.de",
+    ".kundenportal.de", ".de", "..alditalk-kundenportal.de",
+])
+def test_cookie_lookalikes_and_untrusted_ancestors_are_rejected(domain):
+    driver = FakeDriver()
+    assert auth.inject_verified_cookies(driver, _jar(
+        _cookie(), _cookie(name="evil", domain=domain),
+    )) == 1
+    payloads = [payload for command, payload in driver.calls if command == "Network.setCookie"]
+    assert [payload["name"] for payload in payloads] == ["session"]
+
+
+def test_host_only_parent_domain_cookie_is_not_rebound_to_www():
+    cookie = _cookie(domain="alditalk-kundenportal.de")
+    cookie.domain_specified = False
+    assert auth._cookie_payload(cookie) is None
+
+
 def test_http_login_handoff_verifies_chrome_session(monkeypatch):
     driver = FakeDriver()
     client = FakeClient(_jar(_cookie()))

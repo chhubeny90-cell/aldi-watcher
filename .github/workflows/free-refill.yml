@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: aldi-guarded-free-refill
+  group: aldi-live-refill-profile-1
   cancel-in-progress: false
 
 jobs:
