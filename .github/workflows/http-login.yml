@@ -1,12 +1,6 @@
 name: ALDI HTTP Login
 on:
   workflow_dispatch:
-    inputs:
-      manual_login_verified:
-        description: 'Confirm a successful official browser/app login and correct SIM; no booking'
-        type: boolean
-        required: true
-        default: false
 permissions:
   contents: none
 concurrency:
@@ -35,10 +29,9 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Reserve and try one manually verified read-only login
+      - name: Einmaligen lesenden ALDI-Login starten
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          ALDI_MANUAL_LOGIN_VERIFIED: ${{ inputs.manual_login_verified }}
           ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
           ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
@@ -53,3 +46,8 @@ jobs:
           name: aldi-http-login-${{ github.run_id }}
           path: aldi-http-login.json
           retention-days: 3
+      - name: Deutsches Login-Ergebnis anzeigen
+        if: always()
+        env:
+          ALDI_HTTP_REPORT: aldi-http-login.json
+        run: python aldi_http_login_summary.py
