@@ -163,9 +163,10 @@ def test_manual_refill_preflight_checks_target_suffix_without_portal_access(tmp_
     import textwrap
 
     workflow = _workflow('free-refill.yml')
-    preflight = workflow.split('\\n  test:\\n', 1)[0]
+    preflight = workflow.split(chr(10) + '  test:' + chr(10), 1)[0]
     script = textwrap.dedent(
-        preflight.split("          python - <<'PY'\\n", 1)[1].split('\\n          PY', 1)[0]
+        preflight.split("          python - <<'PY'" + chr(10), 1)[1]
+        .split(chr(10) + '          PY', 1)[0]
     )
     expected_boolean_flags = {
         'ACCOUNT_CONFIGURED': 'true',
