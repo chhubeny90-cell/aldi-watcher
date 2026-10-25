@@ -2,7 +2,9 @@
 
 Stand: 25.10.2026. Geprüfter Main: `27d46e90c6ec8d640f2c75cc3abfb3af865b4e7a`.
 Dieses Register ordnet vorhandene Arbeit. Es aktiviert keinen Dienst und bestätigt keine Live-Betriebsbereitschaft.
-24 offene PRs wurden über GitHub erfasst; ihre CI, Diffs und Reviews wurden für dieses Register nicht vollständig neu geprüft.
+Zunächst wurden 24 offene PRs erfasst. Nach dokumentiertem Schließen von #13 bleiben 23 offen.
+Alle 24 Heads wurden gegen Main verglichen; zusätzlich wurden 32 Dateipaare aus zwölf PRs geprüft.
+CI und Reviews wurden nicht vollständig neu geprüft.
 
 ## 1. Klare Aufteilung
 
@@ -93,14 +95,14 @@ Ein lokaler Einmal-Auftrag garantiert ohne Provider-Abgleich keine genau einmali
 5. **Danach Betriebsnachweise:** tatsächliche Laufzeitkonfiguration, authentifiziertes Konto,
    konkretes Gratisangebot und offizieller Abschlussvertrag. Bis dahin keine Mail-Aktorfreigabe.
 
-## 6. Alle offenen PRs zugeordnet
+## 6. PR-Zuordnung nach Aufräumprüfung
 
 | PRs | Bereich | Behandlung |
 | --- | --- | --- |
 | #132, #124 | Mail und lokaler Betrieb | Priorisierte gemeinsame Schnittstelle |
 | #121, #120, #117, #115, #114 | Preis, Journal und Recovery | Überlappungen anhand Diffs prüfen |
 | #119, #45, #26, #10 | Login und Diagnose | Historische Ansätze gegen Main prüfen; keine zusätzlichen Loginversuche ableiten |
-| #20, #15, #13 | Ältere Buchungs-/Sicherheitsansätze | Übernahme in Main nachweisen, dann erst über Schließen entscheiden |
+| #20, #15 | Ältere Buchungs-/Sicherheitsansätze | Übernahme in Main nachweisen, dann erst über Schließen entscheiden |
 | #11, #19 | Alternative Runner-/Betriebswege | Mit #124 und Main abgleichen; keinen zweiten Dauerbetrieb etablieren |
 | #130, #108, #107 | Tests und Abnahmestatus | Ergebnisse nur dem tatsächlich geprüften Commit zuordnen |
 | #122, #55 | CI/Actions/CodeQL | Workflowänderungen getrennt prüfen |
@@ -108,8 +110,33 @@ Ein lokaler Einmal-Auftrag garantiert ohne Provider-Abgleich keine genau einmali
 | #123 | KI-Auftragsbox | Separater Projektstrang |
 | #131 | Dokumentation | Führendes Aufräumregister |
 
-Die Gruppierung enthält alle 24 beim Abruf offenen PRs. Sie ist keine Merge-Empfehlung.
-Kein PR wurde in dieser Sortierung geschlossen, gemergt oder als fertig bewertet.
+Die Gruppierung enthält die 23 verbleibenden offenen PRs. Sie ist keine Merge-Empfehlung.
+
+### Geschlossen
+- [PR #13](https://github.com/chhubeny90-cell/aldi-watcher/pull/13): Beide geänderten Dateien
+  `plugins/aldi_talk.py` und `tests/test_aldi_live_booking_guard.py` stimmen per
+  Git-Blob-SHA exakt mit Main `27d46e90c6ec8d640f2c75cc3abfb3af865b4e7a` überein.
+  Geschlossen ohne Merge, ohne Codeänderung; Begründung in der PR-Beschreibung dokumentiert.
+
+### Bewusst erhalten
+- #55: CodeQL ist in Main vorhanden, aber der PR enthält zusätzlich
+  `workflow_dispatch`, einen anderen Zeitplan und andere Berechtigungs-/Action-Konfiguration.
+  Deshalb kein vollständiges Duplikat; vor Schließen über den verbleibenden Funktionsumfang entscheiden.
+- #45: Regressionstestdatei fehlt in Main.
+- #19: `run.sh` fehlt in Main.
+- #26: Beide Diagnoseworkflows sowie Probe und Tests fehlen in Main.
+- #108: Abnahmedokument fehlt in Main.
+- #107: Testdatei fehlt in Main, Implementierung weicht ab.
+- #114, #115, #117, #119, #120: geprüfte Dateien weichen von Main ab;
+  Alter und Mergekonflikte sind kein Löschbeweis.
+- Übrige PRs: Commitvergleich zeigt zusätzliche Commits; keine pauschale Löschfreigabe
+  aus dieser Metadatenprüfung ableiten.
+
+Keine Branches oder Dateien gelöscht. Der verfügbare GitHub-Connector besitzt
+keine Aktion zum Löschen von Branches. Der vollständig übernommene Branch zu #13
+ist ein belegter Löschkandidat; sein geprüfter Head ist
+`42d78d70f20a99c16ebea0d498446fa2c791ba97`.
+Vor einer späteren Branchlöschung muss der Head erneut auf zwischenzeitliche Änderungen geprüft werden.
 
 ## 7. Dokumentation und Statusregeln
 
