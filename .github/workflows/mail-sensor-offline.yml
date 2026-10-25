@@ -11,6 +11,8 @@ on:
       - 'requirements*.txt'
       - 'scripts/windows/**'
       - 'tests/test_imap_sensor_daemon.py'
+      - 'tests/test_dual_monitor_policy.py'
+      - 'tests/test_dual_monitor_bridge.py'
       - '.github/workflows/mail-sensor-offline.yml'
   workflow_dispatch:
 
@@ -35,7 +37,7 @@ jobs:
       - name: Install sensor test dependencies only
         run: python -m pip install 'pytest>=8' 'pytest-asyncio>=0.23' 'requests>=2.32,<3' 'python-dotenv>=1' 'cryptography>=42'
       - name: Test SQLite reopen, UID recovery and synthetic IMAP faults on Windows
-        run: python -m pytest tests/test_imap_sensor_daemon.py -q
+        run: python -m pytest tests/test_imap_sensor_daemon.py tests/test_dual_monitor_policy.py tests/test_dual_monitor_bridge.py -q
       - name: Parse task preparation script without registering or starting a task
         shell: pwsh
         run: |
