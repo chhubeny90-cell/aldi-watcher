@@ -11,6 +11,7 @@ import pytest
 import requests
 
 import aldi_http_login_probe as probe
+import aldi_http_login_summary as summary
 from github_journal_state import _encode_state, _parse_state
 
 
@@ -26,7 +27,7 @@ def guarded(tmp_path, monkeypatch):
         "GITHUB_REPOSITORY": "chhubeny90-cell/aldi-watcher",
         "GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "d" * 40, "GITHUB_RUN_ID": "12345",
-        "AUTO_BOOK_ENABLED": "false", "ALDI_MANUAL_LOGIN_VERIFIED": "true",
+        "AUTO_BOOK_ENABLED": "false",
         "ALDI_EXPECTED_ACCOUNT": PHONE,
         "ALDI_HTTP_REPORT": str(tmp_path / "report.json"),
     }
@@ -101,18 +102,14 @@ def test_invalid_context_cannot_read_guard_or_contact_provider(guarded, name, va
     assert_no_provider(guarded)
 
 
-@pytest.mark.parametrize("value", ["false", "True", "1", "", None])
-def test_manual_recovery_confirmation_is_required_before_io(guarded, value):
-    if value is None:
-        guarded.env.pop("ALDI_MANUAL_LOGIN_VERIFIED")
-    else:
+@pytest.mark.parametrize("value", ["true", "false", "True", "1", "", None])
+def test_login_needs_no_browser_confirmation_and_ignores_legacy_values(guarded, value):
+    if value is not None:
         guarded.env["ALDI_MANUAL_LOGIN_VERIFIED"] = value
-    assert probe.main() == 2
-    assert read_report(guarded)["outcome"] == "manual_login_verification_required"
-    guarded.resolver.assert_not_called()
-    guarded.snapshot.assert_not_called()
-    guarded.writes.assert_not_called()
-    assert_no_provider(guarded)
+    assert probe.main() == 0
+    assert read_report(guarded)["outcome"] == "login_verified"
+    guarded.writes.assert_called_once()
+    guarded.client.login.assert_called_once_with(PHONE, PASSWORD)
 
 
 @pytest.mark.parametrize("value", ["true", "False", "", None])
@@ -188,10 +185,22 @@ def test_unresolved_provider_operation_blocks_login(guarded):
     assert_no_provider(guarded)
 
 
-def test_active_backoff_cannot_be_overridden_by_manual_confirmation(guarded):
+def test_active_backoff_blocks_login_and_reports_next_attempt_in_utc(guarded):
     guarded.state["auth_retry_after"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     assert probe.main() == 2
     assert read_report(guarded)["outcome"] == "auth_backoff_active"
+    assert read_report(guarded)["retry_after"] == guarded.state["auth_retry_after"].replace("+00:00", "Z")
+    guarded.writes.assert_not_called()
+    assert_no_provider(guarded)
+
+
+def test_active_backoff_with_offset_is_reported_in_utc(guarded):
+    retry = datetime.now(timezone.utc) + timedelta(hours=1)
+    guarded.state["auth_retry_after"] = retry.astimezone(timezone(timedelta(hours=2))).isoformat()
+    assert probe.main() == 2
+    report = read_report(guarded)
+    assert report["outcome"] == "auth_backoff_active"
+    assert report["retry_after"] == retry.isoformat().replace("+00:00", "Z")
     guarded.writes.assert_not_called()
     assert_no_provider(guarded)
 
@@ -215,6 +224,7 @@ def test_expired_guard_is_replaced_by_exact_24h_cas_without_mutating_snapshot(gu
     assert sha == "b" * 40
     assert datetime.fromisoformat(state["auth_retry_after"].replace("Z", "+00:00")) == NOW + timedelta(hours=24)
     assert state["auth_retry_after"].endswith("Z")
+    assert report["retry_after"] == state["auth_retry_after"]
     assert state["unresolved"] == []
     assert guarded.state == original
 
@@ -228,6 +238,7 @@ def test_failed_or_uncertain_reservation_never_calls_provider_or_retries(guarded
     assert_no_provider(guarded)
     report = read_report(guarded)
     assert report["reservation_status"] == "unconfirmed"
+    assert report["retry_after"] == guarded.writes.call_args.args[0]["auth_retry_after"]
     assert report["outcome"] == "probe_error"
     assert "PRIVATE_PAYLOAD" not in guarded.report.read_text()
 
@@ -294,6 +305,7 @@ def test_durable_reservation_precedes_client_construction_and_one_login(guarded)
     assert report["login_ok"] is True
     assert report["account_match"] is True
     assert report["reservation_status"] == "confirmed"
+    assert report["retry_after"] == guarded.storage["state"]["auth_retry_after"]
     assert report["booking_clicks"] == 0
     assert report["read_only"] is True
     assert report["tariff_loaded"] is False
@@ -340,6 +352,7 @@ def test_provider_failure_keeps_reservation_and_does_not_retry(guarded, failure,
     report = read_report(guarded)
     assert report["reservation_status"] == "confirmed"
     assert report["outcome"] == outcome
+    assert report["retry_after"] == guarded.storage["state"]["auth_retry_after"]
     assert report["booking_clicks"] == 0
     assert "PRIVATE_PROVIDER_RESPONSE" not in guarded.report.read_text()
 
@@ -380,14 +393,34 @@ def test_cleanup_error_does_not_leak_details_or_erase_success(guarded, capsys):
     assert read_report(guarded)["outcome"] == "login_verified"
 
 
+@pytest.mark.parametrize("scenario,expected", [
+    ("success", "**Login bestätigt.**"),
+    ("backoff", "Der 24-Stunden-Abstand ist noch aktiv"),
+    ("uncertain", "Die Reservierung könnte bereits gespeichert sein"),
+])
+def test_probe_report_flows_into_actions_summary(guarded, scenario, expected):
+    if scenario == "backoff":
+        guarded.state["auth_retry_after"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    elif scenario == "uncertain":
+        guarded.writes.side_effect = TimeoutError("PRIVATE_WRITE_DETAIL")
+    assert probe.main() == (0 if scenario == "success" else 2)
+    output = guarded.report.with_suffix(".md")
+    guarded.env["GITHUB_STEP_SUMMARY"] = str(output)
+    assert summary.main() == 0
+    text = output.read_text()
+    assert expected in text
+    assert "UTC" in text
+    assert PHONE not in text and PASSWORD not in text and "PRIVATE_WRITE_DETAIL" not in text
+
+
 def test_workflow_is_manual_only_and_keeps_credentials_scoped_to_guarded_step():
     text = WORKFLOW.read_text()
     triggers = text.split("on:\n", 1)[1].split("permissions:\n", 1)[0]
     assert "  workflow_dispatch:\n" in triggers
     assert "push:" not in triggers and "schedule:" not in triggers and "pull_request:" not in triggers
-    assert "      manual_login_verified:\n" in triggers
-    assert "        type: boolean\n" in triggers
-    assert "        default: false\n" in triggers
+    assert "inputs:" not in triggers
+    assert "manual_login_verified" not in text
+    assert "ALDI_MANUAL_LOGIN_VERIFIED" not in text
     assert "permissions:\n  contents: none\n" in text
     assert "    permissions:\n      contents: write" in text
     assert "persist-credentials: false" in text
@@ -398,6 +431,10 @@ def test_workflow_is_manual_only_and_keeps_credentials_scoped_to_guarded_step():
     assert "secrets.ALDI_USER" not in text
     assert "GITHUB_TOKEN: ${{ github.token }}" in text
     assert text.count("python aldi_http_login_probe.py") == 1
+    summary = text.split("      - name: Deutsches Login-Ergebnis anzeigen\n", 1)[1]
+    assert "        if: always()\n" in summary
+    assert "run: python aldi_http_login_summary.py" in summary
+    assert "secrets." not in summary and "GITHUB_TOKEN:" not in summary
 
 
 @pytest.mark.parametrize("repository,event,ref,attempt,allowed", [
