@@ -153,3 +153,48 @@ def test_mail_credentials_are_scoped_to_sensor_step_only():
         assert key + ':' not in before_sensor
         assert key + ':' in after_sensor[0]
         assert key + ':' not in after_sensor[1]
+
+def test_manual_refill_preflight_checks_target_suffix_without_portal_access(tmp_path):
+    """Exercise the workflow's real preflight Python offline, with no secrets."""
+    import json
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    workflow = _workflow('free-refill.yml')
+    preflight = workflow.split('\\n  test:\\n', 1)[0]
+    script = textwrap.dedent(
+        preflight.split("          python - <<'PY'\\n", 1)[1].split('\\n          PY', 1)[0]
+    )
+    expected_boolean_flags = {
+        'ACCOUNT_CONFIGURED': 'true',
+        'EXPECTED_ACCOUNT_CONFIGURED': 'true',
+        'PASSWORD_CONFIGURED': 'true',
+        'ENCRYPTION_KEY_REQUIRED': 'false',
+        'ENCRYPTION_KEY_CONFIGURED': 'false',
+        'JOURNAL_PATH_CONFIGURED': 'true',
+        'MAILBOX_CONFIGURED': 'true',
+        'MAIL_DEDUP_KEY_CONFIGURED': 'true',
+    }
+    for suffix, expected in [
+        ('1869', True), ('', False), ('186', False),
+        ('18699', False), ('18a9', False), ('１２３４', False),
+    ]:
+        output = tmp_path / 'preflight-output'
+        output.write_text('', encoding='utf-8')
+        env = {**os.environ, **expected_boolean_flags,
+               'ALDI_REQUIRED_TARGET_SUFFIX': suffix,
+               'GITHUB_OUTPUT': str(output)}
+        run = subprocess.run(
+            [sys.executable, '-c', script], env=env,
+            text=True, capture_output=True, check=True,
+        )
+        report = json.loads(run.stdout)
+        assert report['configuration']['target_suffix_valid'] is expected
+        assert report['manual_refill_configured'] is expected
+        assert output.read_text(encoding='utf-8').strip() == (
+            'ready=true' if expected else 'ready=false'
+        )
+        if suffix:
+            assert suffix not in run.stdout
