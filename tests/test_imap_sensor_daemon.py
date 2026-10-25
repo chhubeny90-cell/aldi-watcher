@@ -81,6 +81,9 @@ def test_consumed_is_persisted_but_never_ready_or_dispatched(store, monkeypatch)
     restarted = SensorStore(store.path, KEY)
     report = run(restarted, now=NOW+60)
     assert report['mailboxes'][0]['observed'] == 0
+    assert report['mailboxes'][0]['unresolved_candidates'] == 1
+    assert report['mailboxes'][0]['state'] == 'BLOCKED'
+    assert report['provider_action'] is False
 
 
 def test_read_messages_are_not_missed_and_warning_never_becomes_candidate(store):
