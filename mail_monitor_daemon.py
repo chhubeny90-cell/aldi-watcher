@@ -142,6 +142,11 @@ def cycle(store, configs, *, factory=imaplib.IMAP4_SSL, now=None):
             except Exception:
                 store.block(mailbox)
                 report['state'] = 'BLOCKED'
+        # Cursor advancement never erases a previously recorded candidate.
+        # Keep it visible after restart and during retry wait; never dispatch.
+        report['unresolved_candidates'] = store.unresolved_candidate_count(mailbox)
+        if report['unresolved_candidates']:
+            report['state'] = 'BLOCKED'
         reports.append(report)
     return {'overall_status': 'BLOCKED', 'sensor_only': True, 'booking_enabled': False,
             'provider_action': False, 'mailboxes': reports}
