@@ -16,6 +16,7 @@ from pathlib import Path
 import time
 
 from core.imap_sensor import SensorBlocked, SensorStore, fingerprint, positive_uid
+from core.dual_monitor_bridge import advisory_from_mail_report
 from usage_mail_bridge import _mailboxes, _signal
 
 MAX_BYTES = 1024 * 1024
@@ -148,8 +149,12 @@ def cycle(store, configs, *, factory=imaplib.IMAP4_SSL, now=None):
         if report['unresolved_candidates']:
             report['state'] = 'BLOCKED'
         reports.append(report)
-    return {'overall_status': 'BLOCKED', 'sensor_only': True, 'booking_enabled': False,
-            'provider_action': False, 'mailboxes': reports}
+    result = {'overall_status': 'BLOCKED', 'sensor_only': True, 'booking_enabled': False,
+              'provider_action': False, 'mailboxes': reports}
+    # Reporting only: candidate detection is not authenticated mail or SIM binding.
+    result['dual_monitor_advisory'] = advisory_from_mail_report(
+        result, now=datetime.fromtimestamp(now, timezone.utc))
+    return result
 
 
 def write_report(path, store, report):
