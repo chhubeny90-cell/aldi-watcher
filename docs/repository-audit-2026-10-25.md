@@ -27,3 +27,12 @@ The 2026-10-25 [job log](https://github.com/chhubeny90-cell/aldi-watcher/actions
 - [Watcher checklist](https://docs.google.com/document/d/1SpcxYbSBuSs-o0SkWoRtuKBqiRsVQtYyb9R6oCNY4kU/edit) last substantive snapshot 2026-10-19; preserves E2E BLOCKED gates.
 - [Gmail trigger analysis](https://docs.google.com/document/d/1Z4XmkB4_yazVJXEnEVIqPwzmsi-4YSyHuT5Gprgoits/edit) documents eight content-identical 100-percent mails on 21/22 October, requiring account/cycle verification; #132 remains a draft, not production validation.
 - [Canonical knowledge hub](https://docs.google.com/document/d/1GQk3HvhQ_seMnLPodcK9Db2uyKMuCuebTBSVdbvKOfg/edit) prioritizes current GitHub code evidence over old summary text. No claim of direct inter-AI communication is established.
+
+## Closure checklist and operator-only boundary
+1. Locate **the previously used** `ALDI_RECOVERY_KEY` in a trusted private credential store, if it exists. Do not paste it into Drive, issues, PRs, logs, or chat. Preserve continuity with the persisted state; if the old key cannot be recovered, stop and design a migration that retains historical consumed-mail claims without rebooking.
+2. Configure that key as a GitHub Actions repository secret `ALDI_RECOVERY_KEY` using GitHub's secret-management UI; this repository audit has **not** written a secret. This is a human/private-credential prerequisite, not a code fix.
+3. Inspect a fresh `ALDI Usage Mail Monitor` run for no `configuration_error` and no `failed_mailboxes`; verify the sanitized report, avoid treating `actionable_alerts` as authorization to book. Run a controlled, read-only mailbox check only after the key is in place.
+4. Offline regression tests already on main in `tests/test_usage_mail_notify_fail_closed.py` assert that missing-key detection prevents polling and that no sensitive strings are echoed. They are **existing tests**, not tests executed by this audit. Re-run CI after relevant code changes.
+5. E2E cannot be marked completed until verified provider account identity, actual tariff and 0-euro offer, correct cycle-bound once-only journal, and authoritative completion evidence are available. Do not activate a live booking actor or pay for data to manufacture these proofs.
+
+**Closure result:** repository/Drive documentation synchronized; runtime remediation **blocked by private secret and unproven external prerequisites**. No success claim for the live watcher.
