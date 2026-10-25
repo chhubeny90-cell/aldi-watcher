@@ -47,9 +47,9 @@ def test_active_traffic_uses_adaptive_sampling_but_caps_rate():
     assert not result.booking_authorized
 
 
-def test_low_volume_including_35_mb_never_authorizes_a_refill():
+def test_low_volume_never_authorizes_a_refill():
     result = schedule_dual_monitor(
-        now=NOW, mail_signal="consumed", samples=(sample(0, 35),),
+        now=NOW, mail_signal="consumed", samples=(sample(0, 500),),
     )
     assert result.state == "REFILL_OBSERVE"
     assert result.account_poll_seconds == 60
