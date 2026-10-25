@@ -40,3 +40,10 @@ The 2026-10-25 [job log](https://github.com/chhubeny90-cell/aldi-watcher/actions
 ## State-branch read-only inspection, 2026-10-25
 On `aldi-watcher-state`, `.aldi-state/` currently contains only `profile-1.json` and `profile-1.heartbeat.json`. `profile-1.json` has `version:2` and `unresolved: []`; the heartbeat timestamp is 2026-10-13T09:16:22.396347Z. No `profile-1.triggers.json` or `profile-1.recovery.json` appeared in this **specific listed directory**. That does not prove no prior fingerprints, journals, backups, or external state exist. Do not generate a replacement key merely from this absence.
 The live workflow still lacks `ALDI_RECOVERY_KEY` (observed run 40183910537). GitHub connector access used here cannot read, restore, or securely set a repository Actions secret. **Operator prerequisite:** verify historical key continuity or explicitly approve reviewed state migration, then configure the secret privately. Until then the monitor must fail closed. No state-branch edits were performed.
+
+## Cross-source verification — 2026-10-25
+- Read-only checks confirmed that ALDI usage notifications arrive in two separate connected mailboxes. The notifications do not include an independently verified SIM identifier; mailbox-to-SIM mappings remain unproven.
+- One mailbox also contains an account-lock notification after failed authentication attempts. The current unlock status remains unknown. No authentication attempt was performed.
+- Do not rely on message greetings, similar content, or a password-change notice for account binding. Require independent authenticated read-only account evidence before any provider action.
+- No passwords, verification codes, security keys or phone numbers are included in this audit.
+- The isolated audit branch passed its latest Python compatibility CI on commit 40975eb1; this is not live-service validation.
