@@ -36,3 +36,7 @@ The 2026-10-25 [job log](https://github.com/chhubeny90-cell/aldi-watcher/actions
 5. E2E cannot be marked completed until verified provider account identity, actual tariff and 0-euro offer, correct cycle-bound once-only journal, and authoritative completion evidence are available. Do not activate a live booking actor or pay for data to manufacture these proofs.
 
 **Closure result:** repository/Drive documentation synchronized; runtime remediation **blocked by private secret and unproven external prerequisites**. No success claim for the live watcher.
+
+## State-branch read-only inspection, 2026-10-25
+On `aldi-watcher-state`, `.aldi-state/` currently contains only `profile-1.json` and `profile-1.heartbeat.json`. `profile-1.json` has `version:2` and `unresolved: []`; the heartbeat timestamp is 2026-10-13T09:16:22.396347Z. No `profile-1.triggers.json` or `profile-1.recovery.json` appeared in this **specific listed directory**. That does not prove no prior fingerprints, journals, backups, or external state exist. Do not generate a replacement key merely from this absence.
+The live workflow still lacks `ALDI_RECOVERY_KEY` (observed run 40183910537). GitHub connector access used here cannot read, restore, or securely set a repository Actions secret. **Operator prerequisite:** verify historical key continuity or explicitly approve reviewed state migration, then configure the secret privately. Until then the monitor must fail closed. No state-branch edits were performed.
