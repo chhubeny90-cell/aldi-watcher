@@ -13,18 +13,31 @@ from core.aldi_http_login import ALLOWED_HOSTS, AldiHttpLogin, LoginError
 
 _LAST_AUTH_OUTCOME = None
 _PORTAL_HOST = "www.alditalk-kundenportal.de"
+_COOKIE_ORIGINS = {host: host for host in ALLOWED_HOSTS}
+_COOKIE_ORIGINS.update({host.removeprefix("www."): host
+                        for host in ALLOWED_HOSTS if host.startswith("www.")})
 
 
 def _cookie_payload(cookie):
     name = getattr(cookie, "name", None)
     value = getattr(cookie, "value", None)
-    domain = (getattr(cookie, "domain", "") or "").lstrip(".").casefold()
+    raw_domain = getattr(cookie, "domain", "")
+    if not isinstance(raw_domain, str):
+        return None
+    raw_domain = raw_domain.casefold()
+    domain = raw_domain.removeprefix(".")
+    domain_specified = bool(getattr(cookie, "domain_specified", False))
     path = getattr(cookie, "path", None) or "/"
     expires = getattr(cookie, "expires", None)
 
     if not isinstance(name, str) or not name or not isinstance(value, str):
         return None
-    if domain not in ALLOWED_HOSTS:
+    origin = _COOKIE_ORIGINS.get(domain)
+    if origin is None:
+        return None
+    # Parent-domain cookies use a known child HTTPS origin. Host-only cookies
+    # cannot be moved to that child because doing so changes their scope.
+    if not domain_specified and (domain != origin or raw_domain.startswith(".")):
         return None
     if not isinstance(path, str) or not path.startswith("/"):
         path = "/"
@@ -34,9 +47,12 @@ def _cookie_payload(cookie):
     payload = {
         "name": name,
         "value": value,
-        "url": f"https://{domain}{path}",
+        "url": f"https://{origin}{path}",
+        "path": path,
         "secure": bool(getattr(cookie, "secure", False)),
     }
+    if domain_specified:
+        payload["domain"] = raw_domain
     if isinstance(expires, (int, float)):
         payload["expires"] = float(expires)
 

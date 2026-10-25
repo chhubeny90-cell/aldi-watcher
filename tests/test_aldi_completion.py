@@ -160,6 +160,28 @@ def test_sanitized_report_never_exposes_provider_ids():
     assert "secret" not in repr(safe)
 
 
+@pytest.mark.parametrize("status,expected", [
+    ("COMPLETED", "completed"),
+    ("PROCESSING", "processing"),
+    ("PRIVATE_ACCOUNT_DETAIL", None),
+    ("error for 01529999999", None),
+])
+def test_sanitized_report_allowlists_provider_status_text(status, expected):
+    result = evaluate_completion(
+        request_payload=_live_request(),
+        response_payload={"transactionId": "secret-operation", "status": status},
+        http_status=200,
+        account_binding_verified=True,
+        request_was_update_unlimited=True,
+    )
+    safe = result.sanitized()
+    assert safe["provider_status"] == expected
+    assert "private" not in repr(safe).casefold()
+    assert "01529999999" not in repr(safe)
+    if expected is None:
+        assert result.result == "UNKNOWN"
+
+
 def test_balance_sms_banner_and_email_are_diagnostic_only():
     evidence = supporting_evidence(
         volume_delta_gb=1.0,
