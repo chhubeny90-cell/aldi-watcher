@@ -237,6 +237,24 @@ def test_simultaneous_observers_commit_one_message_only(store):
         assert conn.execute('SELECT COUNT(*) FROM deliveries').fetchone()==(1,)
 
 
+def test_lower_uid_from_concurrent_snapshot_is_not_lost(store):
+    from concurrent.futures import ThreadPoolExecutor
+    mailbox = daemon.mailbox_key(KEY, CONFIG)
+    store.register(mailbox)
+    store.attach(mailbox, 10)
+    # Either observer may commit first. Both distinct UIDs require receipts.
+    def record(item):
+        uid, identity = item
+        return SensorStore(store.path, KEY).record(mailbox, 10, uid, identity, 'BLOCKED')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(record, [(2, 'higher'), (1, 'lower')])) == [True, True]
+    assert store.attach(mailbox, 10) == 2
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute('SELECT uid FROM deliveries ORDER BY uid').fetchall() == [(1,), (2,)]
+    assert SensorStore(store.path, KEY).record(mailbox, 10, 1, 'lower', 'BLOCKED') is False
+    assert store.unresolved_candidate_count(mailbox) == 2
+
+
 def test_exponential_backoff_caps_and_resets_after_success(store):
     def offline(*_,**__): raise OSError('unavailable')
     now=NOW;delays=[]
