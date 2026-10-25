@@ -126,6 +126,14 @@ class SensorStore:
             conn.execute('UPDATE mailboxes SET blocked=1 WHERE mailbox=?', (mailbox,))
             conn.commit()
 
+    def unresolved_candidate_count(self, mailbox):
+        """Count durable consumed or oversized observations, without actor authority."""
+        with closing(self.connect()) as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE mailbox=? AND outcome='BLOCKED'",
+                (mailbox,),
+            ).fetchone()[0]
+
     def attach(self, mailbox, epoch):
         epoch = positive_uid(str(epoch))
         with closing(self.connect()) as conn:
