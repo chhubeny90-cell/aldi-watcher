@@ -161,12 +161,16 @@ class SensorStore:
                                (mailbox,epoch,uid)).fetchone()
             if old and old[0] != message:
                 raise SensorBlocked('immutable_uid_content_changed')
-            if uid <= row[1]:
+            # A second observer can have an older UID in its in-flight
+            # snapshot after another process has advanced the high-water mark.
+            # Skip only UIDs with an actual immutable delivery receipt.
+            if old is not None:
                 return False
             new = conn.execute('INSERT OR IGNORE INTO messages VALUES (?,?,?)',
                                (mailbox,message,outcome)).rowcount == 1
             conn.execute('INSERT INTO deliveries VALUES (?,?,?,?)', (mailbox,epoch,uid,message))
-            conn.execute('UPDATE mailboxes SET last_uid=? WHERE mailbox=?', (uid,mailbox))
+            if uid > row[1]:
+                conn.execute('UPDATE mailboxes SET last_uid=? WHERE mailbox=?', (uid,mailbox))
             conn.commit()
             return new
 
