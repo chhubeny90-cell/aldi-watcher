@@ -58,7 +58,7 @@ def _reserve_attempt(now, report):
                     .astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
     report["reservation_status"] = "unconfirmed"
     report["retry_after"] = reserved["auth_retry_after"]
-    _put_state(reserved, sha, message="Reserve one controlled read-only ALDI login")
+    _put_state(reserved, sha, message="Reserve one controlled read-only ALDI login [skip ci]")
     _, current_events, current_journal = consistent_mail_snapshot()
     if (current_journal is None or current_journal[1] != reserved
             or current_events != events):

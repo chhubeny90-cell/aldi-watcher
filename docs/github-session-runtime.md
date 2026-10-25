@@ -84,6 +84,8 @@ Diese Berichte enthalten Zeitpunkte, Phasen, feste Ergebnisgründe und Zähler
 für Anmeldungen und Buchungen. Sie bleiben drei Tage als Actions-Artefakt
 verfügbar; die vollständige Buchungshistorie bleibt im verschlüsselten Journal.
 Unveränderte Sitzungsdaten erzeugen keinen neuen Zustandscommit. Der geschützte
+Zustandsbranch verwendet für Datenaktualisierungen einen CI-Skip-Marker, damit
+Sitzungswechsel nicht die kompletten Code-Testworkflows erneut starten. Der
 Snapshot ist auf 512 KiB begrenzt; bei Erreichen stoppt der Lauf, statt alte
 Buchungsnachweise zu löschen. Dann ist eine kontrollierte Erweiterung oder
 der spätere Umzug auf Linux nötig.

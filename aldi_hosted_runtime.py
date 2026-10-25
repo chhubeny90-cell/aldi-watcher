@@ -45,7 +45,7 @@ def _sync_legacy(db):
     reserved = dict(state, unresolved=_snapshot_unresolved(db.db_path))
     if reserved == state:
         return
-    _put_state(reserved, sha, message='Synchronize encrypted ALDI runtime guard')
+    _put_state(reserved, sha, message='Synchronize encrypted ALDI runtime guard [skip ci]')
     _, current_events, current = consistent_mail_snapshot()
     if current is None or current[1] != reserved or current_events != events:
         raise HostedRuntimeError('legacy_state_unconfirmed')
@@ -60,7 +60,7 @@ def _release_successful_auth(reservation):
         raise HostedRuntimeError('auth_reservation_changed')
     sha, state = journal
     released = dict(state, auth_retry_after=None)
-    _put_state(released, sha, message='Release successful saved ALDI session authentication guard')
+    _put_state(released, sha, message='Release successful saved ALDI session authentication guard [skip ci]')
     _, current_events, current = consistent_mail_snapshot()
     if current is None or current[1] != released or current_events != events:
         raise HostedRuntimeError('auth_release_unconfirmed')

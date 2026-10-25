@@ -219,7 +219,7 @@ class RuntimeState:
                 raise RuntimeStateError("runtime_legacy_state_blocked")
             # The irreversible marker prevents a later missing snapshot from
             # becoming a blank replacement journal, including after failed init.
-            _write_json(MARKER_PATH, _MARKER, None, message="Initialize encrypted ALDI runtime")
+            _write_json(MARKER_PATH, _MARKER, None, message="Initialize encrypted ALDI runtime [skip ci]")
             marker = _read_json(MARKER_PATH)
             if marker is None or marker[1] != _MARKER:
                 raise RuntimeStateError("runtime_state_unconfirmed")
@@ -247,7 +247,7 @@ class RuntimeState:
             if raw == self._confirmed_bytes:
                 return
             envelope = {"version": 1, "ciphertext": self._fernet.encrypt(raw).decode("ascii")}
-            _write_json(STATE_PATH, envelope, self._sha, message="Persist encrypted ALDI runtime")
+            _write_json(STATE_PATH, envelope, self._sha, message="Persist encrypted ALDI runtime [skip ci]")
             current = _read_json(STATE_PATH)
             if current is None or current[1] != envelope:
                 raise RuntimeStateError("runtime_state_unconfirmed")

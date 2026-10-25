@@ -70,6 +70,8 @@ def test_initialization_marker_precedes_encrypted_snapshot(storage):
     assert state.cookies == []
     assert state.refill_accepted is False
     assert state.first_refill_authorized is False
+    assert all('[skip ci]' in call.kwargs['message']
+               for call in storage.write_mock.call_args_list)
     assert storage.path.stat().st_mode & 0o777 == 0o600
     envelope = storage.remote[runtime.STATE_PATH][1]
     assert set(envelope) == {"version", "ciphertext"}
