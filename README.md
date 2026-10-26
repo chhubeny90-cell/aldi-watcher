@@ -4,16 +4,12 @@
 
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
-## Aktueller Prüfstand vom 17. Oktober 2026
+## Prüfstand vom 26. Oktober 2026
 
-**Der vollständige Nachbuchungsablauf ist nicht betriebsbereit.** Auf main
-`481b0a9` meldet der Mail-Monitor weiterhin `no_mailboxes_configured`; auch der
-HMAC-Schlüssel ist in diesem Lauf nicht gesetzt. Die letzte Passwort-Diagnose
-vom 16.10. erhielt keine Sitzung. Der offizielle Abschlussdetektor fehlt, sodass
-neue Buchungen im vorhandenen Code `UNKNOWN` bleiben würden.
+**Keine automatisierte ALDI-Konto-Prüfung oder Nachbuchung.** Die aktuellen AGB untersagen nicht autorisierte Skripte und Bots im Zugriff auf Vertragssysteme. Die GitHub-Workflows für ALDI-Login, Diagnose und Refill sind deshalb deaktiviert. Der Mailmonitor erkennt nur Nachrichten und startet keine Provider-Aktion.
 
-Alle sechs Schritte mit aktuellen Laufquellen und offenen Voraussetzungen:
-[Betriebsprüfung 17.10.2026](docs/operations-audit-2026-10-17.md).
+Ein sicherer Konto-Live-Test ist nur manuell in der offiziellen ALDI-TALK-App oder im Kundenportal vorgesehen. Tarif, Restvolumen, exakte 1-GB-Option und 0,00 € müssen im richtigen Konto sichtbar geprüft werden. Details: [Sichere manuelle ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md).
+
 
 ## Historischer Prüfstand vom 14. Oktober 2026
 
@@ -77,12 +73,8 @@ cd aldi-watcher
 pip install -r requirements.txt
 playwright install chromium
 
-# 2. Config
-cp .env.example .env
-# .env bearbeiten: ALDI_USER, ALDI_PASS, LIDL_USER, LIDL_PASS
-
-# 3. Test (DRY_RUN=true!)
-python main.py
+# 2. Für ALDI keine automatisierten Zugangsdaten hinterlegen oder Portalzugriffe starten.
+# 3. ALDI-Konto nur manuell nach docs/aldi-safe-manual-live-check.md prüfen.
 ```
 
 ## Features
@@ -118,20 +110,7 @@ playwright install chromium
    cp .env.example .env
    ```
 
-2. `.env` bearbeiten:
-   ```env
-   ALDI_USER=your-aldi-username
-   ALDI_PASS=your-aldi-password
-   THRESHOLD_ALDI_MB=500
-   
-   LIDL_USER=your-lidl-username
-   LIDL_PASS=your-lidl-password
-   THRESHOLD_LIDL_MB=500
-   
-   DRY_RUN=true
-   POLL_INTERVAL_SECONDS=3600
-   DB_PATH=aldi_watcher.db
-   ```
+2. `.env` nur für ausdrücklich gewünschte, zulässige lokale Providerfunktionen bearbeiten. ALDI-Kundenzugangsdaten nicht für automatisierte Portalzugriffe eintragen; dafür liegt keine Anbieterfreigabe vor. Siehe [manuelle ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md).
 
 3. Credentials verschlüsseln, Schlüssel separat speichern:
    ```bash
@@ -143,15 +122,9 @@ playwright install chromium
    den Schlüssel in `CREDENTIAL_ENCRYPTION_KEY`. Schlüssel niemals committen.
    Details und offene Live-Gates: [Geschützte Konfiguration](docs/protected-configuration.md).
 
-## Usage
+## ALDI-Nutzung
 
-```bash
-# Einmaliger Read-only-Durchlauf
-AUTO_BOOK_ENABLED=false python watcher.py --run-once
-
-# Dauerbetrieb (mit Polling)
-python main.py
-```
+Die allgemeinen CLI-Beispiele `watcher.py` und `main.py` sind keine freigegebenen ALDI-Live-Testwege. Für ALDI kein automatisiertes Login, Status-Polling oder Buchen starten. Die aktuelle manuelle Prüfanleitung steht unter [Sichere ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md).
 
 ### ALDI-Kundenkonto
 
