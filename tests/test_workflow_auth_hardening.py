@@ -76,35 +76,23 @@ def test_disabled_workflows_have_no_provider_credentials_or_browser_runtime():
         assert "browser-actions/setup-chrome" not in text
 
 
-def test_login_diagnostics_default_to_public_controls_without_push_trigger():
+def test_login_diagnostics_workflow_is_disabled_without_provider_access():
     text = _workflow("login-format.yml")
-    triggers = text.split("\npermissions:", 1)[0]
-    assert "  push:" not in triggers
-    assert "        required: true" in triggers
-    assert "        type: choice" in triggers
-    assert "        default: public_controls" in triggers
-    public_job = text.split("\n  public_controls:\n", 1)[1]
-    assert "secrets." not in public_job
-    assert "python aldi_public_login_controls.py" in public_job
+    assert "ALDI Login Format Diagnostics (disabled)" in text
+    assert "  workflow_dispatch:" in text
+    assert "  push:" not in text
+    assert "permissions:\n  contents: none" in text
+    assert "jobs:\n  blocked:" in text
+    assert "ALDI provider automation is disabled" in text
+    assert "python aldi_public_login_controls.py" not in text
+    assert "secrets." not in text
 
 
-def test_manual_diagnostic_selection_never_fans_out_into_other_jobs():
+def test_disabled_login_diagnostics_cannot_fan_out_into_provider_jobs():
     text = _workflow("login-format.yml")
-    options = re.findall(r"^          - (\w+)$", text, re.MULTILINE)
-    jobs = re.findall(r"^  (\w+):\n    if: (.+)$", text, re.MULTILINE)
-    assert len(options) == len(jobs) == 7
-    assert set(options) == {name for name, _ in jobs}
-    # Evaluate the restricted conditions for each UI choice and an invalid input.
-    # An unconditional dispatch condition would start every sensitive probe.
-    for event in ("workflow_dispatch", "push"):
-        for selected in [*options, "", "invalid"]:
-            active = []
-            for name, condition in jobs:
-                expression = condition.replace("github.event_name", repr(event))
-                expression = expression.replace("inputs.diagnostic", repr(selected))
-                expression = expression.replace("&&", " and ").replace("||", " or ")
-                assert re.fullmatch(r"[\w\s'!=()]+", expression)
-                if eval(expression, {"__builtins__": {}}, {}):
-                    active.append(name)
-            expected = [selected] if event == "workflow_dispatch" and selected in options else []
-            assert active == expected
+    assert "inputs:" not in text
+    assert "actions/checkout" not in text
+    assert "setup-chrome" not in text
+    assert "ALDI_PASS" not in text
+    assert "ALDI_USER" not in text
+    assert "github_live_refill" not in text
