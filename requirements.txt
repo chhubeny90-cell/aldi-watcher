@@ -9,7 +9,7 @@ playwright>=1.40.0
 
 # Testing
 pytest>=8.0.0
-pytest-asyncio>=0.23.0
+pytest-asyncio>=1.4.0
 
 # Type hints (optional)
 typing-extensions>=4.9.0
