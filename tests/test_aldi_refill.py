@@ -70,6 +70,84 @@ def test_verified_tariff_can_use_official_free_entitlement_without_local_price()
     assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
+@pytest.mark.parametrize('wallet', [
+    'Guthaben 0,01 €',
+    'Kontostand: 0,00 EUR',
+    'Prepaid-Guthaben 14,95 €',
+])
+def test_labelled_prepaid_wallet_balance_does_not_count_as_refill_price(wallet):
+    result = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen kostenlos nachbuchen 0,00 €')
+    assert result['refill_eligible'] is True
+    assert result['free_evidence'] == 'explicit_free_offer'
+
+    unpriced = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen nachbuchen')
+    assert unpriced['refill_eligible'] is True
+    assert unpriced['free_evidence'] == 'official_unlimited_entitlement'
+
+
+def test_page_prepaid_balance_is_independent_of_free_refill_eligibility():
+    result = eligible(page_text='Guthaben 0,01 €\nALDI TALK Tarif S Unlimited')
+    assert result['refill_eligible'] is True
+
+
+def test_paid_refill_stays_blocked_even_if_wallet_balance_is_labelled():
+    result = eligible(offer_text='Guthaben 0,01 €\n1 GB Datenvolumen nachbuchen 0,99 €')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+@pytest.mark.parametrize('offer', [
+    '1 GB Datenvolumen nachbuchen; vom Guthaben 0,99 € abziehen',
+    '1 GB Datenvolumen nachbuchen\nAbbuchung vom Guthaben 0,99 €',
+    '1 GB Datenvolumen nachbuchen\nGuthaben 0,99 € wird abgezogen',
+])
+def test_wallet_deduction_is_a_paid_refill_price(offer):
+    result = eligible(offer_text=offer)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_unlabelled_amount_must_not_be_mistaken_for_wallet_balance():
+    result = eligible(offer_text='0,01 € 1 GB Datenvolumen nachbuchen 0,00 €')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_annual_tariff_remains_blocked_even_with_low_wallet_balance():
+    result = eligible(
+        page_text='Guthaben 0,01 €',
+        active_tariff_text='Jahres-Paket S',
+        offer_text='Guthaben 0,01 € 1 GB kostenlos nachbuchen 0,00 €',
+    )
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'active_tariff_unverified'
+
+
+@pytest.mark.parametrize('candidate_count', [
+    True, False, 1.0, 1.5, '1', None, -1, [], {},
+])
+def test_invalid_candidate_counts_fail_closed_without_conversion(candidate_count):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_candidate_count_unverified'
+    assert result['refill_candidate_count'] == 0
+
+
+@pytest.mark.parametrize(('candidate_count', 'expected'), [
+    (0, 0), (2, 2), (3, 3),
+])
+def test_non_single_integer_candidate_counts_remain_ambiguous(candidate_count, expected):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_control_ambiguous'
+    assert result['refill_candidate_count'] == expected
+
+
+def test_exact_one_integer_candidate_is_still_eligible():
+    result = eligible(candidate_count=1)
+    assert result['refill_eligible'] is True
+    assert result['refill_candidate_count'] == 1
+
+
 def test_multiple_candidate_controls_are_rejected():
     result = eligible(candidate_count=2)
     assert result['refill_eligible'] is False
