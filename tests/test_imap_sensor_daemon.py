@@ -303,3 +303,28 @@ def test_backup_cli_never_needs_network_opt_in(store,monkeypatch,capsys):
     assert daemon.main(['--ledger',str(store.path),'--verify-backup'])==0
     assert json.loads(capsys.readouterr().out)['sensor_local_backup_verified'] is True
     assert FakeImap.logins==0
+
+
+def test_dual_monitor_advisory_survives_sensor_restart_without_dispatch(store):
+    first = run(store)
+    first_hint = first["dual_monitor_advisory"]
+    assert first_hint["state"] == "VERIFICATION_REQUIRED"
+    assert first_hint["unverified_mail_candidate"] is True
+    assert first_hint["account_read_due_now"] is False
+    assert first_hint["booking_authorized"] is False
+
+    restarted = SensorStore(store.path, KEY)
+    second = run(restarted, now=NOW + 60)
+    assert second["mailboxes"][0]["unresolved_candidates"] == 1
+    hint = second["dual_monitor_advisory"]
+    assert hint["state"] == "VERIFICATION_REQUIRED"
+    assert hint["account_poll_seconds"] is None
+    assert hint["booking_authorized"] is False
+
+
+def test_dual_monitor_advisory_for_clean_warning_does_not_open_provider(store):
+    FakeImap.messages = {1: message(signal='warning')}
+    result = run(store)
+    assert result["dual_monitor_advisory"]["state"] == "VERIFICATION_REQUIRED"
+    assert result["dual_monitor_advisory"]["account_read_due_now"] is False
+    assert result["provider_action"] is False
