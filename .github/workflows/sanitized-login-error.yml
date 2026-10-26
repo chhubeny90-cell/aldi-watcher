@@ -1,52 +1,24 @@
-name: ALDI Sanitized Login Error
+name: ALDI Sanitized Login Error Probe (disabled)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: none
 
 jobs:
-  sanitized_error:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[error-text-probe]'))
+  blocked:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install Chrome
-        id: chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
-          install-chromedriver: true
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run one sanitized frontend login diagnostic
-        env:
-          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
-          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_LOGIN_USER: ${{ secrets.ALDI_PROFILE_1_LOGIN_USER || secrets.ALDI_LOGIN_USER }}
-          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER || secrets.ALDI_USER }}
-          ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
-          ALDI_LOGIN_USER_ENC: ${{ secrets.ALDI_LOGIN_USER_ENC }}
-          ALDI_USER_ENC: ${{ secrets.ALDI_USER_ENC }}
-          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          ALDI_PASSWORD_POINTER_REPORT: aldi-sanitized-login-error.json
-        run: python aldi_sanitized_error_probe.py
-      - name: Preserve sanitized report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aldi-sanitized-login-error-${{ github.run_id }}-${{ github.run_attempt }}
-          path: aldi-sanitized-login-error.json
-          retention-days: 1
-          if-no-files-found: warn
+      - name: Explain why no provider request is made
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## BLOCKED — kein ALDI-Kontakt
+
+          Diese Diagnose würde einen skriptgesteuerten Login gegen den Anbieter ausführen und bleibt deaktiviert.
+
+          Dieser Workflow führt weder Anmeldung noch Statusabfrage, Reset, Buchung oder Wiederholung aus. Nutze für eine Konto-Prüfung ausschließlich die offizielle ALDI-TALK-App oder das Portal manuell.
+          EOF
+          echo "::error::ALDI provider automation is disabled; no provider request was made."
+          exit 2
