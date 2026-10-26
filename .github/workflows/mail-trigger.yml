@@ -69,6 +69,11 @@ jobs:
           failures = report.get('failed_mailboxes') or []
           if config_error:
               print('::error title=ALDI mail monitor::Monitor configuration incomplete: ' + str(config_error))
+              for diagnostic in report.get('mailbox_connectivity') or []:
+                  stage = diagnostic.get('error_stage')
+                  error = diagnostic.get('error')
+                  if stage and error:
+                      print(f"::error title=ALDI mailbox diagnostic::mailbox {diagnostic.get('mailbox')}: {stage}/{error}")
               raise SystemExit(2)
           if failures:
               print('::error title=ALDI mail monitor::One or more mailboxes could not be checked.')
