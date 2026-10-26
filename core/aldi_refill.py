@@ -76,7 +76,20 @@ def _exact_one_gb(text):
 
 
 def _price_state(text):
-    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text."""
+    """Return FREE, PAID, ABSENT, or UNVERIFIED for the local offer text.
+
+    Wallet balance is not a refill charge. An ancestor DOM container may contain
+    both the 1-GB offer and a clearly labelled prepaid balance; ignore only that
+    labelled balance amount. Unlabelled/malformed amounts and actual offer prices
+    are still checked fail-closed.
+    """
+    # Ignore only a standalone wallet-field line. A phrase such as
+    # "vom Guthaben 0,99 € abziehen" is a charge and must remain visible.
+    text = re.sub(
+        r"(?im)^[ \t]*(?:Prepaid[ -])?(?:Guthaben|Kontostand)\s*:?\s*"
+        r"\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)[ \t]*$",
+        "", text,
+    )
     if re.search(r"[+\-−]\s*\d[\d.,]*\s*(?:€|EUR\b)", text, re.I):
         return "UNVERIFIED"
     prices = re.findall(r"(?<![\w.,+\-])([+\-]?[\d][\d.,]*)\s*(?:€|EUR\b)", text, re.I)
@@ -119,7 +132,7 @@ def _selected_account(driver, expected_account):
     domains = {host, host.removeprefix('www.')}
     cookies = [cookie.get('value') for cookie in driver.get_cookies()
                if cookie.get('name') == 'lgrs_id'
-               and str(cookie.get('domain', '')).lstrip('.') in domains]
+               and str(cookie.get('domain', '')).casefold().removeprefix('.') in domains]
     if not cookies or any(not isinstance(value, str) or len(value) > 256 for value in cookies):
         raise RuntimeError('account_cookie_unverified')
     if len(set(cookies)) != 1:
@@ -127,7 +140,12 @@ def _selected_account(driver, expected_account):
     try:
         encoded = cookies[0] + '=' * (-len(cookies[0]) % 4)
         decoded = base64.b64decode(encoded, validate=True).decode('utf-8')
-        if phone_identifier(decoded) != expected:
+        # The portal also encodes international digits without a leading '+'.
+        # Compare canonically, but retain the provider's identifier for its GET.
+        comparison = decoded
+        if re.fullmatch(r'49[1-9]\d{8,12}', comparison):
+            comparison = '0' + comparison[2:]
+        if phone_identifier(comparison) != expected:
             raise RuntimeError('account_mismatch')
     except (ValueError, UnicodeDecodeError, LoginError):
         raise RuntimeError('account_cookie_unverified') from None
@@ -197,7 +215,11 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
                   active_tariff_text=None):
     tariff_text = page_text if active_tariff_text is None else active_tariff_text
     tariff_text = tariff_text or ""
-    offer_text = _normalise(offer_text)
+    # Preserve line boundaries so only a standalone wallet display can be
+    # excluded from price evaluation; flattening would blur it into offer text.
+    offer_text = "\n".join(
+        _normalise(line) for line in (offer_text or "").splitlines() if line.strip()
+    )
     button_text = _normalise(button_text)
 
     if isinstance(remaining_gb, bool) or not isinstance(remaining_gb, (int, float)):
@@ -211,9 +233,13 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     if tariff is None:
         return unavailable("active_tariff_unverified")
 
+    # bool is an int subclass in Python: True == 1. Only a genuine,
+    # non-negative integer from the observed DOM count may authorize a refill.
+    if type(candidate_count) is not int or candidate_count < 0:
+        return unavailable("refill_candidate_count_unverified")
     if candidate_count != 1:
         result = unavailable("refill_control_ambiguous")
-        result["refill_candidate_count"] = int(candidate_count)
+        result["refill_candidate_count"] = candidate_count
         return result
     if not _exact_one_gb(offer_text):
         return unavailable("not_exactly_one_gb")
@@ -225,7 +251,13 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     free_evidence = _free_offer_evidence(offer_text, tariff)
     if free_evidence is None:
         return unavailable("price_unverified_or_paid")
-    if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
+    if re.search(
+            r"\b(?:kostenpflichtig\w*|monatlich\w*|abo\w*"
+            r"|automatisch\w*\s+verl(?:ä|ae)ngerung\w*"
+            r"|tarif[\s-]*(?:wechsel|änderung|aenderung|umstellung)\w*"
+            r"|vertrags?[\s-]*(?:verlängerung|verlaengerung|änderung|aenderung|wechsel)\w*"
+            r"|mindest[\s-]*laufzeit\w*|folge[\s-]*kosten\w*)\b",
+            f"{offer_text}\n{button_text}", re.I):
         return unavailable("conflicting_terms")
     if not re.search(
             r"\b(?:nachbuchen|buchen|weiter|bestätigen|bestaetigen)\b"

@@ -215,6 +215,8 @@ class AldiHttpLogin:
         return result
 
     def login(self, phone, password):
+        self.report.update(login_ok=False, account_match=False)
+        self.report.pop("subscription_count", None)
         phone = phone_identifier(phone)
         if not password:
             raise LoginError("password_missing")
@@ -241,7 +243,15 @@ class AldiHttpLogin:
             raise LoginError("authentication_not_completed")
         self.report["phase"] = "oauth_redirects"
         self._get(urljoin(AUTH_BASE, success_url))
+        return self.verify_session(phone)
+
+    def verify_session(self, phone):
+        """Verify existing cookies with protected GETs, without submitting credentials."""
+        self.report.update(login_ok=False, account_match=False, phase="session_verification")
+        self.report.pop("subscription_count", None)
+        phone = phone_identifier(phone)
         response = self._get(OVERVIEW)
+        trusted_url(response.url)
         if urlsplit(response.url).hostname != urlsplit(PORTAL_BASE).hostname:
             raise LoginError("portal_session_unverified")
         self.report["phase"] = "account_verification"

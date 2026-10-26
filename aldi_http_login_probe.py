@@ -1,4 +1,4 @@
-"""One manually cleared, durably reserved login; no booking or retry."""
+"""One manually started, durably reserved login; no booking or retry."""
 import json
 import os
 import re
@@ -11,7 +11,7 @@ from github_journal_state import consistent_mail_snapshot, _put_state
 
 
 def _credentials():
-    """Reject reruns, unconfirmed recovery and an ambiguous SIM before any I/O."""
+    """Reject reruns and an ambiguous SIM before any provider or state I/O."""
     if (os.environ.get("GITHUB_REPOSITORY") != "chhubeny90-cell/aldi-watcher"
             or os.environ.get("GITHUB_REF") != "refs/heads/main"
             or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
@@ -21,8 +21,6 @@ def _credentials():
         raise LoginError("controlled_dispatch_required")
     if os.environ.get("AUTO_BOOK_ENABLED") != "false":
         raise LoginError("read_only_required")
-    if os.environ.get("ALDI_MANUAL_LOGIN_VERIFIED") != "true":
-        raise LoginError("manual_login_verification_required")
     expected = os.environ.get("ALDI_EXPECTED_ACCOUNT")
     if not expected:
         raise LoginError("expected_account_required")
@@ -54,11 +52,13 @@ def _reserve_attempt(now, report):
     if retry_text is not None:
         retry = datetime.fromisoformat(retry_text.replace("Z", "+00:00"))
         if now < retry:
+            report["retry_after"] = retry.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
             raise LoginError("auth_backoff_active")
     reserved = dict(state, auth_retry_after=(now + timedelta(hours=24))
                     .astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
     report["reservation_status"] = "unconfirmed"
-    _put_state(reserved, sha, message="Reserve one controlled read-only ALDI login")
+    report["retry_after"] = reserved["auth_retry_after"]
+    _put_state(reserved, sha, message="Reserve one controlled read-only ALDI login [skip ci]")
     _, current_events, current_journal = consistent_mail_snapshot()
     if (current_journal is None or current_journal[1] != reserved
             or current_events != events):

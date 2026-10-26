@@ -86,6 +86,12 @@ def _valid_remaining(value):
             and value >= 0)
 
 
+def _explicit_zero_price_offer(evidence):
+    """Live actions require an explicit free price, not tariff entitlement alone."""
+    return (evidence.get('refill_eligible') is True
+            and evidence.get('free_evidence') == 'explicit_free_offer')
+
+
 def _safe_status(driver):
     # Never wait for a refill offer while establishing the current allowance.
     status = watcher.aldi_read_status(driver, include_refill=False)
@@ -221,16 +227,17 @@ def main():
             return 3
 
         account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
-        # Deployment guard runs before opening the journal or starting a browser.
-        target_suffix = os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', '')
-        if target_suffix:
-            from core.aldi_target import require_refill_target
-            try:
-                require_refill_target(account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
-                                      target_suffix)
-            except ValueError as exc:
-                report['outcome'] = str(exc)
-                return 2
+        # Fail closed: missing target configuration is not an opt-out.
+        # Validate the account before opening the journal or browser.
+        from core.aldi_target import require_refill_target
+        try:
+            require_refill_target(
+                account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
+                os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', ''),
+            )
+        except ValueError as exc:
+            report['outcome'] = str(exc)
+            return 2
         db = open_live_journal()
         try:
             unresolved = _unresolved_aldi(db, account)
@@ -313,9 +320,12 @@ def main():
             report["cycles"].append(cycle)
             _write(report)
 
-            if not evidence.get("refill_eligible") or control is None:
+            if evidence.get("refill_eligible") is not True or control is None:
                 report["outcome"] = "free_refill_unavailable"
                 return 0
+            if not _explicit_zero_price_offer(evidence):
+                report['outcome'] = 'zero_price_unverified'
+                return 2
 
             action = _action_kind(driver, control)
             if action != "book":
@@ -330,6 +340,10 @@ def main():
                 report['outcome'] = 'identity_changed_before_click'
                 return 2
             current_evidence, current_control = locate_selenium(driver, before)
+            if (current_evidence.get('refill_eligible') is True
+                    and not _explicit_zero_price_offer(current_evidence)):
+                report['outcome'] = 'zero_price_unverified'
+                return 2
             if (current_evidence.get('refill_eligible') is not True
                     or current_control is None
                     or _action_kind(driver, current_control) != 'book'
@@ -366,13 +380,20 @@ def main():
             # page and the control is clearly a confirmation control.
             try:
                 confirm_evidence, confirm_control = locate_selenium(driver, before)
-                if confirm_evidence.get("refill_eligible") and confirm_control is not None:
+                if confirm_evidence.get("refill_eligible") is True and confirm_control is not None:
                     if _action_kind(driver, confirm_control) == "confirm":
+                        if not _explicit_zero_price_offer(confirm_evidence):
+                            report['outcome'] = 'zero_price_unverified'
+                            return 2
                         if _identity_proof(driver, account) != binding:
                             raise RuntimeError('identity_changed_before_confirmation')
                         # The account GET can outlive a DOM re-render or price
                         # change. Reacquire and reprice the confirmation afterwards.
                         fresh_evidence, fresh_control = locate_selenium(driver, before)
+                        if (fresh_evidence.get('refill_eligible') is True
+                                and not _explicit_zero_price_offer(fresh_evidence)):
+                            report['outcome'] = 'zero_price_unverified'
+                            return 2
                         if (fresh_evidence.get('refill_eligible') is not True
                                 or fresh_control is None
                                 or _action_kind(driver, fresh_control) != 'confirm'

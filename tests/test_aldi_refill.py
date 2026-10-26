@@ -1,5 +1,6 @@
 import base64
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -70,6 +71,84 @@ def test_verified_tariff_can_use_official_free_entitlement_without_local_price()
     assert result['free_evidence'] == 'official_unlimited_entitlement'
 
 
+@pytest.mark.parametrize('wallet', [
+    'Guthaben 0,01 €',
+    'Kontostand: 0,00 EUR',
+    'Prepaid-Guthaben 14,95 €',
+])
+def test_labelled_prepaid_wallet_balance_does_not_count_as_refill_price(wallet):
+    result = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen kostenlos nachbuchen 0,00 €')
+    assert result['refill_eligible'] is True
+    assert result['free_evidence'] == 'explicit_free_offer'
+
+    unpriced = eligible(offer_text=f'{wallet}\n1 GB Datenvolumen nachbuchen')
+    assert unpriced['refill_eligible'] is True
+    assert unpriced['free_evidence'] == 'official_unlimited_entitlement'
+
+
+def test_page_prepaid_balance_is_independent_of_free_refill_eligibility():
+    result = eligible(page_text='Guthaben 0,01 €\nALDI TALK Tarif S Unlimited')
+    assert result['refill_eligible'] is True
+
+
+def test_paid_refill_stays_blocked_even_if_wallet_balance_is_labelled():
+    result = eligible(offer_text='Guthaben 0,01 €\n1 GB Datenvolumen nachbuchen 0,99 €')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+@pytest.mark.parametrize('offer', [
+    '1 GB Datenvolumen nachbuchen; vom Guthaben 0,99 € abziehen',
+    '1 GB Datenvolumen nachbuchen\nAbbuchung vom Guthaben 0,99 €',
+    '1 GB Datenvolumen nachbuchen\nGuthaben 0,99 € wird abgezogen',
+])
+def test_wallet_deduction_is_a_paid_refill_price(offer):
+    result = eligible(offer_text=offer)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_unlabelled_amount_must_not_be_mistaken_for_wallet_balance():
+    result = eligible(offer_text='0,01 € 1 GB Datenvolumen nachbuchen 0,00 €')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
+
+
+def test_annual_tariff_remains_blocked_even_with_low_wallet_balance():
+    result = eligible(
+        page_text='Guthaben 0,01 €',
+        active_tariff_text='Jahres-Paket S',
+        offer_text='Guthaben 0,01 € 1 GB kostenlos nachbuchen 0,00 €',
+    )
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'active_tariff_unverified'
+
+
+@pytest.mark.parametrize('candidate_count', [
+    True, False, 1.0, 1.5, '1', None, -1, [], {},
+])
+def test_invalid_candidate_counts_fail_closed_without_conversion(candidate_count):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_candidate_count_unverified'
+    assert result['refill_candidate_count'] == 0
+
+
+@pytest.mark.parametrize(('candidate_count', 'expected'), [
+    (0, 0), (2, 2), (3, 3),
+])
+def test_non_single_integer_candidate_counts_remain_ambiguous(candidate_count, expected):
+    result = eligible(candidate_count=candidate_count)
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'refill_control_ambiguous'
+    assert result['refill_candidate_count'] == expected
+
+
+def test_exact_one_integer_candidate_is_still_eligible():
+    result = eligible(candidate_count=1)
+    assert result['refill_eligible'] is True
+    assert result['refill_candidate_count'] == 1
+
+
 def test_multiple_candidate_controls_are_rejected():
     result = eligible(candidate_count=2)
     assert result['refill_eligible'] is False
@@ -97,6 +176,29 @@ def test_disabled_button_is_rejected():
 
 def test_conflicting_terms_are_rejected_even_with_zero_price():
     result = eligible(offer_text='1 GB Highspeed-Datenvolumen kostenlos nachbuchen 0,00 € monatlich')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'conflicting_terms'
+
+
+@pytest.mark.parametrize('terms', [
+    'kostenpflichtiger Zusatz', 'kostenpflichtige Option', 'monatlicher Preis',
+    'Abonnement', 'automatische Verlängerung', 'automatischen Verlaengerung',
+    'Tarifwechsel', 'Tarif-Wechsel', 'Tarifänderung', 'Tarifaenderung',
+    'Tarifumstellung', 'Vertragsverlängerung', 'Vertrags-Verlaengerung',
+    'Vertragsänderung', 'Vertragswechsel', 'Mindestlaufzeit', 'Mindest-Laufzeit',
+    'Folgekosten', 'Folge-Kosten', 'keine Folgekosten',
+])
+def test_contract_or_followup_cost_terms_block_explicit_zero_priced_offer(terms):
+    result = eligible(offer_text=f'1 GB kostenlos nachbuchen 0,00 € {terms}')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'conflicting_terms'
+
+
+@pytest.mark.parametrize('terms', [
+    'Tarifwechsel', 'Vertragsverlängerung', 'Mindestlaufzeit', 'Folgekosten',
+])
+def test_contract_terms_in_button_are_rejected_with_zero_priced_offer(terms):
+    result = eligible(button_text=f'1 GB buchen mit {terms}')
     assert result['refill_eligible'] is False
     assert result['refill_reason'] == 'conflicting_terms'
 
@@ -243,6 +345,57 @@ def account_driver(phone=PHONE, subscriptions=None):
         'subscriptions': [{'contractId': 'private-test-contract'}] if subscriptions is None else subscriptions,
     }
     return driver
+
+
+@pytest.mark.parametrize('cookie_account', [
+    PHONE, '+49' + PHONE[1:], '0049' + PHONE[1:], '49' + PHONE[1:],
+])
+def test_account_cookie_formats_verify_same_sim_and_preserve_provider_query(cookie_account):
+    driver = account_driver(cookie_account)
+    signature = verify_account_selenium(driver, PHONE)
+    assert signature == verify_account_selenium(account_driver(PHONE), PHONE)
+    _, url, _ = driver.execute_async_script.call_args.args
+    assert parse_qs(urlsplit(url).query) == {'msisdn': [cookie_account]}
+    assert cookie_account not in signature
+
+
+def test_international_digits_cookie_for_other_sim_is_rejected_before_request():
+    driver = account_driver('491500000001')
+    with pytest.raises(RuntimeError, match='^account_mismatch$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
+
+
+@pytest.mark.parametrize('cookie_account', [
+    '4901500000000', '491234567', '4912345678901234', '49PRIVATE_ACCOUNT',
+])
+def test_invalid_international_digits_cookie_is_not_guessed(cookie_account):
+    driver = account_driver(cookie_account)
+    with pytest.raises(RuntimeError, match='^account_cookie_unverified$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
+
+
+@pytest.mark.parametrize('domain', [
+    'alditalk-kundenportal.de', '.alditalk-kundenportal.de',
+    'www.alditalk-kundenportal.de', '.ALDITALK-KUNDENPORTAL.DE',
+])
+def test_selected_account_cookie_accepts_only_known_portal_domains(domain):
+    driver = account_driver('49' + PHONE[1:])
+    driver.get_cookies.return_value[0]['domain'] = domain
+    assert verify_account_selenium(driver, PHONE)
+
+
+@pytest.mark.parametrize('domain', [
+    '..alditalk-kundenportal.de', '.alditalk-kundenportal.de.attacker.invalid',
+    'attacker.alditalk-kundenportal.de', '.kundenportal.de',
+])
+def test_untrusted_selected_account_cookie_domain_is_rejected(domain):
+    driver = account_driver('49' + PHONE[1:])
+    driver.get_cookies.return_value[0]['domain'] = domain
+    with pytest.raises(RuntimeError, match='^account_cookie_unverified$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
 
 
 def test_account_guard_uses_bounded_read_only_same_session_request_and_private_signature():

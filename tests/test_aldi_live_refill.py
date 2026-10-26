@@ -13,6 +13,7 @@ def _eligible(control):
         'refill_reason': 'free_one_gb_button_available',
         'refill_candidate_count': 1,
         'tariff_evidence': 'TARIF_S',
+        'free_evidence': 'explicit_free_offer',
     }, control)
 
 
@@ -35,6 +36,8 @@ def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
     monkeypatch.setattr(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000')
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', '01500000000')
+    monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', '0000')
     monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
     monkeypatch.setattr(live, 'CLICK_SETTLE_SECONDS', 0)
     monkeypatch.setattr(live.time, 'sleep', lambda *_: None)
@@ -92,6 +95,47 @@ def test_paid_or_ambiguous_offer_never_clicks(monkeypatch, tmp_path):
 
     assert live.main() == 0
     driver.execute_script.assert_not_called()
+
+
+@pytest.mark.parametrize('stage', ['initial', 'recheck'])
+@pytest.mark.parametrize('free_evidence', [None, 'official_unlimited_entitlement', 'unverified'])
+def test_live_booking_requires_explicit_free_price_at_each_offer_read(
+        monkeypatch, tmp_path, stage, free_evidence):
+    control = Mock()
+    _setup(monkeypatch, tmp_path, [0.2], [])
+    evidence, _ = _eligible(control)
+    if free_evidence is None:
+        evidence.pop('free_evidence')
+    else:
+        evidence['free_evidence'] = free_evidence
+    offers = [(evidence, control)]
+    if stage == 'recheck':
+        offers.insert(0, _eligible(control))
+    monkeypatch.setattr(live, 'locate_selenium', Mock(side_effect=offers))
+    monkeypatch.setattr(live, '_action_kind', lambda *_: 'book')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+
+    assert live.main() == 2
+    click.assert_not_called()
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['outcome'] == 'zero_price_unverified'
+    assert report['booking_clicks'] == 0
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
+
+
+@pytest.mark.parametrize('eligible', ['true', 1])
+def test_truthy_eligibility_is_not_a_verified_offer(monkeypatch, tmp_path, eligible):
+    control = Mock()
+    evidence, _ = _eligible(control)
+    evidence['refill_eligible'] = eligible
+    _setup(monkeypatch, tmp_path, [0.2], [(evidence, control)])
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+
+    assert live.main() == 0
+    click.assert_not_called()
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges() == []
 
 
 @pytest.mark.parametrize('after', [0.2, 0.8, 1.2, 2.2])
@@ -333,6 +377,8 @@ def _live_crash_worker(db_path, calls_path, before_click=False, crash=True, star
         stack.enter_context(patch.dict(os.environ, {
             'AUTO_BOOK_ENABLED': 'true', 'ALDI_JOURNAL_PATH': db_path,
             'GITHUB_ACTIONS': 'false',
+            'ALDI_EXPECTED_ACCOUNT': '01500000000',
+            'ALDI_REQUIRED_TARGET_SUFFIX': '0000',
         }))
         stack.enter_context(patch.object(live, 'REPORT_PATH', db_path + '.' + str(os.getpid()) + '.json'))
         stack.enter_context(patch.object(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000'))
@@ -539,6 +585,53 @@ def test_confirmation_is_repriced_after_awaited_account_check(monkeypatch, tmp_p
     report = json.loads((tmp_path / 'report.json').read_text())
     assert report['confirmation_clicks'] == 0
     assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('stage', ['initial', 'recheck'])
+@pytest.mark.parametrize('free_evidence', [None, 'official_unlimited_entitlement'])
+def test_confirmation_losing_explicit_free_price_is_never_clicked(
+        monkeypatch, tmp_path, stage, free_evidence):
+    book, confirm = Mock(), Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2], [])
+    evidence, _ = _eligible(confirm)
+    if free_evidence is None:
+        evidence.pop('free_evidence')
+    else:
+        evidence['free_evidence'] = free_evidence
+    confirmations = [(evidence, confirm)]
+    if stage == 'recheck':
+        confirmations.insert(0, _eligible(confirm))
+    monkeypatch.setattr(live, 'locate_selenium', Mock(side_effect=[
+        _eligible(book), _eligible(book), *confirmations,
+    ]))
+    monkeypatch.setattr(live, '_action_kind', lambda _, control: 'book' if control is book else 'confirm')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+
+    assert live.main() == 2
+    click.assert_called_once_with(driver, book)
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['outcome'] == 'zero_price_unverified'
+    assert report['confirmation_clicks'] == 0
+    assert report['successful_refills'] == 0
+    assert Database(str(tmp_path / 'journal.sqlite')).get_unresolved_recharges()[0].status == 'UNKNOWN'
+
+
+def test_confirmation_with_fresh_explicit_free_price_can_be_clicked(monkeypatch, tmp_path):
+    book, confirm = Mock(), Mock()
+    driver = _setup(monkeypatch, tmp_path, [0.2, 1.2], [])
+    monkeypatch.setattr(live, 'locate_selenium', Mock(side_effect=[
+        _eligible(book), _eligible(book), _eligible(confirm), _eligible(confirm),
+    ]))
+    monkeypatch.setattr(live, '_action_kind', lambda _, control: 'book' if control is book else 'confirm')
+    click = Mock()
+    monkeypatch.setattr(live, '_trusted_click', click)
+
+    assert live.main() == 2  # A verified price does not replace the provider receipt.
+    assert click.call_args_list == [((driver, book),), ((driver, confirm),)]
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['confirmation_clicks'] == 1
+    assert report['outcome'] == 'unknown_after_click'
 
 
 @pytest.mark.parametrize(('provider', 'username', 'outcome'), [

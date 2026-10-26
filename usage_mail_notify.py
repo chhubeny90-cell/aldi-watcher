@@ -1,7 +1,7 @@
 """24/7 ALDI usage-mail monitor with no authenticated portal automation.
 
-The monitor reads unread mailbox messages in read-only mode, recognizes only
-sanitized 80%-used / consumed signals, and durably deduplicates each message via
+The monitor reads a bounded recent UID window in read-only mode, recognizes
+sanitized warning / consumed / confirmation signals, and deduplicates each message via
 an HMAC fingerprint on the repository state branch. It never logs message text,
 sender, subject, Message-ID, phone number, credentials, or account data and never
 starts an ALDI login or booking workflow.
@@ -11,6 +11,9 @@ heads-up only; a consumed-volume message is the actionable refill notification.
 """
 
 import email
+import base64
+import hashlib
+import hmac
 import imaplib
 import json
 import os
@@ -20,7 +23,10 @@ from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
 from core.mail_handoff_queue import enqueue_consumed, _legacy_seen
-from usage_mail_bridge import _mailboxes, _message_key, _legacy_message_key, _signal
+import core.mail_handoff_queue as handoff_queue
+from usage_mail_bridge import (_mailboxes, _message_key, _legacy_message_key,
+                               _signal)
+from core.mailbox_cursor import MailboxCursor
 
 
 REPORT_PATH = os.getenv("ALDI_MAIL_NOTIFY_REPORT", "aldi-usage-alert.json")
@@ -30,42 +36,81 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _configure_dedup_key():
+    """Use a dedicated key or derive a stable, separately labelled mail key."""
+    if os.environ.get("ALDI_RECOVERY_KEY", "").strip():
+        return "dedicated"
+    encoded = os.environ.get("ALDI_STATE_ENCRYPTION_KEY", "").strip()
+    if not encoded:
+        return "missing"
+    try:
+        raw = base64.b64decode(encoded.encode("ascii"), altchars=b"-_", validate=True)
+        if len(raw) != 32 or base64.urlsafe_b64encode(raw).decode("ascii") != encoded:
+            raise ValueError()
+    except (ValueError, UnicodeError):
+        raise ValueError("state_dedup_key_invalid") from None
+    os.environ["ALDI_RECOVERY_KEY"] = hmac.new(
+        raw, b"aldi-mail-dedup-key-v1", hashlib.sha256).hexdigest()
+    return "state_key"
+
+
+def _trigger_policy():
+    policy = os.environ.get("ALDI_MAIL_TRIGGER_POLICY", "consumed_only").strip()
+    if policy not in {"consumed_only", "portal_check"}:
+        raise ValueError("trigger_policy_invalid")
+    return policy
+
+
+def _notification_seen(message_key, legacy_message_key):
+    """Preserve all retained per-message history when switching notification paths."""
+    if _legacy_seen(message_key, legacy_message_key):
+        return True
+    _, events = handoff_queue._load()
+    _, archived = handoff_queue._archive()
+    aliases = {handoff_queue._fingerprint(key) for key in (message_key, legacy_message_key)}
+    return bool(aliases.intersection(events) or aliases.intersection(archived))
+
+
 def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
-              enqueue=enqueue_consumed):
+              enqueue=enqueue_consumed, scan_reports=None):
     alerts = []
+    policy = _trigger_policy()
     context = ssl.create_default_context()
-    with imaplib.IMAP4_SSL(host, port, ssl_context=context) as client:
+    with imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=20) as client:
         client.login(user, password)
         status, _ = client.select("INBOX", readonly=True)
         if status != "OK":
             raise RuntimeError(f"mailbox_{index}_select_failed")
-        status, data = client.search(None, "UNSEEN")
-        if status != "OK" or not data:
-            return alerts
-
-        for message_num in data[0].split()[-50:]:
-            status, fetched = client.fetch(message_num, "(BODY.PEEK[])")
+        cursor = MailboxCursor(host, user, client)
+        uids = cursor.batch()
+        for message_num in uids:
+            status, fetched = client.uid("fetch", message_num, "(BODY.PEEK[])")
             if status != "OK" or not fetched:
-                continue
+                raise RuntimeError("mailbox_uid_fetch_failed")
             raw = next((item[1] for item in fetched
                         if isinstance(item, tuple)
                         and isinstance(item[1], (bytes, bytearray))), None)
             if raw is None:
-                continue
+                raise RuntimeError("mailbox_uid_message_missing")
             raw = bytes(raw)
             message = email.message_from_bytes(raw)
             signal = _signal(message)
             if signal is None:
                 continue
             message_key = _message_key(message, raw)
-            if signal == "consumed":
+            if signal == "consumed" and policy == "consumed_only":
                 # Reserve the actionable event durably before reporting it.
                 # No provider action is dispatched from this monitor.
                 is_new = enqueue(message_key, signal,
                                  legacy_message_key=_legacy_message_key(message, raw))
+            elif signal == "consumed":
+                # This notification may wake a fresh portal check; it never
+                # reserves a provider operation or marks one completed.
+                is_new = (not _notification_seen(message_key, _legacy_message_key(message, raw))
+                          and claim(message_key))
             else:
                 # Preserve retained legacy fingerprints before claiming a v2
-                # warning, just as for consumed mail. History failures abort.
+                # warning/confirmation, just as for consumed mail. History failures abort.
                 is_new = (not _legacy_seen(
                     message_key, _legacy_message_key(message, raw)
                 ) and claim(message_key))
@@ -75,7 +120,46 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
                     "signal": signal,
                     "actionable": signal == "consumed",
                 })
+        # Cursor progress follows all classification and durable dedup writes.
+        # A crash before this CAS replays mail through the immutable identities.
+        cursor.commit()
+        if scan_reports is not None:
+            scan_reports.append({"mailbox": index, "processed_messages": len(uids),
+                                 "pending_messages": cursor.backlog,
+                                 "uidvalidity_changed": cursor.validity_changed})
     return alerts
+
+
+def _mailbox_error(exc):
+    """Use fixed classes; server text and custom exception names stay private."""
+    if isinstance(exc, imaplib.IMAP4.error):
+        return "IMAPError"
+    if isinstance(exc, TimeoutError):
+        return "TimeoutError"
+    if isinstance(exc, ssl.SSLError):
+        return "TLSError"
+    if isinstance(exc, OSError):
+        return "ConnectionError"
+    return "MailboxError"
+
+
+def _probe_one(index, host, port, user, password):
+    """Check connection only when durable message deduplication is unavailable."""
+    result = {"mailbox": index, "login_ok": False, "readonly_inbox_ok": False,
+              "message_processing": False, "error": None}
+    try:
+        with imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context(), timeout=20) as client:
+            status, _ = client.login(user, password)
+            if status != "OK":
+                raise imaplib.IMAP4.error("login_failed")
+            result["login_ok"] = True
+            status, _ = client.select("INBOX", readonly=True)
+            if status != "OK":
+                raise imaplib.IMAP4.error("readonly_select_failed")
+            result["readonly_inbox_ok"] = True
+    except Exception as exc:
+        result["error"] = _mailbox_error(exc)
+    return result
 
 
 def _write(report):
@@ -91,17 +175,31 @@ def main():
         "finished_at": None,
         "configured_mailboxes": 0,
         "dedup_key_configured": False,
+        "dedup_key_source": "missing",
         "configuration_error": None,
         "new_alerts": 0,
         "actionable_alerts": 0,
         "early_warnings": 0,
+        "refill_confirmations": 0,
+        "option_confirmations": 0,
+        "order_notifications": 0,
+        "mailbox_connectivity": [],
+        "mailbox_scans": [],
         "alerts": [],
         "failed_mailboxes": [],
         "authenticated_portal": False,
         "provider_action": False,
+        "booking_authorized": False,
+        "provider_check_requested": False,
         "trigger_policy": "consumed_only",
     }
     try:
+        try:
+            report["trigger_policy"] = _trigger_policy()
+            report["dedup_key_source"] = _configure_dedup_key()
+        except ValueError as exc:
+            report["configuration_error"] = str(exc)
+            return 2
         try:
             mailboxes = _mailboxes()
         except (RuntimeError, ValueError) as exc:
@@ -124,14 +222,19 @@ def main():
             return 2
         if not report["dedup_key_configured"]:
             report["configuration_error"] = "dedup_key_missing"
+            for config in mailboxes:
+                result = _probe_one(*config)
+                report["mailbox_connectivity"].append(result)
+                if result["error"] is not None:
+                    report["failed_mailboxes"].append({"mailbox": config[0], "error": result["error"]})
             return 2
         for config in mailboxes:
             try:
-                report["alerts"].extend(_poll_one(*config))
+                report["alerts"].extend(_poll_one(*config, scan_reports=report["mailbox_scans"]))
             except Exception as exc:
                 report["failed_mailboxes"].append({
                     "mailbox": config[0],
-                    "error": type(exc).__name__,
+                    "error": _mailbox_error(exc),
                 })
         report["new_alerts"] = len(report["alerts"])
         report["actionable_alerts"] = sum(
@@ -140,6 +243,12 @@ def main():
         report["early_warnings"] = sum(
             1 for item in report["alerts"] if item.get("signal") == "80_percent"
         )
+        for field, signal in (("refill_confirmations", "refill_confirmation"),
+                              ("option_confirmations", "option_confirmation"),
+                              ("order_notifications", "order_received")):
+            report[field] = sum(item.get("signal") == signal for item in report["alerts"])
+        report["provider_check_requested"] = (
+            report["trigger_policy"] == "portal_check" and report["actionable_alerts"] > 0)
         return 2 if report["failed_mailboxes"] and not report["alerts"] else 0
     finally:
         report["finished_at"] = _now()
@@ -147,14 +256,22 @@ def main():
         print(json.dumps({
             "configured_mailboxes": report["configured_mailboxes"],
             "dedup_key_configured": report["dedup_key_configured"],
+            "dedup_key_source": report["dedup_key_source"],
             "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
             "actionable_alerts": report["actionable_alerts"],
             "early_warnings": report["early_warnings"],
+            "refill_confirmations": report["refill_confirmations"],
+            "option_confirmations": report["option_confirmations"],
+            "order_notifications": report["order_notifications"],
+            "mailbox_connectivity": report["mailbox_connectivity"],
+            "mailbox_scans": report["mailbox_scans"],
             "failed_mailboxes": len(report["failed_mailboxes"]),
             "trigger_policy": report["trigger_policy"],
             "authenticated_portal": False,
             "provider_action": False,
+            "booking_authorized": False,
+            "provider_check_requested": report["provider_check_requested"],
         }), flush=True)
 
 

@@ -43,3 +43,4 @@ monitoring-report.json
 *.sqlite-wal
 *.sqlite-shm
 portal-probe-report.json
+aldi-hosted-report.json
