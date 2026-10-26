@@ -144,21 +144,28 @@ def _mailbox_error(exc):
 
 
 def _probe_one(index, host, port, user, password):
-    """Check connection only when durable message deduplication is unavailable."""
+    """Check connection only when durable message deduplication is unavailable.
+
+    Report a fixed failure stage without exposing server text or credentials.
+    """
     result = {"mailbox": index, "login_ok": False, "readonly_inbox_ok": False,
               "message_processing": False, "error": None}
+    stage = "connect"
     try:
         with imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context(), timeout=20) as client:
+            stage = "login"
             status, _ = client.login(user, password)
             if status != "OK":
                 raise imaplib.IMAP4.error("login_failed")
             result["login_ok"] = True
+            stage = "select"
             status, _ = client.select("INBOX", readonly=True)
             if status != "OK":
                 raise imaplib.IMAP4.error("readonly_select_failed")
             result["readonly_inbox_ok"] = True
     except Exception as exc:
         result["error"] = _mailbox_error(exc)
+        result["error_stage"] = stage
     return result
 
 
