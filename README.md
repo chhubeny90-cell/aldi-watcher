@@ -1,5 +1,7 @@
 # aldi-watcher
 
+> **ALDI-Kundenkonto: nur manuell prüfen.** Automatisierter Login, Statusabruf, Diagnose und Buchung sind in den Repository-Workflows deaktiviert. Ohne ausdrückliche Anbieterfreigabe keine Skripte oder Bots gegen das ALDI-Kundenportal ausführen. Sichere Anleitung: [manuelle ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md).
+
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
 ## Aktueller Prüfstand vom 17. Oktober 2026
@@ -151,10 +153,9 @@ AUTO_BOOK_ENABLED=false python watcher.py --run-once
 python main.py
 ```
 
-### DRY_RUN-Modus
+### ALDI-Kundenkonto
 
-- **DRY_RUN=true** (default): Nur Simulation, keine echten Buchungen
-- **DRY_RUN=false**: Plugin-Livebetrieb erfordert zusätzlich `AUTO_BOOK_ENABLED=true`; die Live-Abnahme steht noch aus.
+`DRY_RUN` und `AUTO_BOOK_ENABLED` sind keine Erlaubnis für automatisierte ALDI-Portalzugriffe. Für eine echte Konto-Prüfung ausschließlich die offizielle App oder das Kundenportal manuell verwenden und die [manuelle ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md) befolgen. Workflow-Guards können durch diese Variablen nicht aufgehoben werden.
 
 ## Architektur
 
