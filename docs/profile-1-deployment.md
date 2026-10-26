@@ -7,6 +7,32 @@ verification. Never identify the target from an email address or a four-digit
 suffix alone. Do not publish real or partial phone numbers in source, tests,
 issues, pull requests, logs, or workflow artifacts.
 
+## Operating scope (confirmed 2026-10-26)
+
+Maintain the existing single configured ALDI account. Limit changes to necessary
+bug fixes and improvements that support reliable automated operation. Do not
+add other phone numbers, compare unrelated accounts, try unrelated passwords,
+or expand the deployment to additional profiles. Keep the hourly schedules,
+durable state and duplicate protection in place. Existing target-account and
+zero-price checks still apply to this one account.
+
+The scheduled mail-monitor run 40274486428 on 2026-10-26 ran on main
+`f3ade551` and reported one configured mailbox, `dedup_key_missing`,
+and an unsuccessful read-only IMAP connection (`IMAPError`). Both
+`ALDI_RECOVERY_KEY` and `ALDI_STATE_ENCRYPTION_KEY` were absent from
+that job's environment. The dependent session run 40274521456 was skipped.
+A scheduled workflow firing is therefore not proof of working end-to-end
+automation.
+
+Restore the required stable state/deduplication key through private repository
+Secrets configuration and resolve the existing mailbox's IMAP authentication.
+Preserve any existing encrypted state and journal; do not rotate keys blindly
+or replace history with an empty state. Do not work around these failures by
+disabling duplicate protection, suppressing errors, or adding another account.
+Recheck the monitor and protected runtime after configuration is repaired.
+
+Evidence: https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40274486428
+
 ## Private configuration
 
 - GitHub Actions secret `ALDI_PROFILE_1_USER`: full target number.
