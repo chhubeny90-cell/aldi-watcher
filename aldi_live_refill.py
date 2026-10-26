@@ -221,16 +221,17 @@ def main():
             return 3
 
         account = phone_identifier(watcher.ALDI_ACCOUNT_USER)
-        # Deployment guard runs before opening the journal or starting a browser.
-        target_suffix = os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', '')
-        if target_suffix:
-            from core.aldi_target import require_refill_target
-            try:
-                require_refill_target(account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
-                                      target_suffix)
-            except ValueError as exc:
-                report['outcome'] = str(exc)
-                return 2
+        # Fail closed: missing target configuration is not an opt-out.
+        # Validate the account before opening the journal or browser.
+        from core.aldi_target import require_refill_target
+        try:
+            require_refill_target(
+                account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
+                os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', ''),
+            )
+        except ValueError as exc:
+            report['outcome'] = str(exc)
+            return 2
         db = open_live_journal()
         try:
             unresolved = _unresolved_aldi(db, account)
