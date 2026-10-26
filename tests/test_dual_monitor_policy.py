@@ -105,3 +105,39 @@ def test_unknown_signals_are_rejected(signal):
 def test_naive_timestamp_is_rejected():
     with pytest.raises(ValueError, match="timezone_aware_now_required"):
         schedule_dual_monitor(now=datetime(2026, 10, 26))
+
+
+@pytest.mark.parametrize("remaining", [-1, float("nan"), float("inf"), True])
+def test_invalid_volume_is_rejected(remaining):
+    with pytest.raises(ValueError, match="invalid_remaining_volume"):
+        schedule_dual_monitor(now=NOW, mail_signal="consumed", samples=(UsageSample(NOW, remaining),))
+
+
+@pytest.mark.parametrize("delay", [-1, float("nan"), float("inf"), True, None])
+def test_invalid_backoff_is_rejected(delay):
+    with pytest.raises(ValueError, match="invalid_provider_backoff"):
+        schedule_dual_monitor(now=NOW, provider_retry_after_seconds=delay)
+
+
+def test_future_reading_is_rejected():
+    with pytest.raises(ValueError, match="future_sample_rejected"):
+        schedule_dual_monitor(now=NOW, mail_signal="consumed",
+                              samples=(UsageSample(NOW + timedelta(seconds=1), 0),))
+
+
+def test_conflicting_readings_at_same_instant_are_rejected():
+    with pytest.raises(ValueError, match="conflicting_simultaneous_samples"):
+        schedule_dual_monitor(now=NOW, mail_signal="consumed",
+                              samples=(sample(0, 0), sample(0, 5000)))
+
+
+def test_matching_duplicates_stay_read_only():
+    state = schedule_dual_monitor(now=NOW, mail_signal="consumed",
+                                  samples=(sample(0, 500), sample(0, 500)))
+    assert state.state == "REFILL_OBSERVE"
+    assert state.booking_authorized is False
+
+
+def test_future_activity_is_rejected():
+    with pytest.raises(ValueError, match="future_activity_rejected"):
+        schedule_dual_monitor(now=NOW, last_activity_at=NOW + timedelta(seconds=30))
