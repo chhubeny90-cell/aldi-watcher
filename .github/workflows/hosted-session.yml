@@ -11,7 +11,11 @@ on:
         options: [initialize, observe, refill]
   schedule:
     # GitHub may delay scheduled jobs; this is no exact-time guarantee.
-    - cron: '3-59/5 * * * *'
+    - cron: '17 * * * *'
+  workflow_run:
+    workflows: ['ALDI Usage Mail Monitor']
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: none
@@ -25,7 +29,13 @@ jobs:
     if: >-
       github.repository == 'chhubeny90-cell/aldi-watcher' &&
       github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.name == 'ALDI Usage Mail Monitor' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == 'chhubeny90-cell/aldi-watcher' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')))
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -39,14 +49,16 @@ jobs:
           PASSWORD_KEY_REQUIRED: ${{ secrets.ALDI_PASS_ENC != '' }}
           PASSWORD_KEY_CONFIGURED: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY != '' }}
           STATE_KEY_CONFIGURED: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY != '' }}
+          TARGET_SUFFIX_CONFIGURED: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX != '' }}
         run: |
           python - <<'PY'
           import os
           names = ('EXPECTED_ACCOUNT_CONFIGURED', 'PASSWORD_CONFIGURED',
-                   'PASSWORD_KEY_REQUIRED', 'PASSWORD_KEY_CONFIGURED', 'STATE_KEY_CONFIGURED')
+                   'PASSWORD_KEY_REQUIRED', 'PASSWORD_KEY_CONFIGURED', 'STATE_KEY_CONFIGURED',
+                   'TARGET_SUFFIX_CONFIGURED')
           flags = {name: os.environ.get(name) == 'true' for name in names}
           ready = (flags['EXPECTED_ACCOUNT_CONFIGURED'] and flags['PASSWORD_CONFIGURED']
-                   and flags['STATE_KEY_CONFIGURED']
+                   and flags['STATE_KEY_CONFIGURED'] and flags['TARGET_SUFFIX_CONFIGURED']
                    and (not flags['PASSWORD_KEY_REQUIRED'] or flags['PASSWORD_KEY_CONFIGURED']))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('ready=' + str(ready).lower() + '\n')
@@ -60,6 +72,8 @@ jobs:
                   missing.append('`CREDENTIAL_ENCRYPTION_KEY`')
               if not flags['STATE_KEY_CONFIGURED']:
                   missing.append('`ALDI_STATE_ENCRYPTION_KEY`')
+              if not flags['TARGET_SUFFIX_CONFIGURED']:
+                  missing.append('`ALDI_REQUIRED_TARGET_SUFFIX`')
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
                   summary.write('## ALDI-Sitzung\n\n**Einrichtung unvollständig.** '
                                 'Benötigte Repository-Secrets: ' + ', '.join(missing)
@@ -72,7 +86,13 @@ jobs:
       needs.preflight.outputs.ready == 'true' &&
       github.repository == 'chhubeny90-cell/aldi-watcher' &&
       github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.name == 'ALDI Usage Mail Monitor' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == 'chhubeny90-cell/aldi-watcher' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')))
     runs-on: ubuntu-latest
     timeout-minutes: 8
     permissions:
@@ -96,10 +116,17 @@ jobs:
         run: pip install -r requirements.txt
       - name: Geschützte Sitzung und Gratis-Nachbuchung prüfen
         env:
-          ALDI_HOSTED_MODE: ${{ github.event_name == 'schedule' && 'automatic' || inputs.mode }}
-          AUTO_BOOK_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'refill') && 'true' || 'false' }}
+          ALDI_HOSTED_MODE: ${{ github.event_name != 'workflow_dispatch' && 'automatic' || inputs.mode }}
+          AUTO_BOOK_ENABLED: ${{ (github.event_name != 'workflow_dispatch' || inputs.mode == 'refill') && 'true' || 'false' }}
+          ALDI_TRIGGER_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          ALDI_TRIGGER_WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          ALDI_TRIGGER_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          ALDI_TRIGGER_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          ALDI_TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
           GITHUB_TOKEN: ${{ github.token }}
           ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
+          # Use a masked secret: repository-variable values appear in step headers.
+          ALDI_REQUIRED_TARGET_SUFFIX: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX }}
           ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}

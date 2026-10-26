@@ -97,13 +97,13 @@ def test_recovery_without_official_receipt_does_not_query_volume_or_release_guar
 
 def test_usage_mail_recognizes_80_percent_and_consumed():
     msg = EmailMessage()
-    msg['From'] = 'ALDI TALK <info@example.invalid>'
+    msg['From'] = 'ALDI TALK <noreply@alditalk-kundenbetreuung.de>'
     msg['Subject'] = '80 % Datenvolumen verbraucht'
     msg.set_content('Ihr Highspeed-Volumen ist zu 80 % verbraucht.')
     assert mail_bridge._signal(msg) == '80_percent'
 
     msg2 = EmailMessage()
-    msg2['From'] = 'ALDI TALK <info@example.invalid>'
+    msg2['From'] = 'ALDI TALK <noreply@alditalk-kundenbetreuung.de>'
     msg2['Subject'] = 'Datenvolumen aufgebraucht'
     msg2.set_content('Ihr Datenvolumen ist aufgebraucht.')
     assert mail_bridge._signal(msg2) == 'consumed'

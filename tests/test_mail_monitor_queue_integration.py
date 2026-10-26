@@ -3,11 +3,13 @@ from email.message import EmailMessage
 import pytest
 
 import usage_mail_notify as monitor
+from tests.mail_test_support import RescanningCursor
 
 
 @pytest.fixture(autouse=True)
 def mail_key(monkeypatch):
     monkeypatch.setenv("ALDI_RECOVERY_KEY", "synthetic-test-key")
+    monkeypatch.setattr(monitor, 'MailboxCursor', RescanningCursor)
 
 
 class FakeImap:
@@ -21,11 +23,16 @@ class FakeImap:
         return "OK", []
     def select(self, *args, **kwargs):
         return "OK", []
+    def uid(self, command, *args):
+        if command == "search":
+            return self.search(*args)
+        assert command == "fetch" and args[1] == "(BODY.PEEK[])"
+        return self.fetch(*args)
     def search(self, *args):
         return "OK", [b"1"]
     def fetch(self, *args):
         msg = EmailMessage()
-        msg["From"] = "ALDI TALK <info@example.invalid>"
+        msg["From"] = "ALDI TALK <noreply@alditalk-kundenbetreuung.de>"
         msg["Subject"] = "Datenvolumen aufgebraucht"
         msg["Message-ID"] = "<unit-test@example.invalid>"
         msg.set_content("Ihr Datenvolumen ist aufgebraucht.")

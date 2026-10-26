@@ -18,12 +18,19 @@ def _now():
 
 
 def _context(mode):
+    event = os.environ.get('GITHUB_EVENT_NAME')
+    automatic_event = event == 'schedule' or event == 'workflow_run' and all((
+        os.environ.get('ALDI_TRIGGER_WORKFLOW_NAME') == 'ALDI Usage Mail Monitor',
+        os.environ.get('ALDI_TRIGGER_WORKFLOW_CONCLUSION') == 'success',
+        os.environ.get('ALDI_TRIGGER_HEAD_REPOSITORY') == 'chhubeny90-cell/aldi-watcher',
+        os.environ.get('ALDI_TRIGGER_HEAD_BRANCH') == 'main',
+        os.environ.get('ALDI_TRIGGER_EVENT') in {'schedule', 'workflow_dispatch'},
+    ))
     if (os.environ.get('GITHUB_REPOSITORY') != 'chhubeny90-cell/aldi-watcher'
             or os.environ.get('GITHUB_REF') != 'refs/heads/main'
             or os.environ.get('GITHUB_RUN_ATTEMPT') != '1'
             or not re.fullmatch(r'[0-9a-f]{40}', os.environ.get('GITHUB_SHA', ''))
-            or os.environ.get('GITHUB_EVENT_NAME') != (
-                'schedule' if mode == 'automatic' else 'workflow_dispatch')):
+            or not (automatic_event if mode == 'automatic' else event == 'workflow_dispatch')):
         raise HostedRuntimeError('controlled_context_required')
     expected_booking = 'true' if mode in {'refill', 'automatic'} else 'false'
     if os.environ.get('AUTO_BOOK_ENABLED') != expected_booking:
@@ -196,6 +203,13 @@ def _run(mode, report):
     account = phone_identifier(os.environ.get('ALDI_EXPECTED_ACCOUNT'))
     if phone_identifier(get_credential('ALDI_USER')) != account:
         raise HostedRuntimeError('configured_account_mismatch')
+    if mode in {'refill', 'automatic'}:
+        from core.aldi_target import require_refill_target
+        try:
+            require_refill_target(account, os.environ.get('ALDI_EXPECTED_ACCOUNT', ''),
+                                  os.environ.get('ALDI_REQUIRED_TARGET_SUFFIX', ''))
+        except ValueError as exc:
+            raise HostedRuntimeError(str(exc)) from None
     password = get_credential('ALDI_PASS')
     if not password or not watcher.configure_credentials('ALDI'):
         raise HostedRuntimeError('credentials_unavailable')
@@ -275,9 +289,15 @@ def render_summary(report):
         'free_refill_unavailable': 'Aktuell ist kein eindeutig kostenloser 1-GB-Refill freigegeben.',
         'auth_backoff_active': 'Der Abstand für einen neuen Passwort-Login ist noch aktiv. Keine neue Anmeldung gestartet.',
         'account_locked': 'ALDI meldet eine Kontosperre. Den Kontostatus über den offiziellen Weg klären.',
+        'target_suffix_invalid': 'Das Repository-Secret ALDI_REQUIRED_TARGET_SUFFIX fehlt oder enthält nicht genau vier Ziffern. Es wurde kein ALDI-Zugriff gestartet.',
+        'target_profile_mismatch': 'Die private Zielprüfung passt nicht zur konfigurierten Ziel-SIM. Es wurde kein ALDI-Zugriff gestartet.',
+        'target_account_mismatch': 'Die konfigurierten Kontozuordnungen stimmen nicht überein. Es wurde kein ALDI-Zugriff gestartet.',
+        'zero_price_unverified': 'Ein ausdrücklicher Nullpreis für diesen 1-GB-Refill ist nicht bestätigt. Es wurde kein weiterer Buchungs- oder Bestätigungsklick ausgelöst.',
         'runtime_initialization_required': 'Zuerst den Workflow einmal im Modus initialize starten.',
         'runtime_already_initialized': 'Der Speicher ist bereits eingerichtet. observe oder refill verwenden.',
         'runtime_encryption_key_required': 'Das Secret ALDI_STATE_ENCRYPTION_KEY fehlt oder hat ein ungültiges Format.',
+        'target_suffix_invalid': 'Das Repository-Secret ALDI_REQUIRED_TARGET_SUFFIX muss genau vier Ziffern enthalten. Keine Anmeldung oder Buchung gestartet.',
+        'target_profile_mismatch': 'Die konfigurierte Ziel-SIM passt nicht zur zusätzlichen Zielprüfung. Keine Anmeldung oder Buchung gestartet.',
         'runtime_initialized_state_missing': 'Der gespeicherte Buchungsverlauf fehlt. Nicht erneut initialisieren; Zustand wiederherstellen.',
         'unknown_after_click': 'Das Buchungsergebnis ist unklar. Der Vorgang bleibt gesperrt; keine automatische Wiederholung.',
         'unresolved_recharge_blocked': 'Ein ungeklärter Buchungsvorgang verhindert weitere Nachbuchungen.',
@@ -287,7 +307,7 @@ def render_summary(report):
     if report.get('session_reused') is True:
         text += '\n\nDie vorhandene Sitzung wurde ohne neuen Passwort-Login wiederverwendet.'
     if report.get('automatic_enabled') is True:
-        text += '\n\nAuto-Run ist freigegeben und prüft planmäßig etwa alle fünf Minuten. GitHub kann Läufe verzögern.'
+        text += '\n\nAuto-Run ist freigegeben und prüft stündlich sowie nach erfolgreicher Mailprüfung. GitHub kann Läufe verzögern.'
     elif report.get('first_refill_authorized') is True:
         text += '\n\nDie erste Gratis-Nachbuchung ist freigegeben. Falls aktuell nicht möglich, versucht der Zeitplan sie bei nächster bestätigter Verfügbarkeit. Nach Anbieterbestätigung folgen weitere automatisch.'
     if report.get('free_refill_available') is True:

@@ -132,7 +132,7 @@ def _selected_account(driver, expected_account):
     domains = {host, host.removeprefix('www.')}
     cookies = [cookie.get('value') for cookie in driver.get_cookies()
                if cookie.get('name') == 'lgrs_id'
-               and str(cookie.get('domain', '')).lstrip('.') in domains]
+               and str(cookie.get('domain', '')).casefold().removeprefix('.') in domains]
     if not cookies or any(not isinstance(value, str) or len(value) > 256 for value in cookies):
         raise RuntimeError('account_cookie_unverified')
     if len(set(cookies)) != 1:
@@ -140,7 +140,12 @@ def _selected_account(driver, expected_account):
     try:
         encoded = cookies[0] + '=' * (-len(cookies[0]) % 4)
         decoded = base64.b64decode(encoded, validate=True).decode('utf-8')
-        if phone_identifier(decoded) != expected:
+        # The portal also encodes international digits without a leading '+'.
+        # Compare canonically, but retain the provider's identifier for its GET.
+        comparison = decoded
+        if re.fullmatch(r'49[1-9]\d{8,12}', comparison):
+            comparison = '0' + comparison[2:]
+        if phone_identifier(comparison) != expected:
             raise RuntimeError('account_mismatch')
     except (ValueError, UnicodeDecodeError, LoginError):
         raise RuntimeError('account_cookie_unverified') from None
@@ -246,7 +251,13 @@ def assess_refill(page_text, offer_text, button_text, enabled, candidate_count, 
     free_evidence = _free_offer_evidence(offer_text, tariff)
     if free_evidence is None:
         return unavailable("price_unverified_or_paid")
-    if re.search(r"\b(?:kostenpflichtig|monatlich|abo|automatische verlängerung|automatische verlaengerung)\b", offer_text, re.I):
+    if re.search(
+            r"\b(?:kostenpflichtig\w*|monatlich\w*|abo\w*"
+            r"|automatisch\w*\s+verl(?:ä|ae)ngerung\w*"
+            r"|tarif[\s-]*(?:wechsel|änderung|aenderung|umstellung)\w*"
+            r"|vertrags?[\s-]*(?:verlängerung|verlaengerung|änderung|aenderung|wechsel)\w*"
+            r"|mindest[\s-]*laufzeit\w*|folge[\s-]*kosten\w*)\b",
+            f"{offer_text}\n{button_text}", re.I):
         return unavailable("conflicting_terms")
     if not re.search(
             r"\b(?:nachbuchen|buchen|weiter|bestätigen|bestaetigen)\b"

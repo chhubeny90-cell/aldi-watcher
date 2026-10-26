@@ -13,8 +13,10 @@ issues, pull requests, logs, or workflow artifacts.
 - GitHub Actions secret `ALDI_PROFILE_1_LOGIN_USER`: optional separate login
   identifier, only when it differs from the target account identifier.
 - GitHub Actions secret `ALDI_PASS`: login credential.
-- GitHub Actions variable `ALDI_REQUIRED_TARGET_SUFFIX`: four-digit target
+- GitHub Actions secret `ALDI_REQUIRED_TARGET_SUFFIX`: four-digit target
   cross-check, configured in repository settings, never hard-coded in YAML.
+  Use a secret so Actions masks it in step headers; an ordinary repository
+  variable is not masked there.
 - The private runner must provide `ALDI_EXPECTED_ACCOUNT` when required;
   keep the full value outside repository files and logs.
 - Mailbox credentials, recovery key, and private journal/runner are separate

@@ -76,6 +76,10 @@ def _read_json(path, ref=None):
 
 
 def _write_json(path, payload, current_sha=None, message="Persist ALDI hardening state"):
+    # These commits update data on the state branch, never application code.
+    # Mail cursors and fingerprints must not fan out into full CI matrices.
+    if "[skip ci]" not in message:
+        message += " [skip ci]"
     body = {
         "message": message,
         "content": base64.b64encode(
