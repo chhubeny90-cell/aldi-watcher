@@ -19,10 +19,13 @@ def _evaluate(expression, **values):
     return eval(expression, {'__builtins__': {}}, values)
 
 
-def test_schedule_and_dispatch_are_the_only_triggers():
+def test_hourly_dispatch_and_mail_completion_are_the_only_triggers():
     triggers = _text().split('\npermissions:', 1)[0]
     assert 'workflow_dispatch:' in triggers
-    assert "cron: '3-59/5 * * * *'" in triggers
+    assert "cron: '17 * * * *'" in triggers
+    assert "workflows: ['ALDI Usage Mail Monitor']" in triggers
+    assert 'types: [completed]' in triggers
+    assert 'branches: [main]' in triggers
     assert 'default: initialize' in triggers
     assert 'options: [initialize, observe, refill]' in triggers
     assert 'push:' not in triggers and 'pull_request:' not in triggers
@@ -32,6 +35,7 @@ def test_schedule_and_dispatch_are_the_only_triggers():
 @pytest.mark.parametrize('repository,ref,event,attempt,allowed', [
     ('chhubeny90-cell/aldi-watcher', 'refs/heads/main', 'schedule', 1, True),
     ('chhubeny90-cell/aldi-watcher', 'refs/heads/main', 'workflow_dispatch', 1, True),
+    ('chhubeny90-cell/aldi-watcher', 'refs/heads/main', 'workflow_run', 1, True),
     ('other/repo', 'refs/heads/main', 'workflow_dispatch', 1, False),
     ('chhubeny90-cell/aldi-watcher', 'refs/heads/feature', 'workflow_dispatch', 1, False),
     ('chhubeny90-cell/aldi-watcher', 'refs/heads/main', 'push', 1, False),
@@ -40,7 +44,11 @@ def test_schedule_and_dispatch_are_the_only_triggers():
 ])
 def test_preflight_and_execution_reject_uncontrolled_contexts(repository, ref, event, attempt, allowed):
     text = _text()
-    github = SimpleNamespace(repository=repository, ref=ref, event_name=event, run_attempt=attempt)
+    upstream = SimpleNamespace(name='ALDI Usage Mail Monitor', conclusion='success',
+                               head_repository=SimpleNamespace(full_name='chhubeny90-cell/aldi-watcher'),
+                               head_branch='main', event='schedule')
+    github = SimpleNamespace(repository=repository, ref=ref, event_name=event, run_attempt=attempt,
+                             event=SimpleNamespace(workflow_run=upstream))
     conditions = re.findall(r'    if: >-\n(.*?)    runs-on:', text, re.S)
     assert len(conditions) == 2
     assert _evaluate(conditions[0], github=github) is allowed
@@ -55,6 +63,7 @@ def test_preflight_and_execution_reject_uncontrolled_contexts(repository, ref, e
     ('workflow_dispatch', 'observe', 'observe', 'false'),
     ('workflow_dispatch', 'refill', 'refill', 'true'),
     ('schedule', '', 'automatic', 'true'),
+    ('workflow_run', '', 'automatic', 'true'),
 ])
 def test_requested_mode_and_booking_permission_are_passed_without_shell_interpolation(event, mode, actual, booking):
     env = _text().split('      - name: Geschützte Sitzung und Gratis-Nachbuchung prüfen\n', 1)[1]
@@ -65,6 +74,25 @@ def test_requested_mode_and_booking_permission_are_passed_without_shell_interpol
     assert _evaluate(mode_expr, github=github, inputs=inputs) == actual
     assert _evaluate(book_expr, github=github, inputs=inputs) == booking
     assert 'run: timeout 240s python aldi_hosted_runtime.py --mode "$ALDI_HOSTED_MODE"' in env
+
+
+@pytest.mark.parametrize('field,value', [
+    ('name', 'untrusted-workflow'), ('conclusion', 'failure'),
+    ('head_branch', 'feature/untrusted'), ('event', 'pull_request'),
+    ('head_repository', SimpleNamespace(full_name='foreign/fork')),
+])
+def test_mail_completion_never_elevates_untrusted_upstream(field, value):
+    upstream = SimpleNamespace(name='ALDI Usage Mail Monitor', conclusion='success',
+                               head_repository=SimpleNamespace(full_name='chhubeny90-cell/aldi-watcher'),
+                               head_branch='main', event='schedule')
+    setattr(upstream, field, value)
+    github = SimpleNamespace(repository='chhubeny90-cell/aldi-watcher', ref='refs/heads/main',
+                             event_name='workflow_run', run_attempt=1,
+                             event=SimpleNamespace(workflow_run=upstream))
+    conditions = re.findall(r'    if: >-\n(.*?)    runs-on:', _text(), re.S)
+    needs = SimpleNamespace(preflight=SimpleNamespace(outputs=SimpleNamespace(ready='true')))
+    assert not _evaluate(conditions[0], github=github)
+    assert not _evaluate(conditions[1], github=github, needs=needs)
 
 
 def test_secrets_are_scoped_to_execution_and_only_sanitized_result_is_uploaded():
@@ -78,6 +106,8 @@ def test_secrets_are_scoped_to_execution_and_only_sanitized_result_is_uploaded()
     assert 'ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}' in execution
     assert 'ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}' in execution
     assert 'ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}' in execution
+    assert 'ALDI_REQUIRED_TARGET_SUFFIX: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX }}' in execution
+    assert 'vars.ALDI_REQUIRED_TARGET_SUFFIX' not in text
     assert 'secrets.ALDI_USER' not in execution
     assert 'GITHUB_TOKEN: ${{ github.token }}' in execution
     assert 'secrets.' not in after and 'GITHUB_TOKEN:' not in after
@@ -92,6 +122,7 @@ def test_secrets_are_scoped_to_execution_and_only_sanitized_result_is_uploaded()
     ({'EXPECTED_ACCOUNT_CONFIGURED': 'false'}, False),
     ({'PASSWORD_CONFIGURED': 'false'}, False),
     ({'STATE_KEY_CONFIGURED': 'false'}, False),
+    ({'TARGET_SUFFIX_CONFIGURED': 'false'}, False),
     ({'PASSWORD_KEY_REQUIRED': 'true'}, False),
     ({'PASSWORD_KEY_REQUIRED': 'true', 'PASSWORD_KEY_CONFIGURED': 'true'}, True),
 ])
@@ -100,6 +131,7 @@ def test_actual_preflight_requires_state_key_and_complete_credentials(tmp_path, 
         'EXPECTED_ACCOUNT_CONFIGURED': 'true', 'PASSWORD_CONFIGURED': 'true',
         'PASSWORD_KEY_REQUIRED': 'false', 'PASSWORD_KEY_CONFIGURED': 'false',
         'STATE_KEY_CONFIGURED': 'true',
+        'TARGET_SUFFIX_CONFIGURED': 'true',
     }
     flags.update(patch)
     for name, value in flags.items():
@@ -117,6 +149,8 @@ def test_actual_preflight_requires_state_key_and_complete_credentials(tmp_path, 
         assert 'kein ALDI-Zugriff' in summary.read_text()
         if flags['STATE_KEY_CONFIGURED'] == 'false':
             assert 'ALDI_STATE_ENCRYPTION_KEY' in summary.read_text()
+        if flags['TARGET_SUFFIX_CONFIGURED'] == 'false':
+            assert 'ALDI_REQUIRED_TARGET_SUFFIX' in summary.read_text()
 
 
 def test_shared_concurrency_and_minimal_permissions():

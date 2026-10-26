@@ -17,17 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
+      ALDI_MAIL_TRIGGER_POLICY: portal_check
       ALDI_STATE_PATH: .aldi-state/profile-1.json
-      MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
-      MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
-      MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
-      MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
-      MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
-      MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
-      MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
-      MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
       ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
       - uses: actions/checkout@v7.0.1
@@ -40,6 +31,18 @@ jobs:
       - name: Poll usage mailboxes without ALDI portal access
         id: monitor
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
+          ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}
+          MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
+          MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
+          MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
+          MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}
+          MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
+          MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
+          MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
+          MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
         run: python usage_mail_notify.py
       - name: Preserve sanitized usage-alert report
         if: always()
@@ -73,8 +76,7 @@ jobs:
                   print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; no provider action dispatched.')
               raise SystemExit(2)
           if actionable:
-              print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; no provider action dispatched.')
-              raise SystemExit(1)
+              print(f'::notice title=ALDI consumption signal::{actionable} new notification(s); a separate authenticated portal check decides eligibility.')
           if early:
               print(f'ALDI early warning only: {early} 80-percent signal(s); no activation link yet.')
           else:

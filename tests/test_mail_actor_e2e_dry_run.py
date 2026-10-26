@@ -4,6 +4,7 @@ from email.message import EmailMessage
 import pytest
 
 import usage_mail_notify as monitor
+from tests.mail_test_support import RescanningCursor
 import mail_actor_preflight as preflight
 import core.mail_handoff_queue as queue
 from core.mail_actor_handoff import HandoffBlocked, Phase
@@ -25,12 +26,18 @@ class FakeImap:
     def select(self, *args, **kwargs):
         return "OK", []
 
+    def uid(self, command, *args):
+        if command == "search":
+            return self.search(*args)
+        assert command == "fetch" and args[1] == "(BODY.PEEK[])"
+        return self.fetch(*args)
+
     def search(self, *args):
         return "OK", [b"1"]
 
     def fetch(self, *args):
         message = EmailMessage()
-        message["From"] = "ALDI TALK <info@example.invalid>"
+        message["From"] = "ALDI TALK <noreply@alditalk-kundenbetreuung.de>"
         message["Subject"] = "Datenvolumen aufgebraucht"
         message["Message-ID"] = "<safe-e2e-fixture@example.invalid>"
         message.set_content("Ihr ALDI TALK Datenvolumen ist aufgebraucht.")
@@ -40,6 +47,7 @@ class FakeImap:
 @pytest.fixture
 def remote_state(monkeypatch):
     monkeypatch.setenv("ALDI_RECOVERY_KEY", "synthetic-test-key")
+    monkeypatch.setattr(monitor, 'MailboxCursor', RescanningCursor)
     monkeypatch.setattr(queue, "_archive", lambda: (None, {}))
     monkeypatch.setattr(queue, "_legacy_seen", lambda *args: False)
     state = {"sha": None, "events": {}}

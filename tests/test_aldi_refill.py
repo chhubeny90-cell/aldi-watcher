@@ -1,5 +1,6 @@
 import base64
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -179,6 +180,29 @@ def test_conflicting_terms_are_rejected_even_with_zero_price():
     assert result['refill_reason'] == 'conflicting_terms'
 
 
+@pytest.mark.parametrize('terms', [
+    'kostenpflichtiger Zusatz', 'kostenpflichtige Option', 'monatlicher Preis',
+    'Abonnement', 'automatische Verlängerung', 'automatischen Verlaengerung',
+    'Tarifwechsel', 'Tarif-Wechsel', 'Tarifänderung', 'Tarifaenderung',
+    'Tarifumstellung', 'Vertragsverlängerung', 'Vertrags-Verlaengerung',
+    'Vertragsänderung', 'Vertragswechsel', 'Mindestlaufzeit', 'Mindest-Laufzeit',
+    'Folgekosten', 'Folge-Kosten', 'keine Folgekosten',
+])
+def test_contract_or_followup_cost_terms_block_explicit_zero_priced_offer(terms):
+    result = eligible(offer_text=f'1 GB kostenlos nachbuchen 0,00 € {terms}')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'conflicting_terms'
+
+
+@pytest.mark.parametrize('terms', [
+    'Tarifwechsel', 'Vertragsverlängerung', 'Mindestlaufzeit', 'Folgekosten',
+])
+def test_contract_terms_in_button_are_rejected_with_zero_priced_offer(terms):
+    result = eligible(button_text=f'1 GB buchen mit {terms}')
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'conflicting_terms'
+
+
 def test_current_plain_tarif_s_m_l_authorize_exact_free_refill():
     for size in ('S', 'M', 'L'):
         result = eligible(
@@ -321,6 +345,57 @@ def account_driver(phone=PHONE, subscriptions=None):
         'subscriptions': [{'contractId': 'private-test-contract'}] if subscriptions is None else subscriptions,
     }
     return driver
+
+
+@pytest.mark.parametrize('cookie_account', [
+    PHONE, '+49' + PHONE[1:], '0049' + PHONE[1:], '49' + PHONE[1:],
+])
+def test_account_cookie_formats_verify_same_sim_and_preserve_provider_query(cookie_account):
+    driver = account_driver(cookie_account)
+    signature = verify_account_selenium(driver, PHONE)
+    assert signature == verify_account_selenium(account_driver(PHONE), PHONE)
+    _, url, _ = driver.execute_async_script.call_args.args
+    assert parse_qs(urlsplit(url).query) == {'msisdn': [cookie_account]}
+    assert cookie_account not in signature
+
+
+def test_international_digits_cookie_for_other_sim_is_rejected_before_request():
+    driver = account_driver('491500000001')
+    with pytest.raises(RuntimeError, match='^account_mismatch$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
+
+
+@pytest.mark.parametrize('cookie_account', [
+    '4901500000000', '491234567', '4912345678901234', '49PRIVATE_ACCOUNT',
+])
+def test_invalid_international_digits_cookie_is_not_guessed(cookie_account):
+    driver = account_driver(cookie_account)
+    with pytest.raises(RuntimeError, match='^account_cookie_unverified$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
+
+
+@pytest.mark.parametrize('domain', [
+    'alditalk-kundenportal.de', '.alditalk-kundenportal.de',
+    'www.alditalk-kundenportal.de', '.ALDITALK-KUNDENPORTAL.DE',
+])
+def test_selected_account_cookie_accepts_only_known_portal_domains(domain):
+    driver = account_driver('49' + PHONE[1:])
+    driver.get_cookies.return_value[0]['domain'] = domain
+    assert verify_account_selenium(driver, PHONE)
+
+
+@pytest.mark.parametrize('domain', [
+    '..alditalk-kundenportal.de', '.alditalk-kundenportal.de.attacker.invalid',
+    'attacker.alditalk-kundenportal.de', '.kundenportal.de',
+])
+def test_untrusted_selected_account_cookie_domain_is_rejected(domain):
+    driver = account_driver('49' + PHONE[1:])
+    driver.get_cookies.return_value[0]['domain'] = domain
+    with pytest.raises(RuntimeError, match='^account_cookie_unverified$'):
+        verify_account_selenium(driver, PHONE)
+    driver.execute_async_script.assert_not_called()
 
 
 def test_account_guard_uses_bounded_read_only_same_session_request_and_private_signature():

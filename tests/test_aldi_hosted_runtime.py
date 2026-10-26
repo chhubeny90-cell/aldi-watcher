@@ -74,6 +74,33 @@ def test_automatic_mode_cannot_be_selected_from_manual_dispatch(controlled, monk
         runtime._context('automatic')
 
 
+@pytest.mark.parametrize('patch,allowed', [
+    ({}, True),
+    ({'ALDI_TRIGGER_EVENT': 'workflow_dispatch'}, True),
+    ({'ALDI_TRIGGER_WORKFLOW_NAME': 'untrusted'}, False),
+    ({'ALDI_TRIGGER_WORKFLOW_CONCLUSION': 'failure'}, False),
+    ({'ALDI_TRIGGER_HEAD_REPOSITORY': 'foreign/fork'}, False),
+    ({'ALDI_TRIGGER_HEAD_BRANCH': 'feature/untrusted'}, False),
+    ({'ALDI_TRIGGER_EVENT': 'pull_request'}, False),
+])
+def test_mail_wakeup_is_only_an_authenticated_portal_check(controlled, monkeypatch, patch, allowed):
+    values = {
+        'GITHUB_EVENT_NAME': 'workflow_run', 'AUTO_BOOK_ENABLED': 'true',
+        'ALDI_TRIGGER_WORKFLOW_NAME': 'ALDI Usage Mail Monitor',
+        'ALDI_TRIGGER_WORKFLOW_CONCLUSION': 'success',
+        'ALDI_TRIGGER_HEAD_REPOSITORY': 'chhubeny90-cell/aldi-watcher',
+        'ALDI_TRIGGER_HEAD_BRANCH': 'main', 'ALDI_TRIGGER_EVENT': 'schedule',
+    }
+    values.update(patch)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    if allowed:
+        runtime._context('automatic')
+    else:
+        with pytest.raises(runtime.HostedRuntimeError, match='controlled_context_required'):
+            runtime._context('automatic')
+
+
 @pytest.fixture
 def authentication(monkeypatch):
     jar = requests.cookies.RequestsCookieJar()
@@ -431,14 +458,17 @@ def worker(tmp_path, monkeypatch, controlled):
     state.authorize_first_refill = Mock(side_effect=lambda: setattr(state, 'first_refill_authorized', True))
     monkeypatch.setattr(github_encrypted_runtime, 'RuntimeState', lambda: state)
     monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', ACCOUNT)
+    monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', ACCOUNT[-4:])
     monkeypatch.setattr(core.credentials, 'get_credential', lambda name: ACCOUNT if name == 'ALDI_USER' else PASSWORD)
     monkeypatch.setattr(watcher, 'configure_credentials', lambda provider: True)
+    monkeypatch.setattr(watcher, 'ALDI_ACCOUNT_USER', ACCOUNT)
     monkeypatch.setattr(runtime, '_sync_legacy', Mock())
     client = SimpleNamespace(session=SimpleNamespace(cookies=[]), close=Mock())
     monkeypatch.setattr(runtime, '_authenticate', Mock(return_value=client))
     monkeypatch.setattr(runtime, '_save_browser_cookies', Mock())
     driver = SimpleNamespace(quit=Mock())
-    monkeypatch.setattr(watcher, 'build_driver', lambda: driver)
+    build_driver = Mock(return_value=driver)
+    monkeypatch.setattr(watcher, 'build_driver', build_driver)
     monkeypatch.setattr(github_http_auth, 'inject_verified_cookies', Mock())
     monkeypatch.setattr(watcher, 'navigate', Mock())
     monkeypatch.setattr(watcher, 'aldi_session_visible', lambda driver: True)
@@ -449,11 +479,77 @@ def worker(tmp_path, monkeypatch, controlled):
     def refill():
         Path(live.REPORT_PATH).write_text(json.dumps(result))
         return 0 if result['outcome'] in {'refill_verified', 'not_needed', 'free_refill_unavailable'} else 2
+    real_contract_main = contract.main
     refill_mock = Mock(side_effect=refill)
     monkeypatch.setattr(contract, 'main', refill_mock)
     monkeypatch.setitem(contract._STATE, 'contract', SimpleNamespace(success=True))
     return SimpleNamespace(state=state, client=client, driver=driver, refill=refill_mock,
+                           real_contract_main=real_contract_main, build_driver=build_driver,
                            result=result, report={'session_reused': False})
+
+
+@pytest.mark.parametrize('mode', ['refill', 'automatic'])
+@pytest.mark.parametrize('suffix,reason', [
+    (None, 'target_suffix_invalid'), ('', 'target_suffix_invalid'),
+    ('123', 'target_suffix_invalid'), ('12345', 'target_suffix_invalid'),
+    ('PRIVATE_SUFFIX', 'target_suffix_invalid'), ('１２３４', 'target_suffix_invalid'),
+    ('9999', 'target_profile_mismatch'),
+])
+def test_invalid_private_target_stops_before_authorization_or_provider_contact(
+        worker, monkeypatch, mode, suffix, reason):
+    monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('GITHUB_EVENT_NAME', 'schedule' if mode == 'automatic' else 'workflow_dispatch')
+    if suffix is None:
+        monkeypatch.delenv('ALDI_REQUIRED_TARGET_SUFFIX', raising=False)
+    else:
+        monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', suffix)
+    with pytest.raises(runtime.HostedRuntimeError, match='^' + reason + '$'):
+        runtime._run(mode, worker.report)
+    worker.state.load.assert_not_called()
+    worker.state.authorize_first_refill.assert_not_called()
+    runtime._authenticate.assert_not_called()
+    worker.build_driver.assert_not_called()
+    worker.refill.assert_not_called()
+
+
+def test_valid_private_target_passes_real_completion_entrypoint_gate_without_provider_calls(worker, monkeypatch):
+    import aldi_live_refill as live
+    import aldi_live_refill_contract as contract
+    from selenium.common.exceptions import TimeoutException
+    monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setattr(contract, 'main', worker.real_contract_main)
+    read_status = Mock(side_effect=TimeoutException('synthetic offline stop'))
+    monkeypatch.setattr(live, '_bound_status', read_status)
+    assert runtime._run('refill', worker.report) == 2
+    # This result can only be reached after the real live runner accepted the
+    # separately configured suffix and exact target and opened the fake session.
+    assert worker.report['outcome'] == 'status_read_timeout'
+    assert worker.report['booking_clicks'] == 0
+    read_status.assert_called_once_with(worker.driver, ACCOUNT)
+    worker.state.authorize_first_refill.assert_called_once()
+    worker.state.accept_refill.assert_not_called()
+
+
+def test_read_only_observation_needs_full_account_but_no_refill_suffix(worker, monkeypatch):
+    monkeypatch.delenv('ALDI_REQUIRED_TARGET_SUFFIX', raising=False)
+    assert runtime._run('observe', worker.report) == 0
+    assert worker.report['outcome'] == 'observed'
+    worker.state.authorize_first_refill.assert_not_called()
+    worker.refill.assert_not_called()
+
+
+def test_invalid_target_report_never_exposes_private_configuration(worker, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', 'PRIVATE_SUFFIX')
+    path = tmp_path / 'report.json'
+    monkeypatch.setenv('ALDI_HOSTED_REPORT', str(path))
+    assert runtime.main(['--mode', 'refill']) == 2
+    report = json.loads(path.read_text())
+    assert report['outcome'] == 'target_suffix_invalid'
+    assert report['credential_submissions'] == report['booking_clicks'] == 0
+    text = path.read_text() + capsys.readouterr().out + runtime.render_summary(report)
+    assert 'PRIVATE_SUFFIX' not in text and ACCOUNT not in text
+    assert 'ALDI_REQUIRED_TARGET_SUFFIX' in text
 
 
 def test_automatic_without_acceptance_observes_without_booking(worker, monkeypatch):

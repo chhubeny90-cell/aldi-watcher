@@ -14,9 +14,12 @@ import os
 import re
 import ssl
 from email.header import decode_header, make_header
+from email.utils import getaddresses
+from html.parser import HTMLParser
 from urllib.parse import quote
 
 import requests
+from core.mailbox_cursor import MailboxCursor
 
 try:
     from github_hardening_state import _mac, _trigger_state
@@ -25,7 +28,31 @@ except Exception:
     _trigger_state = None
 
 
-ALDI_MARKERS = ("aldi talk", "alditalk")
+ALDI_SENDER_DOMAINS = {"alditalk-kundenbetreuung.de"}
+
+
+class _VisibleHTML(HTMLParser):
+    """Read visible text without retaining links, scripts or style contents."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        elif tag in {"p", "div", "br", "tr", "li"}:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"}:
+            self.hidden = max(0, self.hidden - 1)
+        elif tag in {"p", "div", "tr", "li"}:
+            self.parts.append(" ")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
 
 
 def _decode(value):
@@ -39,13 +66,16 @@ def _decode(value):
 
 def _body_text(message):
     parts = []
-    if message.is_multipart():
-        iterable = message.walk()
-    else:
-        iterable = [message]
-    for part in iterable:
-        if part.get_content_maintype() == "multipart":
-            continue
+    def visible_parts(part):
+        if part.get_content_disposition() == "attachment" or part.get_content_type() == "message/rfc822":
+            return
+        if part.is_multipart():
+            for child in part.get_payload():
+                yield from visible_parts(child)
+        else:
+            yield part
+
+    for part in visible_parts(message):
         if part.get_content_type() not in {"text/plain", "text/html"}:
             continue
         payload = part.get_payload(decode=True)
@@ -56,19 +86,53 @@ def _body_text(message):
             text = payload.decode(charset, errors="replace")
         except LookupError:
             text = payload.decode("utf-8", errors="replace")
-        parts.append(text[:50000])
+        text = text[:50000]
+        if part.get_content_type() == "text/html":
+            parser = _VisibleHTML()
+            parser.feed(text)
+            text = "".join(parser.parts)
+        parts.append(text)
     return "\n".join(parts)[:100000]
 
 
 def _signal(message):
-    subject = _decode(message.get("Subject"))
-    sender = _decode(message.get("From"))
-    text = f"{sender}\n{subject}\n{_body_text(message)}".casefold()
-    if not any(marker in text for marker in ALDI_MARKERS):
+    """Classify notifications, never prove identity, eligibility or completion.
+
+    The observed provider templates use the same subject for warnings and
+    consumption. Authentication-Results is not a trusted actor authorization:
+    its presence or absence cannot turn this classifier into booking proof.
+    """
+    senders = getaddresses([_decode(message.get("From"))])
+    if len(senders) != 1:
         return None
-    if re.search(r"\b80\s*%", text) and re.search(r"daten|volumen|high.?speed|verbrauch", text):
+    local, separator, domain = senders[0][1].rpartition("@")
+    if not separator or not local or domain.casefold() not in ALDI_SENDER_DOMAINS:
+        return None
+    subject = " ".join(_decode(message.get("Subject")).casefold().split())
+    if re.match(r"^(?:re|aw|fw|fwd|wg)\s*:", subject):
+        return None
+    text = " ".join(_body_text(message).casefold().split())
+    combined = subject + " " + text
+    if re.search(r"bestell|buchung|nachbuch|zusatz.option", subject):
+        provisioned = re.search(
+            r"(?:erfolgreich\s+(?:aktiviert|(?:nach)?gebucht)|"
+            r"(?:wurde|ist)\s+(?:erfolgreich\s+)?(?:aktiviert|(?:nach)?gebucht))", text)
+        if re.search(r"\bnicht\s+(?:erfolgreich\s+)?(?:aktiviert|(?:nach)?gebucht)", text):
+            return None
+        if provisioned:
+            # Generic add-on confirmations do not identify a free 1-GB refill.
+            if (re.search(r"\b1\s*gb\b", text)
+                    and re.search(r"kostenlos|gratis|0[,.]00\s*(?:€|eur)", text)):
+                return "refill_confirmation"
+            return "option_confirmation"
+        if re.search(r"bestellung\s+(?:erhalten|eingegangen)|bestellung.*war erfolgreich", text):
+            return "order_received"
+        return None
+    if not re.search(r"daten\s*volumen|high.?speed", subject):
+        return None
+    if re.search(r"\b80\s*(?:%|prozent)", combined) and re.search(r"daten|volumen|high.?speed|verbrauch", combined):
         return "80_percent"
-    if re.search(r"\b(?:verbraucht|aufgebraucht|verbrauchen|datenvolumen.*weg)\b", text):
+    if re.search(r"(?:daten\s*volumen|high.?speed(?:.volumen)?)[^.!?]{0,100}\b(?:ist\s+(?:nun\s+)?(?:vollständig\s+)?|vollständig\s+)(?:verbraucht|aufgebraucht)\b", text):
         return "consumed"
     return None
 
@@ -148,26 +212,23 @@ def _mailboxes():
 def _poll_one(index, host, port, user, password):
     dispatched = 0
     context = ssl.create_default_context()
-    with imaplib.IMAP4_SSL(host, port, ssl_context=context) as client:
+    with imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=20) as client:
         client.login(user, password)
         status, _ = client.select("INBOX", readonly=True)
         if status != "OK":
             raise RuntimeError(f"mailbox_{index}_select_failed")
-        status, data = client.search(None, "UNSEEN")
-        if status != "OK" or not data:
-            return 0
-        ids = data[0].split()[-50:]
-        for message_num in ids:
-            status, fetched = client.fetch(message_num, "(BODY.PEEK[])")
+        cursor = MailboxCursor(host, user, client)
+        for message_num in cursor.batch():
+            status, fetched = client.uid("fetch", message_num, "(BODY.PEEK[])")
             if status != "OK" or not fetched:
-                continue
+                raise RuntimeError("mailbox_uid_fetch_failed")
             raw = next((item[1] for item in fetched
                         if isinstance(item, tuple) and isinstance(item[1], (bytes, bytearray))), None)
             if raw is None:
-                continue
+                raise RuntimeError("mailbox_uid_message_missing")
             message = email.message_from_bytes(bytes(raw))
             signal = _signal(message)
-            if signal is None:
+            if signal != "consumed":
                 continue
             message_key = _message_key(message, bytes(raw))
             if (_already_seen(_legacy_message_key(message, bytes(raw)))
@@ -175,6 +236,7 @@ def _poll_one(index, host, port, user, password):
                 continue
             _dispatch(signal, message_key)
             dispatched += 1
+        cursor.commit()
     return dispatched
 
 

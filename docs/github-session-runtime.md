@@ -12,7 +12,12 @@ Bezahlte Angebote und Tarifwechsel sind ausgeschlossen.
 
 Rufnummer und Passwort verwenden die vorhandenen Repository-Secrets
 `ALDI_PROFILE_1_USER` und `ALDI_PASS` beziehungsweise `ALDI_PASS_ENC` zusammen mit
-`CREDENTIAL_ENCRYPTION_KEY`. Zusätzlich ist ein unabhängig erzeugter
+`CREDENTIAL_ENCRYPTION_KEY`. Das Repository-Secret `ALDI_REQUIRED_TARGET_SUFFIX`
+enthält zusätzlich die letzten vier Ziffern der Ziel-SIM. Der vollständige
+Kontoabgleich bleibt maßgeblich; die Endziffern allein autorisieren nichts.
+Die Endziffern werden als Secret übergeben, damit sie auch in Actions-Schrittköpfen
+maskiert bleiben. Fehlende oder falsche Zielkonfiguration stoppt vor der Anmeldung.
+Zusätzlich ist ein unabhängig erzeugter
 Fernet-Schlüssel als Repository-Secret **`ALDI_STATE_ENCRYPTION_KEY`** erforderlich.
 Das Passwort wird nicht als Verschlüsselungsschlüssel wiederverwendet.
 Ohne diesen zusätzlichen Schlüssel erfolgen weder ALDI-Zugriffe noch Buchungen.
@@ -42,13 +47,35 @@ Ungeklärte frühere Buchungsvorgänge müssen erhalten und geklärt werden.
 
 ## Wiederkehrende Läufe
 
-Der Zeitplan prüft nominell alle fünf Minuten. Ohne Freigabe der ersten
+Der Zeitplan prüft stündlich zur Minute 17. Zusätzlich stößt ein erfolgreich
+beendeter Mailprüflauf auf `main` eine frische Kontoprüfung an. Nur der benannte
+Workflow aus demselben Repository mit zulässigem Auslöser wird akzeptiert;
+Forks, Pull-Request-Läufe und fehlgeschlagene Mailprüfungen starten keinen Aktor.
+Eine Mail ist lediglich ein Prüfhinweis, kein Preis-, SIM- oder Buchungsnachweis.
+Ohne Freigabe der ersten
 Nachbuchung beobachten diese Läufe nur. Mit gespeicherter Erstfreigabe versucht
 der Zeitplan den ersten tatsächlich verfügbaren Gratis-Refill. Nach dessen
 bestätigtem Erfolg kann jeder automatische
 Lauf erneut eine kostenlose 1-GB-Nachbuchung ausführen, wenn die frische Prüfung
 von Ziel-SIM, Tarif, Restvolumen und aktivem Gratisangebot dies erlaubt. Ein
-Mailkonto oder ein Mail-Auslöser ist für diesen Polling-Pfad nicht erforderlich.
+Mailkonto ist für die stündliche Rückfallprüfung nicht erforderlich.
+
+Der Mailmonitor prüft Warnungen, vollständigen Verbrauch und Bestätigungen
+getrennt. Originale Nachrichtenidentität und Empfangsfortschritt werden dauerhaft
+und nichtidentifizierend gespeichert; gelesene Nachrichten bleiben einbezogen.
+Rückstände werden in aufsteigenden UID-Batches verarbeitet, statt ältere neue
+Meldungen durch ein Fenster der letzten 50 Nachrichten zu verlieren. Ein
+Server-UID-Wechsel verwirft die gespeicherte Nachrichtenhistorie nicht.
+Allgemeine Bestell- oder Optionsbestätigungen bestätigen keine konkrete
+kostenlose 1-GB-Nachbuchung und lösen keine Vorgangssperre auf.
+
+Für die Nachrichten-Deduplizierung wird ein vorhandener `ALDI_RECOVERY_KEY`
+beibehalten. Fehlt er, kann der Monitor einen getrennten, stabilen HMAC-Schlüssel
+aus `ALDI_STATE_ENCRYPTION_KEY` ableiten. Das ALDI-Passwort wird dafür nicht benutzt.
+Ohne beide Schlüssel prüft er nur die Mail-Anmeldung lesend und bleibt für
+Nachrichtenverarbeitung und Buchungen gesperrt. Die ChatGPT-Gmail-Verbindung
+liefert die bestehende Mailanalyse; sie stellt GitHub Actions kein dauerhaftes
+IMAP-App-Passwort bereit. Vorhandene `MAILBOX_*`-Secrets müssen dort separat gültig sein.
 
 Eine gültige Sitzung wird zwischen den Jobs übernommen und vor Verwendung erneut
 geprüft. Ein gültiger gespeicherter Login verlangt keinen neuen Passwortversuch

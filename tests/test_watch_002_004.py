@@ -10,6 +10,8 @@ import github_journal_state as journal
 import mail_actor_preflight as preflight
 from core.mail_actor_handoff import HandoffBlocked, Phase
 from usage_mail_bridge import _message_key, _legacy_message_key, _already_seen
+import usage_mail_notify as monitor
+from tests.mail_test_support import RescanningCursor
 
 NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 
@@ -17,6 +19,7 @@ NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 @pytest.fixture
 def stores(monkeypatch):
     monkeypatch.setenv('ALDI_RECOVERY_KEY', 'synthetic-watch-key')
+    monkeypatch.setattr(monitor, 'MailboxCursor', RescanningCursor)
     remote = {}
     writes = []
 
@@ -40,6 +43,7 @@ def message(date='Mon, 19 Oct 2026 00:00:00 +0000'):
     result = EmailMessage()
     result['Message-ID'] = '<synthetic@example.invalid>'
     result['Date'] = date
+    result['From'] = 'ALDI TALK <noreply@alditalk-kundenbetreuung.de>'
     result.set_content('ALDI TALK Datenvolumen aufgebraucht')
     return result
 
@@ -235,6 +239,12 @@ class WarningImap:
     def select(self, *args, **kwargs):
         assert kwargs['readonly'] is True
         return 'OK', []
+
+    def uid(self, command, *args):
+        if command == 'search':
+            return self.search(*args)
+        assert command == 'fetch' and args[1] == '(BODY.PEEK[])'
+        return self.fetch(*args)
 
     def search(self, *args):
         return 'OK', [b'1']
