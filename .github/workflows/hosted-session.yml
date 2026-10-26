@@ -1,151 +1,24 @@
-name: ALDI Session and Free Refill
+name: ALDI Session and Free Refill (disabled)
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Geschützten Zustand einrichten, prüfen oder einmal kostenlos nachbuchen
-        required: true
-        default: initialize
-        type: choice
-        options: [initialize, observe, refill]
-  schedule:
-    # GitHub may delay scheduled jobs; this is no exact-time guarantee.
-    - cron: '17 * * * *'
-  workflow_run:
-    workflows: ['ALDI Usage Mail Monitor']
-    types: [completed]
-    branches: [main]
 
 permissions:
   contents: none
 
-concurrency:
-  group: aldi-live-refill-profile-1
-  cancel-in-progress: false
-
 jobs:
-  preflight:
-    if: >-
-      github.repository == 'chhubeny90-cell/aldi-watcher' &&
-      github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.name == 'ALDI Usage Mail Monitor' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_repository.full_name == 'chhubeny90-cell/aldi-watcher' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')))
+  blocked:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      ready: ${{ steps.config.outputs.ready }}
+    timeout-minutes: 1
     steps:
-      - name: Einrichtung ohne Ausgabe von Zugangsdaten prüfen
-        id: config
-        env:
-          EXPECTED_ACCOUNT_CONFIGURED: ${{ secrets.ALDI_PROFILE_1_USER != '' }}
-          PASSWORD_CONFIGURED: ${{ secrets.ALDI_PASS != '' || secrets.ALDI_PASS_ENC != '' }}
-          PASSWORD_KEY_REQUIRED: ${{ secrets.ALDI_PASS_ENC != '' }}
-          PASSWORD_KEY_CONFIGURED: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY != '' }}
-          STATE_KEY_CONFIGURED: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY != '' }}
-          TARGET_SUFFIX_CONFIGURED: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX != '' }}
+      - name: Explain why no provider request is made
         run: |
-          python - <<'PY'
-          import os
-          names = ('EXPECTED_ACCOUNT_CONFIGURED', 'PASSWORD_CONFIGURED',
-                   'PASSWORD_KEY_REQUIRED', 'PASSWORD_KEY_CONFIGURED', 'STATE_KEY_CONFIGURED',
-                   'TARGET_SUFFIX_CONFIGURED')
-          flags = {name: os.environ.get(name) == 'true' for name in names}
-          ready = (flags['EXPECTED_ACCOUNT_CONFIGURED'] and flags['PASSWORD_CONFIGURED']
-                   and flags['STATE_KEY_CONFIGURED'] and flags['TARGET_SUFFIX_CONFIGURED']
-                   and (not flags['PASSWORD_KEY_REQUIRED'] or flags['PASSWORD_KEY_CONFIGURED']))
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('ready=' + str(ready).lower() + '\n')
-          if not ready:
-              missing = []
-              if not flags['EXPECTED_ACCOUNT_CONFIGURED']:
-                  missing.append('`ALDI_PROFILE_1_USER`')
-              if not flags['PASSWORD_CONFIGURED']:
-                  missing.append('`ALDI_PASS` oder `ALDI_PASS_ENC`')
-              if flags['PASSWORD_KEY_REQUIRED'] and not flags['PASSWORD_KEY_CONFIGURED']:
-                  missing.append('`CREDENTIAL_ENCRYPTION_KEY`')
-              if not flags['STATE_KEY_CONFIGURED']:
-                  missing.append('`ALDI_STATE_ENCRYPTION_KEY`')
-              if not flags['TARGET_SUFFIX_CONFIGURED']:
-                  missing.append('`ALDI_REQUIRED_TARGET_SUFFIX`')
-              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('## ALDI-Sitzung\n\n**Einrichtung unvollständig.** '
-                                'Benötigte Repository-Secrets: ' + ', '.join(missing)
-                                + '.\n\nEs wurde kein ALDI-Zugriff und keine Buchung gestartet.\n')
-          PY
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## BLOCKED — kein ALDI-Kontakt
 
-  runtime:
-    needs: preflight
-    if: >-
-      needs.preflight.outputs.ready == 'true' &&
-      github.repository == 'chhubeny90-cell/aldi-watcher' &&
-      github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.name == 'ALDI Usage Mail Monitor' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_repository.full_name == 'chhubeny90-cell/aldi-watcher' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')))
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    permissions:
-      contents: write # CAS-persist encrypted session and full journal before provider-changing actions.
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      - uses: actions/setup-python@v7.0.0
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Chrome installieren
-        id: chrome
-        uses: browser-actions/setup-chrome@v2.2.0
-        with:
-          chrome-version: stable
-          install-chromedriver: true
-      - name: Abhängigkeiten installieren
-        run: pip install -r requirements.txt
-      - name: Geschützte Sitzung und Gratis-Nachbuchung prüfen
-        env:
-          ALDI_HOSTED_MODE: ${{ github.event_name != 'workflow_dispatch' && 'automatic' || inputs.mode }}
-          AUTO_BOOK_ENABLED: ${{ (github.event_name != 'workflow_dispatch' || inputs.mode == 'refill') && 'true' || 'false' }}
-          ALDI_TRIGGER_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
-          ALDI_TRIGGER_WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          ALDI_TRIGGER_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
-          ALDI_TRIGGER_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          ALDI_TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
-          GITHUB_TOKEN: ${{ github.token }}
-          ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
-          # Use a masked secret: repository-variable values appear in step headers.
-          ALDI_REQUIRED_TARGET_SUFFIX: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX }}
-          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
-          ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
-          ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}
-          ALDI_HOSTED_REPORT: aldi-hosted-report.json
-          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
-          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-        run: timeout 240s python aldi_hosted_runtime.py --mode "$ALDI_HOSTED_MODE"
-      - name: Bereinigtes Ergebnis aufbewahren
-        if: always()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: aldi-hosted-result-${{ github.run_id }}-${{ github.run_attempt }}
-          path: aldi-hosted-report.json
-          retention-days: 3
-          if-no-files-found: warn
-      - name: Deutsches Ergebnis anzeigen
-        if: always()
-        env:
-          ALDI_HOSTED_REPORT: aldi-hosted-report.json
-        run: python aldi_hosted_runtime.py --summary-only
+          Die AGB untersagen den Zugriff auf die Kundensysteme über nicht autorisierte Skripte oder Bots. Die frühere Zeitplanung, Workflow-Verkettung, Anmeldung und Nachbuchung sind deaktiviert.
+
+          Dieser Workflow führt weder Anmeldung noch Statusabfrage, Reset, Buchung oder Wiederholung aus. Nutze für eine Konto-Prüfung ausschließlich die offizielle ALDI-TALK-App oder das Portal manuell.
+          EOF
+          echo "::error::ALDI provider automation is disabled; no provider request was made."
+          exit 2
