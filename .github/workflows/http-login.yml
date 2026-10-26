@@ -1,53 +1,24 @@
-name: ALDI HTTP Login
+name: ALDI HTTP Login (disabled)
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: none
-concurrency:
-  group: aldi-live-refill-profile-1
-  cancel-in-progress: false
+
 jobs:
-  login:
-    if: >-
-      github.repository == 'chhubeny90-cell/aldi-watcher' &&
-      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
-      github.run_attempt == 1
+  blocked:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write # Persist the existing public-safe auth guard before ALDI I/O.
-    env:
-      AUTO_BOOK_ENABLED: 'false'
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Einmaligen lesenden ALDI-Login starten
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
-          ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
-          ALDI_PASS: ${{ secrets.ALDI_PASS }}
-          ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
-          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
-          ALDI_HTTP_REPORT: aldi-http-login.json
-        run: timeout 150s python aldi_http_login_probe.py
-      - name: Preserve sanitized login result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aldi-http-login-${{ github.run_id }}
-          path: aldi-http-login.json
-          retention-days: 3
-      - name: Deutsches Login-Ergebnis anzeigen
-        if: always()
-        env:
-          ALDI_HTTP_REPORT: aldi-http-login.json
-        run: python aldi_http_login_summary.py
+      - name: Explain why no provider request is made
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## BLOCKED — kein ALDI-Kontakt
+
+          Ein skriptgesteuerter Zugang zum passwortgeschützten Kundenkonto ist ohne ausdrückliche Anbieterfreigabe nicht vorgesehen. Dieser Login-Workflow ist deaktiviert.
+
+          Dieser Workflow führt weder Anmeldung noch Statusabfrage, Reset, Buchung oder Wiederholung aus. Nutze für eine Konto-Prüfung ausschließlich die offizielle ALDI-TALK-App oder das Portal manuell.
+          EOF
+          echo "::error::ALDI provider automation is disabled; no provider request was made."
+          exit 2
