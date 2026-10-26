@@ -413,39 +413,25 @@ def test_probe_report_flows_into_actions_summary(guarded, scenario, expected):
     assert PHONE not in text and PASSWORD not in text and "PRIVATE_WRITE_DETAIL" not in text
 
 
-def test_workflow_is_manual_only_and_keeps_credentials_scoped_to_guarded_step():
-    text = WORKFLOW.read_text()
-    triggers = text.split("on:\n", 1)[1].split("permissions:\n", 1)[0]
-    assert "  workflow_dispatch:\n" in triggers
-    assert "push:" not in triggers and "schedule:" not in triggers and "pull_request:" not in triggers
-    assert "inputs:" not in triggers
-    assert "manual_login_verified" not in text
-    assert "ALDI_MANUAL_LOGIN_VERIFIED" not in text
-    assert "permissions:\n  contents: none\n" in text
-    assert "    permissions:\n      contents: write" in text
-    assert "persist-credentials: false" in text
-    assert "ref: ${{ github.sha }}" in text
-    assert "AUTO_BOOK_ENABLED: 'false'" in text
-    assert "ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}" in text
-    assert "ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}" in text
-    assert "secrets.ALDI_USER" not in text
-    assert "GITHUB_TOKEN: ${{ github.token }}" in text
-    assert text.count("python aldi_http_login_probe.py") == 1
-    summary = text.split("      - name: Deutsches Login-Ergebnis anzeigen\n", 1)[1]
-    assert "        if: always()\n" in summary
-    assert "run: python aldi_http_login_summary.py" in summary
-    assert "secrets." not in summary and "GITHUB_TOKEN:" not in summary
+def test_http_login_workflow_is_disabled_without_provider_access():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "ALDI HTTP Login (disabled)" in text
+    triggers = text.split("permissions:", 1)[0]
+    assert "  workflow_dispatch:" in triggers
+    assert "  push:" not in triggers
+    assert "  schedule:" not in triggers
+    assert "  workflow_run:" not in triggers
+    assert "permissions:\\n  contents: none\\n" in text
+    assert "jobs:\\n  blocked:" in text
+    assert "ALDI provider automation is disabled" in text
+    assert "exit 2" in text
+    for forbidden in ("secrets.", "GITHUB_TOKEN:", "actions/checkout",
+                      "setup-python", "setup-chrome", "aldi_http_login_probe.py"):
+        assert forbidden not in text
 
 
-@pytest.mark.parametrize("repository,event,ref,attempt,allowed", [
-    ("chhubeny90-cell/aldi-watcher", "workflow_dispatch", "refs/heads/main", 1, True),
-    ("other/repo", "workflow_dispatch", "refs/heads/main", 1, False),
-    ("chhubeny90-cell/aldi-watcher", "push", "refs/heads/main", 1, False),
-    ("chhubeny90-cell/aldi-watcher", "workflow_dispatch", "refs/heads/feature", 1, False),
-    ("chhubeny90-cell/aldi-watcher", "workflow_dispatch", "refs/heads/main", 2, False),
-])
-def test_actual_workflow_job_condition_rejects_wrong_context(repository, event, ref, attempt, allowed):
-    expression = re.search(r"    if: >-\n(.*?)    runs-on:", WORKFLOW.read_text(), re.S).group(1)
-    expression = " ".join(expression.replace("&&", "and").replace("||", "or").split())
-    github = SimpleNamespace(repository=repository, event_name=event, ref=ref, run_attempt=attempt)
-    assert eval(expression, {"__builtins__": {}}, {"github": github}) is allowed
+def test_http_login_workflow_guard_explicitly_makes_no_provider_request():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "kein ALDI-Kontakt" in text
+    for action in ("Anmeldung", "Statusabfrage", "Buchung", "Wiederholung"):
+        assert action in text
