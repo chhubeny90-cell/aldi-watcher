@@ -6,6 +6,7 @@ bind every account sample to a verified SIM, and persist last_activity_at.
 """
 from dataclasses import dataclass
 from datetime import datetime
+from math import isfinite
 from typing import Iterable, Optional
 
 from core.adaptive_monitor import UsageSample, adaptive_status
@@ -29,6 +30,11 @@ class DualMonitorDecision:
 
 def _aware(value: datetime) -> bool:
     return isinstance(value, datetime) and value.tzinfo is not None and value.utcoffset() is not None
+
+
+def _valid_nonnegative(value: object) -> bool:
+    """Reject booleans, invalid types, NaN and infinities as telemetry."""
+    return type(value) in (float, int) and isfinite(value) and value >= 0
 
 
 def schedule_dual_monitor(
@@ -58,13 +64,28 @@ def schedule_dual_monitor(
         raise ValueError("invalid_mail_signal")
     if not isinstance(network_active, bool):
         raise ValueError("network_active_must_be_boolean")
-    if last_activity_at is not None and not _aware(last_activity_at):
-        raise ValueError("timezone_aware_activity_required")
-    if provider_retry_after_seconds < 0:
+    if last_activity_at is not None:
+        if not _aware(last_activity_at):
+            raise ValueError("timezone_aware_activity_required")
+        if last_activity_at > now:
+            raise ValueError("future_activity_rejected")
+    if not _valid_nonnegative(provider_retry_after_seconds):
         raise ValueError("invalid_provider_backoff")
     items = tuple(samples)
-    if any(not _aware(sample.timestamp) for sample in items):
-        raise ValueError("timezone_aware_samples_required")
+    for sample in items:
+        if not isinstance(sample, UsageSample) or not _aware(sample.timestamp):
+            raise ValueError("timezone_aware_samples_required")
+        if sample.timestamp > now:
+            raise ValueError("future_sample_rejected")
+        if not _valid_nonnegative(sample.remaining_mb):
+            raise ValueError("invalid_remaining_volume")
+    # Conflicting volume readings for the same instant must not determine
+    # an apparent 0-GB state or an invented consumption rate.
+    readings_at = {}
+    for sample in items:
+        earlier = readings_at.setdefault(sample.timestamp, sample.remaining_mb)
+        if earlier != sample.remaining_mb:
+            raise ValueError("conflicting_simultaneous_samples")
 
     def decision(state, interval, immediately, reason):
         return DualMonitorDecision(
