@@ -1,45 +1,24 @@
-name: ALDI Initial Challenge
+name: ALDI Initial Challenge Probe (disabled)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: none
 
 jobs:
-  initial_challenge:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[initial-challenge]'))
+  blocked:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install Chrome
-        id: chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
-          install-chromedriver: true
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Observe initial ALDI challenge without credentials
-        env:
-          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
-          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
-          ALDI_INITIAL_CHALLENGE_REPORT: aldi-initial-challenge.json
-        run: python aldi_initial_challenge_probe.py
-      - name: Preserve sanitized report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aldi-initial-challenge-${{ github.run_id }}-${{ github.run_attempt }}
-          path: aldi-initial-challenge.json
-          retention-days: 1
-          if-no-files-found: warn
+      - name: Explain why no provider request is made
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## BLOCKED — kein ALDI-Kontakt
+
+          Auch der automatisierte Authentifizierungs-Probezugriff bleibt bis zu einer ausdrücklichen Anbieterfreigabe deaktiviert.
+
+          Dieser Workflow führt weder Anmeldung noch Statusabfrage, Reset, Buchung oder Wiederholung aus. Nutze für eine Konto-Prüfung ausschließlich die offizielle ALDI-TALK-App oder das Portal manuell.
+          EOF
+          echo "::error::ALDI provider automation is disabled; no provider request was made."
+          exit 2
