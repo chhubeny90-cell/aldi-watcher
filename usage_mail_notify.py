@@ -233,7 +233,11 @@ def main():
                 result = _probe_one(*config)
                 report["mailbox_connectivity"].append(result)
                 if result["error"] is not None:
-                    report["failed_mailboxes"].append({"mailbox": config[0], "error": result["error"]})
+                    report["failed_mailboxes"].append({
+                        "mailbox": config[0],
+                        "error": result["error"],
+                        "stage": result.get("error_stage"),
+                    })
             return 2
         for config in mailboxes:
             try:
