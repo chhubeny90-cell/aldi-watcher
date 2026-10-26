@@ -421,8 +421,8 @@ def test_http_login_workflow_is_disabled_without_provider_access():
     assert "  push:" not in triggers
     assert "  schedule:" not in triggers
     assert "  workflow_run:" not in triggers
-    assert "permissions:\\n  contents: none\\n" in text
-    assert "jobs:\\n  blocked:" in text
+    assert "permissions:\n  contents: none\n" in text
+    assert "jobs:\n  blocked:" in text
     assert "ALDI provider automation is disabled" in text
     assert "exit 2" in text
     for forbidden in ("secrets.", "GITHUB_TOKEN:", "actions/checkout",
