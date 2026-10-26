@@ -49,3 +49,11 @@ def test_probe_reports_sanitized_imap_login_stage_without_server_text(monkeypatc
     assert "PRIVATE_SERVER_RESPONSE" not in rendered
     assert "private-user" not in rendered
     assert "private-password" not in rendered
+
+
+def test_workflow_surfaces_only_the_sanitized_probe_stage():
+    workflow = Path(".github/workflows/mail-trigger.yml").read_text(encoding="utf-8")
+
+    assert "diagnostic.get('error_stage')" in workflow
+    assert "diagnostic.get('error')" in workflow
+    assert "PRIVATE_SERVER_RESPONSE" not in workflow
