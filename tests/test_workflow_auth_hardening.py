@@ -60,11 +60,11 @@ def test_24_7_active_workflows_use_node24_compatible_action_generations():
     run = _workflow("run.yml")
     mail = _workflow("mail-trigger.yml")
     assert "actions/checkout@v7.0.1" in run
-    assert "actions/setup-python@v7.0.0" in run
+    assert "actions/setup-python@v7.1.0" in run
     assert "browser-actions/setup-chrome@v2.2.0" in run
     assert "actions/upload-artifact@v7.0.2" in run
     assert "actions/checkout@v7.0.1" in mail
-    assert "actions/setup-python@v7.0.0" in mail
+    assert "actions/setup-python@v7.1.0" in mail
     assert "actions/upload-artifact@v7.0.2" in mail
 
 
