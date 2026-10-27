@@ -27,6 +27,22 @@ env:
   AUTO_BOOK_ENABLED: 'false'
 
 jobs:
+  setup_python_update_regression:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Verify setup-python workflow version expectations
+        run: >-
+          python -m pytest -q
+          tests/test_workflow_auth_hardening.py::test_24_7_active_workflows_use_node24_compatible_action_generations
+
   test:
     if: >-
       github.event_name == 'push' ||
@@ -37,7 +53,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.11'
           cache: pip
@@ -55,7 +71,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.11'
           cache: pip
