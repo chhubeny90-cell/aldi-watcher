@@ -1,94 +1,91 @@
-# Kontrollierter Read-only-Login
+# ALDI-Login: aktueller Status und historischer Nachweis
 
-`aldi_http_login_probe.py` verwendet den vorhandenen HTTP-Client für genau einen
-Passwort-Login. Es gibt keinen Buchungsaufruf, SMS-Versand oder Passwort-Reset.
-Ein Login-Erfolg verlangt die passende Rufnummer im Portal-Cookie und eine
-geschützte, nichtleere Subscription-Antwort. **Tarif und Restvolumen sind damit
-noch nicht nachgewiesen**; der Bericht führt diese Felder ausdrücklich als false.
+## Aktueller Ablauf
 
-## Einmal einrichten
+Der Workflow **ALDI HTTP Login (disabled)** in
+`.github/workflows/http-login.yml` ist auf `main` ausdrücklich deaktiviert.
+Er enthält nur einen Sperrhinweis und endet mit Exit-Code 2. Er lädt keine
+Zugangsdaten und führt weder Anmeldung noch authentifizierte Statusabfrage aus.
+Ein manueller Dispatch wäre deshalb kein neuer Login-Test.
 
-1. Die Zielrufnummer der richtigen SIM als Repository-Secret `ALDI_PROFILE_1_USER`
-   hinterlegen. `ALDI_USER` allein reicht für diesen Workflow nicht. Passwort
-   über `ALDI_PASS` oder verschlüsselt über `ALDI_PASS_ENC` zusammen mit
-   `CREDENTIAL_ENCRYPTION_KEY` hinterlegen.
-   Keine Werte in Chat, Issues oder Logs veröffentlichen.
-2. Vorhandener Journal-/Mailqueue-State muss lesbar, konsistent und ohne offene
-   Vorgänge sein. Fehlender State wird nicht durch eine leere Historie ersetzt.
-   Ein aktiver Auth-Backoff wird nicht gelöscht oder übergangen.
+Die aktuelle Projektregel sieht ohne nachgewiesene ausdrückliche Anbieterfreigabe
+keinen skriptgesteuerten Zugriff auf das geschützte ALDI-Kundenkonto vor. Der
+verbliebene Probe-Code ist historische Implementierung, keine Ausführungsfreigabe.
+Nicht durch direkte Python-Aufrufe, alte Commit-Stände, andere Diagnoseworkflows
+oder das Löschen eines Backoffs ausweichen.
 
-## Login starten und Ergebnis lesen
+Für eine aktuelle Kontoprüfung verwendet der Kontoinhaber selbst die offizielle
+ALDI-TALK-App oder das Portal. Der Abschnitt zur Read-only-Prüfung in
+[der manuellen Prüfanleitung](aldi-safe-manual-live-check.md) beschreibt den
+Abgleich von Ziel-SIM, Tarif, Restvolumen und Angebot. Der aktuelle Arbeitsauftrag
+umfasst keine Buchung; die dort separat beschriebene manuelle Buchung ist keine
+Freigabe dafür.
 
-1. In GitHub unter **Actions → ALDI HTTP Login → Run workflow** den Branch
-   `main` auswählen und den Workflow einmal starten. Es gibt kein zusätzliches
-   Bestätigungsfeld und keinen vorgeschriebenen Browser-/App-Login davor.
-2. Nach dem Lauf die deutsche Zusammenfassung auf der Workflow-Seite lesen.
-   Sie zeigt Erfolg oder Abbruchgrund und den nächsten Schritt. Fehlende
-   Einrichtung wird mit den benötigten Secret-Namen erklärt. Bei aktivem
-   Warteabstand steht der früheste nächste Versuch in UTC dabei.
+Für eine Rückmeldung genügen Zeitpunkt mit Zeitzone, die Aussage „richtige SIM
+geprüft“, der angezeigte Tarif, Restvolumen mit Einheit sowie Angebots- und
+Kostenhinweise. Keine Rufnummern, Passwörter, SMS-Codes, Cookies oder Token teilen.
+Eine solche Rückmeldung ist eine Betreiberangabe, kein automatisierter Nachweis.
 
-Ein manueller Start autorisiert genau einen lesenden Loginversuch. Bei einer
-gemeldeten Kontosperre diese über den offiziellen ALDI-Weg klären; der Workflow
-entsperrt kein Konto und wiederholt den Login nicht automatisch.
+## Historischer Cloud-Login vom 25.10.2026
 
-Vor jedem ALDI-Kontakt reserviert der Probe einen **24-Stunden-Backoff** im
-bestehenden öffentlichen, nichtidentifizierenden Auth-State. Die Aktualisierung
-verwendet den zuvor gelesenen Datei-SHA als Compare-and-swap und wird anschließend
-zurückgelesen. Nur bei bestätigter Reservation beginnt der Login. Dafür benötigt
-allein dieser manuelle Job `contents: write`; Checkout speichert keine Credentials.
-Es werden keine neuen Zugangs- oder Zahlungsdaten gespeichert.
+[Run 40241870678](https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40241870678)
+wurde auf Commit `be50fb8e0ba24966d162731d017116f393843dd6` erfolgreich beendet.
+Das in [Issue #116](https://github.com/chhubeny90-cell/aldi-watcher/issues/116)
+festgehaltene damalige bereinigte Protokoll dokumentiert:
 
-Konflikte, unklare Schreibantworten, geänderte Queue, aktive Sperre und Lesefehler
-führen zum Abbruch ohne ALDI-Kontakt. `reservation_status=unconfirmed` bedeutet:
-Die Reservation könnte bereits gespeichert sein; nachsehen, nicht erneut starten.
-Die Reservation bleibt nach Fehler, Timeout und Erfolg erhalten. Keine automatische
-Wiederholung, keine Backoff-Overrides und keine erneuten Jobversuche. Pushes und
-Commit-Marker starten diesen Login nicht mehr.
+- `outcome=login_verified`, `login_ok=true`, `account_match=true`;
+- eine geschützte Subscription und einen Credential-Submit;
+- `booking_clicks=0`, `read_only=true`, bestätigte Auth-Reservation;
+- `tariff_loaded=false`, `remaining_volume_loaded=false`.
 
-Die Sperre schützt Pfade, die denselben Auth-State beachten. Andere historische
-Diagnoseworkflows lesen ihn bisher nicht durchgängig; sie dürfen nicht parallel
-als Ersatz für diesen kontrollierten Ablauf verwendet werden. Der Datei-CAS ist
-keine atomare Transaktion über sämtliche unabhängigen Queue-Dateien.
+Dieser historische Account-/Subscription-Nachweis belegt weder den heutigen
+Sitzungszustand noch Tarif, Restvolumen, Gratisangebot oder Buchungsbereitschaft.
+Er ersetzt insbesondere nicht die Prüfung neuerer Main-Commits. Ein grüner
+Jobstatus allein ist kein Ersatz für den strukturierten Ergebnisbericht.
 
-## Nachweise und Grenzen
+Der frühere Hinweis auf ein fehlendes Zielkonto aus dem Voraussetzungenlauf vom
+23.10.2026 ist historisch; er darf nicht ohne neue Prüfung als heutiger Blocker
+übernommen werden. Damalige Secret-Präsenz beweist ebenso wenig heutige Gültigkeit.
 
-Der JSON-Bericht enthält feste Fehlercodes, Phasen, Commit/Run-Zuordnung,
-strukturelle Ergebnisse und `booking_clicks=0`. Das optionale Feld `retry_after`
-enthält bei aktivem Abstand oder begonnener Reservierung den zugehörigen
-Zeitpunkt in UTC. Bei unbestätigter Reservierung ist dies kein Nachweis, dass
-der Zustand gespeichert wurde oder ein weiterer Versuch bereits zulässig ist.
-Cookies, Token, Rufnummer, Passwort, Tariftext und Kontoantworten bleiben im Speicher.
+## Voraussetzungen ohne ALDI-Kontakt prüfen
 
-Ein abschließender Schritt mit `if: always()` schreibt die deutsche Anzeige
-über `GITHUB_STEP_SUMMARY`; der JSON-Bericht bleibt als Artefakt erhalten.
-Fehlt der Bericht nach Timeout oder Abbruch oder ist er unlesbar, lautet das
-Ergebnis ausdrücklich **„Login nicht bestätigt“**. Den gespeicherten Zustand
-zuerst prüfen, statt sofort erneut zu starten. Wird der gesamte Job hart beendet,
-kann auch dieser abschließende Schritt ausfallen; eine fehlende Zusammenfassung
-ist ebenfalls kein Erfolgsnachweis. Unbekannte Fehler werden allgemein erklärt;
-die Zusammenfassung übernimmt keine freien Anbieter- oder Fehlermeldungen.
+Der bestehende Workflow **WATCH Read-only Live Prerequisites** kann mit
+`private_runtime=false` Konfigurations-Booleans und den gespeicherten
+GitHub-Journal-/Queue-Zustand prüfen. Er meldet sich nicht bei ALDI an und ersetzt
+keinen geschützten Kontoabruf. Der private Runner wird dabei nicht gestartet.
 
-Der Voraussetzungenlauf vom 23.10.2026:
-https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40007371792
-bestätigte nur Konfigurationspräsenz und gespeicherten Zustand. Konto und Passwort
-waren grundsätzlich konfiguriert; das dedizierte Zielkonto fehlte. Der gespeicherte
-Backoff war abgelaufen. Das beweist weder aktuelle Zugangsdaten-Gültigkeit noch
-eine aktuelle oder aufgehobene Kontosperre. Kein ALDI-Login wurde dabei versucht.
+Nur sichere Präsenzwerte, feste Statuscodes und strukturelle Zähler auswerten.
+Fehlende oder unlesbare Historie nicht durch einen leeren Zustand ersetzen.
+Aktive Auth-Sperren nicht löschen oder umgehen. Ein abgelaufener Backoff beweist
+weder eine aufgehobene Provider-Kontosperre noch die Zulässigkeit eines Logins.
+Neue Zugangsdaten allein aktivieren keinen deaktivierten Workflow.
 
-`docs/live-login-status-2026-10-16.md` dokumentiert einen historischen **lokalen**
-Login. Das ist kein aktueller Cloud-Login; die historischen Cloud-Fehlerartefakte
-sind nicht mehr verfügbar. Ein frischer Login und anschließend ein separat
-abgesicherter Tarif-/Volumenabruf bleiben erforderlich. Buchungen und Tarifwechsel
-bleiben außerhalb dieses Auftrags.
+## Verbliebene Implementierung
+
+`aldi_http_login_probe.py` enthält weiterhin den früheren Einmal-Login mit
+Zielkonto-Prüfung, bestehendem Journal-/Queue-Abgleich und einer vorab per
+Datei-SHA-CAS reservierten 24-Stunden-Sperre. Unbestätigte Schreibvorgänge,
+Konflikte und unbekannte Ergebnisse dürfen nicht durch Wiederholung aufgelöst
+werden. Die Reservation gilt nur für kooperierende Pfade; sie ist keine atomare
+Transaktion über alle unabhängigen Queue-Dateien.
+
+`AldiHttpLogin.verify_session(phone)` ist ein technischer Baustein für geschützte
+GETs ohne neue Passwortübermittlung. Auch diese Requests greifen auf das
+Kundenkonto zu und sind durch den aktuellen Projektstand nicht zur Ausführung
+freigegeben. Die Existenz des Codes beweist keinen laufenden Dienst.
+
+Eine künftige Aktivierung benötigt zunächst die nachgewiesene Anbieterfreigabe
+und danach eine gesonderte technische Sicherheitsprüfung auf dem aktuellen
+Commit. Dieser Text erteilt weder diese Freigabe noch eine Buchungsfreigabe.
 
 ## Protokollreferenz
+
+Historische Implementierungsreferenz:
 
 - https://github.com/JonasJoKuJonas/homeassistant-AldiTalk
 - Revision `8d0b432e61094c4dc316b04c4180d276be577e41` (2026-09-02)
 - `custom_components/aldi_talk/aldi_talk.py`, MIT-Hinweis:
   `third_party/homeassistant-alditalk-LICENSE.txt`
 
-Der Client verarbeitet bekannte ForgeRock-Callbacks und die dokumentierte
-Rechenaufgabe. Credential-POSTs folgen keinen Weiterleitungen; GET-Weiterleitungen
-werden auf die bekannten HTTPS-ALDI-Hosts beschränkt. Unbekannte zusätzliche
-Authentifizierungsanforderungen führen zum Abbruch.
+Diese Referenz beschreibt Technik und begründet keine Erlaubnis, den derzeitigen
+Sperrhinweis des Projekts zu umgehen.
