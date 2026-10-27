@@ -415,11 +415,11 @@ def test_probe_report_flows_into_actions_summary(guarded, scenario, expected):
 
 def test_disabled_workflow_cannot_contact_provider_or_write_repository_state():
     text = WORKFLOW.read_text()
-    triggers = text.split("on:\\n", 1)[1].split("permissions:\\n", 1)[0]
+    triggers = text.split("on:\n", 1)[1].split("permissions:\n", 1)[0]
     assert "workflow_dispatch:" in triggers
     assert "push:" not in triggers and "schedule:" not in triggers and "pull_request:" not in triggers
-    assert "permissions:\\n  contents: none\\n" in text
-    assert "jobs:\\n  blocked:" in text
+    assert "permissions:\n  contents: none\n" in text
+    assert "jobs:\n  blocked:" in text
     assert "ALDI_USER:" not in text
     assert "ALDI_PASS:" not in text
     assert "python aldi_http_login_probe.py" not in text
