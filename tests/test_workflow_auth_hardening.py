@@ -78,12 +78,12 @@ def test_disabled_workflows_have_no_provider_credentials_or_browser_runtime():
 
 def test_login_diagnostics_workflow_is_explicitly_disabled():
     text = _workflow("login-format.yml")
-    triggers = text.split("\\non:", 1)[1].split("\\npermissions:", 1)[0]
+    triggers = text.split("\non:", 1)[1].split("\npermissions:", 1)[0]
     assert "workflow_dispatch:" in triggers
     assert "push:" not in triggers and "schedule:" not in triggers and "pull_request:" not in triggers
     assert "ALDI Login Format Diagnostics (disabled)" in text
-    assert "permissions:\\n  contents: none\\n" in text
-    assert "jobs:\\n  blocked:" in text
+    assert "permissions:\n  contents: none\n" in text
+    assert "jobs:\n  blocked:" in text
     assert "secrets." not in text
     assert "python aldi_public_login_controls.py" not in text
     assert "no provider request was made" in text
