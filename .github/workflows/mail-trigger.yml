@@ -21,13 +21,18 @@ jobs:
       ALDI_STATE_PATH: .aldi-state/profile-1.json
       ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements/mail-monitor.txt
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements/mail-monitor.txt
       - name: Poll usage mailboxes without ALDI portal access
         id: monitor
         continue-on-error: true
@@ -35,6 +40,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
           ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}
+          ALDI_STATE_PATH: .aldi-state/profile-1.json
           MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
           MAILBOX_1_PORT: ${{ secrets.MAILBOX_1_PORT }}
           MAILBOX_1_USER: ${{ secrets.MAILBOX_1_USER }}
@@ -43,10 +49,11 @@ jobs:
           MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
           MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
           MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
+          ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
         run: python usage_mail_notify.py
       - name: Preserve sanitized usage-alert report
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aldi-usage-alert-${{ github.run_id }}-${{ github.run_attempt }}
           path: aldi-usage-alert.json
