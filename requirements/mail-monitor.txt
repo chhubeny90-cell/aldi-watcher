@@ -1,0 +1,7 @@
+# Install only the mail monitor's runtime dependencies. Keep the version policy
+# in the existing root requirements; constraints do not install unrelated tools.
+-c ../requirements.txt
+requests
+# Imported by core/__init__.py even in the mail-only process.
+python-dotenv
+cryptography
