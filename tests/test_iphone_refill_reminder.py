@@ -20,4 +20,4 @@ def test_does_not_repeat_unknown_delivery(tmp_path, monkeypatch):
 
 def test_rejects_line_breaks_in_id(tmp_path):
     with pytest.raises(ValueError):
-        notify("id\\nunsafe", tmp_path / "notifications.db")
+        notify("id\nunsafe", tmp_path / "notifications.db")
