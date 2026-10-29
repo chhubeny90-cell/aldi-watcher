@@ -1,47 +1,87 @@
-# Assisted iPhone refill — real alternative to blocked portal automation
+# iPhone-Assisted Refill: providerfreier Benachrichtigungsweg
 
-This is a **human-confirmed** handoff, not disguised unattended portal automation.
-The watcher's verified consumed-volume mail event can produce a single reminder,
-but the official ALDI TALK app must be opened and used by the account holder.
+## Was dieser Branch nach der Übernahme kann
 
-## What is implemented
-`scripts/iphone_refill_reminder.py` takes a stable, deduplicated event ID from
-the existing mail monitor and sends an ordinary email reminder using the
-existing `ALDI_NOTIFY_*` SMTP settings. It records the event in persistent SQLite
-before delivery. A failed/ambiguous SMTP result becomes `unknown`: **never
-resend automatically**, to avoid duplicate prompts. No credentials or tokens
-appear in the message; no ALDI portal request is sent.
+1. Der stündliche Mailmonitor liest neue ALDI-TALK-Verbrauchsmails über IMAP.
+2. Nur eine **neue, bereits klassifizierte Verbrauchsmail** erzeugt einen
+   HMAC-geschützten Outbox-Eintrag auf dem vorhandenen GitHub-State-Branch.
+   80-%-Warnungen erzeugen **keine** Refill-Benachrichtigung.
+3. Der separate SMTP-Schritt versucht bis zu fünf offene Erinnerungen je Lauf.
+4. Mit der Mail auf dem iPhone öffnet der Nutzer per Home-Screen-Kurzbefehl die
+   offizielle ALDI-TALK-App, prüft Konto, Tarif, genau 1 GB und 0,00 €, und
+   drückt **selbst** bei eindeutiger Berechtigung einmal den Refill-Button.
 
-Example, on a private persistent host after a **real consumed event**:
+**Kein** Browser-Bot, SMS-Versand, API-Nachbuchung, automatischer Refill,
+Portal-Zugang, ALDI-Login oder Anbieterbeleg ist Teil dieses Wegs.
+SMTP_ACCEPTED bedeutet Annahme durch den Mailserver, nicht Empfang auf
+dem iPhone oder erfolgte Nachbuchung.
 
-```bash
-export ALDI_NOTIFY_DB=/var/lib/aldi-watcher/iphone-notifications.db
-python -m scripts.iphone_refill_reminder --event-id '<stable monitored message id>'
+## Administrator-Konfiguration (auf main nach geprüfter Übernahme)
+
+In GitHub > Settings > Secrets and variables > Actions:
+
+- Repository variable **`ALDI_IPHONE_NOTIFY_ENABLED=true`** erst setzen, nachdem
+  Mailmonitor und SMTP-Konfiguration nachgewiesen sind. Ohne diese Variable
+  bleibt der Sender deaktiviert und der bestehende Mailmonitor unverändert.
+- IMAP: `MAILBOX_1_USER`, `MAILBOX_1_PASS` und bei Bedarf `MAILBOX_1_HOST`
+  (analog `MAILBOX_2_*`), sowie unveränderter `ALDI_RECOVERY_KEY` oder
+  korrekt konfigurierter `ALDI_STATE_ENCRYPTION_KEY` für die Erkennung.
+- SMTP: `ALDI_NOTIFY_SMTP_HOST`, `ALDI_NOTIFY_SMTP_USER`,
+  `ALDI_NOTIFY_SMTP_PASS`, `ALDI_NOTIFY_FROM`,
+  `ALDI_REFILL_RECIPIENTS` als GitHub Actions Secrets; optional
+  `ALDI_NOTIFY_SMTP_PORT` (Standard 465, SSL).
+- Das standardmäßig genutzte `GITHUB_TOKEN` benötigt die bereits vorhandene
+  `contents: write`-Berechtigung zur atomaren Outbox-Speicherung.
+
+Die Zugangsdaten müssen nicht in Chat, Issue oder Logs kopiert werden.
+Ein grüner CI-Lauf beweist **keine** erfolgreiche Mailzustellung.
+
+**Vor dem Einschalten:** Prüfen, ob alte Verbrauchsmails bereits über den
+Legacy-Trigger oder die Mail-Handoff-Queue historisiert wurden. Der neue
+Notifier respektiert diese Historie. Eine Mail wird niemals allein anhand
+eines Postfachindex einer SIM zugeordnet.
+
+## iPhone einrichten
+
+1. App **Kurzbefehle** öffnen, neuen Kurzbefehl `ALDI 1 GB` erstellen.
+2. Aktion **App öffnen** hinzufügen, als App ALDI TALK wählen.
+3. Kurzbefehl zum Home-Bildschirm hinzufügen.
+4. Mail-Benachrichtigungen für den vorgesehenen Empfänger aktivieren.
+5. Bei einer Verbrauchsmeldung den Kurzbefehl öffnen. Im **offiziellen**
+   Konto SIM, Tarif und eindeutig kostenlosen 1-GB-Refill prüfen; nur
+   anschließend **selbst einmal** auslösen.
+
+Kein koordinatenbasierter Autoklick und kein unbekannter URL-Scheme-Deep-Link.
+
+## Zustandsmodell und Fehler
+
+Die Datei `<ALDI_STATE_PATH>.iphone-notifications.json` auf dem
+State-Branch enthält ausschließlich HMAC-Fingerprints und
+`READY → SENDING → SMTP_ACCEPTED` beziehungsweise `UNKNOWN`.
+
+- Doppelte Mailidentitäten erzeugen nicht erneut einen Eintrag.
+- Ein Fehler vor SMTP-Versandkonfiguration lässt `READY` unangetastet.
+- SMTP-Fehler nach Beginn von `SENDING` führen zu `UNKNOWN` statt zu
+  einem automatischen zweiten Versuch.
+- Ein Runner-Absturz während `SENDING` bleibt ebenfalls blockiert;
+  erfordert manuelle Prüfung der Mailzustellung.
+- Ist die Queue mit 512 Einträgen voll oder der State-Branch nicht
+  beschreibbar, wird der Monitorfehler sichtbar; es wird nichts gebucht.
+- Keine vollständigen Telefonnummern, E-Mail-Adressen, Mailtexte,
+  Login-Daten oder Session-Token werden auf dem State-Branch gespeichert.
+
+## Offline-Test
+
+```sh
+python -m pytest -q tests/test_iphone_notification_outbox.py tests/test_iphone_refill_reminder.py tests/test_mail_monitor_queue_integration.py tests/test_mail_notification_templates.py
 ```
 
-The database must not be on an ephemeral GitHub runner. Do not wire the command
-directly after a mail-monitor claim until event identity and delivery handoff
-are durably connected; otherwise mail-monitor crashes can lose alerts.
+Die alte `scripts/iphone_refill_reminder.py` bleibt nur als
+**nicht angeschlossener** privater SQLite-Sender erhalten. Der produktive
+GitHub-Workflow verwendet ausschließlich die State-Branch-Outbox und
+`scripts/send_iphone_notifications.py`.
 
-## iPhone quick action
-1. In Apple's **Shortcuts** app, create a shortcut named `ALDI 1 GB`.
-2. Add **Open App** and choose the official ALDI TALK app.
-3. Add the shortcut to the Home Screen. Leave the login and refill buttons
-   inside the official app. No unverified URL scheme or screen-coordinate tap.
-4. Enable email notifications for the reminder sender. When an actual consumed
-   alert arrives, use the Home Screen shortcut, verify the target SIM, tariff,
-   exactly 1 GB and explicit **0.00 EUR**; tap the refill button yourself **once**.
-5. Confirm completion in the official provider interface. At an unknown outcome
-   do not tap twice.
-
-This is a manual booking, and the shortcut merely opens the app. A fully
-autonomous ALDI button press is *not* delivered.
-
-## Remaining wiring
-- Persistently map actual consumed mail IDs to target account without guessing.
-- Integrate a durable monitor-to-reminder outbox (the current monitor claims
-  before downstream delivery; adding a naïve notification step loses events).
-- Prove SMTP configuration and test a reminder on a private host.
-- Obtain authorized provider integration before attempting autonomous booking.
-
-No automatic booking, CI deployment, provider login, or live run is implied.
+**Freigabestand:** Nach Merge und Einrichtung des SMTP-/IMAP-Zugangs darf
+höchstens die Erinnerung aktiviert werden. Ein einziger tatsächlicher
+Mail-Empfang auf dem iPhone muss separat nachgewiesen werden. Die
+Buchung bleibt vom Kontoinhaber manuell bestätigt.
