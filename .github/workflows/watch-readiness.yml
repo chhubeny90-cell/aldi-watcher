@@ -41,7 +41,10 @@ jobs:
           ENCRYPTION_KEY_CONFIGURED: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY != '' }}
           JOURNAL_PATH_CONFIGURED: ${{ vars.ALDI_JOURNAL_PATH != '' }}
           MAILBOX_CONFIGURED: ${{ (secrets.MAILBOX_1_USER != '' && secrets.MAILBOX_1_PASS != '') || (secrets.MAILBOX_2_USER != '' && secrets.MAILBOX_2_PASS != '') }}
-          MAIL_DEDUP_KEY_CONFIGURED: ${{ secrets.ALDI_RECOVERY_KEY != '' }}
+          RECOVERY_KEY_CONFIGURED: ${{ secrets.ALDI_RECOVERY_KEY != '' }}
+          STATE_ENCRYPTION_KEY_CONFIGURED: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY != '' }}
+          TARGET_SUFFIX_CONFIGURED: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX != '' }}
+          MAIL_DEDUP_KEY_CONFIGURED: ${{ secrets.ALDI_RECOVERY_KEY != '' || secrets.ALDI_STATE_ENCRYPTION_KEY != '' }}
         run: |
           python - <<'PY'
           import json, os
@@ -49,7 +52,9 @@ jobs:
           flags = {name.lower(): os.environ.get(name) == 'true' for name in (
               'ACCOUNT_CONFIGURED', 'EXPECTED_ACCOUNT_CONFIGURED', 'PASSWORD_CONFIGURED',
               'ENCRYPTION_KEY_REQUIRED', 'ENCRYPTION_KEY_CONFIGURED', 'JOURNAL_PATH_CONFIGURED',
-              'MAILBOX_CONFIGURED', 'MAIL_DEDUP_KEY_CONFIGURED')}
+              'MAILBOX_CONFIGURED', 'RECOVERY_KEY_CONFIGURED',
+              'STATE_ENCRYPTION_KEY_CONFIGURED', 'TARGET_SUFFIX_CONFIGURED',
+              'MAIL_DEDUP_KEY_CONFIGURED')}
           report = {'commit': os.environ['GITHUB_SHA'], 'configuration': flags,
                     'status': 'BLOCKED', 'runner_available': 'unverified',
                     'provider_action': False, 'booking_enabled': False,
