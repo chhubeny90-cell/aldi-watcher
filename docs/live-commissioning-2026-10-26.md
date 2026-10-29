@@ -1,5 +1,14 @@
 # Live-Inbetriebnahme – 26. Oktober 2026
 
+> Historischer Bericht, ergänzt am 29.10.2026: Die späteren Security-Änderungen
+> haben automatisierten ALDI-Login, Statusabfragen und Nachbuchungen deaktiviert.
+> Die unten beschriebene gehostete Inbetriebnahme ist kein aktueller
+> Aktivierungsweg. Maßgeblich sind die [aktuelle Sitzungsdokumentation](github-session-runtime.md)
+> und die [manuelle Kontoprüfung](aldi-safe-manual-live-check.md).
+> Der Mailmonitor-Lauf vom 29.10.2026 meldete weiterhin `dedup_key_missing`
+> und eine fehlgeschlagene IMAP-Anmeldung; es gab keinen Anbieterzugriff:
+> https://github.com/chhubeny90-cell/aldi-watcher/actions/runs/40918197170
+
 Gesamtstatus zum Zeitpunkt dieser Dokumentation: **nicht betriebsbereit**.
 Konfiguration, historische Nachweise und aktuelle Aktionen werden getrennt bewertet.
 

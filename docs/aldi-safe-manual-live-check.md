@@ -13,7 +13,7 @@ Deshalb führen GitHub Actions und Watcher-Code keinen ALDI-Login, authentifizie
 ## Read-only-Prüfung durch den Kontoinhaber
 
 1. Öffne selbst die offizielle ALDI-TALK-App oder gib die offizielle Portaladresse manuell ein. Melde dich dort selbst an. Gib Passwort und SMS-/2FA-Code niemals in Chat, GitHub, ein Skript oder einen Workflow ein.
-2. Prüfe im angemeldeten Konto, dass es die vorgesehene SIM ist. Für den Abgleich außerhalb des Kontos nur die Endziffern **1869** notieren; vollständige Rufnummer nicht in GitHub, Screenshots oder Logs speichern.
+2. Prüfe im angemeldeten Konto anhand deiner privat hinterlegten Zielrufnummer, dass es die vorgesehene SIM ist. Teile außerhalb des Kontos nur mit, ob die Zuordnung stimmt; weder vollständige Rufnummer noch Endziffern in GitHub, Screenshots oder Logs speichern.
 3. Notiere den angezeigten Tarif exakt und das aktuell verbleibende Highspeed-Volumen. Tarif S allein belegt keine Unlimited-Berechtigung.
 4. Falls ein 1-GB-Angebot erscheint, prüfe den vollständigen Angebotskontext und Preis. Nur ein eindeutig für dieses Konto angezeigtes Angebot mit **genau 1 GB** und **0,00 €** besteht diese Preisprüfung. Ein fehlender Preis, „kostenlos“ ohne Betrag, ein positiver Betrag oder ein Hinweis auf Guthabenabzug bedeutet: **stoppen, nichts anklicken**.
 5. Prüfe, dass keine Kontosperre oder offene, ungeklärte Buchung angezeigt wird. Bei Sperre oder unklarem Zustand keine weiteren Loginversuche und keine Buchung.
