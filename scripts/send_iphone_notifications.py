@@ -54,8 +54,8 @@ def _send(settings):
         # SMTP can accept some recipients while explicitly refusing others.
         # Do not label that partial delivery as success, and never retry:
         # recipients already accepted may otherwise receive duplicates.
-        if refused:
-            raise RuntimeError("smtp_partial_recipient_refusal")
+        if not isinstance(refused, dict) or refused:
+            raise RuntimeError("smtp_acceptance_unverified")
 
 
 def drain(max_items=5):
