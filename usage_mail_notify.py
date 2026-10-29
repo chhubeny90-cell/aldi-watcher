@@ -23,6 +23,7 @@ from pathlib import Path
 
 from github_hardening_state import claim_trigger_key
 from core.mail_handoff_queue import enqueue_consumed, _legacy_seen
+from core import iphone_notification_outbox
 import core.mail_handoff_queue as handoff_queue
 from usage_mail_bridge import (_mailboxes, _message_key, _legacy_message_key,
                                _signal)
@@ -104,10 +105,18 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
                 is_new = enqueue(message_key, signal,
                                  legacy_message_key=_legacy_message_key(message, raw))
             elif signal == "consumed":
-                # This notification may wake a fresh portal check; it never
-                # reserves a provider operation or marks one completed.
-                is_new = (not _notification_seen(message_key, _legacy_message_key(message, raw))
-                          and claim(message_key))
+                # Assisted mode queues a durable *notification* before UID cursor
+                # advance. No ALDI login, provider action, or booking is invoked.
+                if os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() == "true":
+                    is_new = (
+                        not _notification_seen(message_key, _legacy_message_key(message, raw))
+                        and iphone_notification_outbox.enqueue(message_key)
+                    )
+                else:
+                    is_new = (
+                        not _notification_seen(message_key, _legacy_message_key(message, raw))
+                        and claim(message_key)
+                    )
             else:
                 # Preserve retained legacy fingerprints before claiming a v2
                 # warning/confirmation, just as for consumed mail. History failures abort.
@@ -248,7 +257,9 @@ def main():
                               ("order_notifications", "order_received")):
             report[field] = sum(item.get("signal") == signal for item in report["alerts"])
         report["provider_check_requested"] = (
-            report["trigger_policy"] == "portal_check" and report["actionable_alerts"] > 0)
+            report["trigger_policy"] == "portal_check"
+            and report["actionable_alerts"] > 0
+            and os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() != "true")
         return 2 if report["failed_mailboxes"] and not report["alerts"] else 0
     finally:
         report["finished_at"] = _now()

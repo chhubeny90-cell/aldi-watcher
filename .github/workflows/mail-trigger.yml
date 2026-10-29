@@ -33,6 +33,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALDI_IPHONE_NOTIFY_ENABLED: ${{ vars.ALDI_IPHONE_NOTIFY_ENABLED }}
           ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}
           ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}
           MAILBOX_1_HOST: ${{ secrets.MAILBOX_1_USER && (secrets.MAILBOX_1_HOST || 'imap.gmail.com') || '' }}
@@ -44,6 +45,19 @@ jobs:
           MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
           MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
         run: python usage_mail_notify.py
+      - name: Deliver queued iPhone refill reminders (no provider action)
+        if: ${{ always() && vars.ALDI_IPHONE_NOTIFY_ENABLED == 'true' }}
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALDI_STATE_PATH: .aldi-state/profile-1.json
+          ALDI_NOTIFY_SMTP_HOST: ${{ secrets.ALDI_NOTIFY_SMTP_HOST }}
+          ALDI_NOTIFY_SMTP_PORT: ${{ secrets.ALDI_NOTIFY_SMTP_PORT }}
+          ALDI_NOTIFY_SMTP_USER: ${{ secrets.ALDI_NOTIFY_SMTP_USER }}
+          ALDI_NOTIFY_SMTP_PASS: ${{ secrets.ALDI_NOTIFY_SMTP_PASS }}
+          ALDI_NOTIFY_FROM: ${{ secrets.ALDI_NOTIFY_FROM }}
+          ALDI_REFILL_RECIPIENTS: ${{ secrets.ALDI_REFILL_RECIPIENTS }}
+        run: python -m scripts.send_iphone_notifications
       - name: Preserve sanitized usage-alert report
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -76,7 +90,7 @@ jobs:
                   print(f'::warning title=ALDI refill ready::{actionable} consumed-volume signal(s) detected; no provider action dispatched.')
               raise SystemExit(2)
           if actionable:
-              print(f'::notice title=ALDI consumption signal::{actionable} new notification(s); a separate authenticated portal check decides eligibility.')
+              print(f'::notice title=ALDI consumption signal::{actionable} new consumption notification(s); no provider action dispatched.')
           if early:
               print(f'ALDI early warning only: {early} 80-percent signal(s); no activation link yet.')
           else:
