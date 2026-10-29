@@ -89,6 +89,10 @@ def _valid_remaining(value):
 def _explicit_zero_price_offer(evidence):
     """Live actions require an explicit free price, not tariff entitlement alone."""
     return (evidence.get('refill_eligible') is True
+            and evidence.get('refill_type') == 'FREE_UNLIMITED'
+            and type(evidence.get('refill_candidate_count')) is int
+            and evidence['refill_candidate_count'] == 1
+            and bool(evidence.get('tariff_evidence'))
             and evidence.get('free_evidence') == 'explicit_free_offer')
 
 

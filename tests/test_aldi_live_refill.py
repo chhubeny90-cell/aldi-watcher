@@ -687,3 +687,26 @@ def test_journal_wide_aldi_executor_lock_blocks_before_browser_start(monkeypatch
         assert live.main() == 2
     build.assert_not_called()
     assert json.loads((tmp_path / 'report.json').read_text())['outcome'] == 'recharge_locked'
+
+
+@pytest.mark.parametrize("field,value", [
+    ("refill_type", "UNKNOWN"),
+    ("refill_type", None),
+    ("refill_candidate_count", 0),
+    ("refill_candidate_count", 2),
+    ("refill_candidate_count", True),
+    ("refill_candidate_count", "1"),
+    ("tariff_evidence", None),
+    ("tariff_evidence", ""),
+    ("free_evidence", "official_unlimited_entitlement"),
+])
+def test_free_refill_click_gate_rejects_incomplete_evidence(field, value):
+    evidence, _ = _eligible(Mock())
+    evidence[field] = value
+    assert live._explicit_zero_price_offer(evidence) is False
+
+
+def test_free_refill_click_gate_requires_one_unique_priced_candidate():
+    evidence, _ = _eligible(Mock())
+    assert live._explicit_zero_price_offer(evidence) is True
+    assert live._explicit_zero_price_offer({}) is False
