@@ -66,14 +66,20 @@ def test_workflow_keeps_dedup_key_independent_of_rotating_mailbox_passwords():
     assert key_line == "ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}"
 
 
-def test_mail_and_session_secrets_are_only_given_to_the_poller():
+def test_mail_and_smtp_secrets_are_scoped_to_separate_steps():
     text = Path(".github/workflows/mail-trigger.yml").read_text(encoding="utf-8")
     before, poller = text.split("      - name: Poll usage mailboxes without ALDI portal access\n", 1)
-    poller, after = poller.split("      - name: Preserve sanitized usage-alert report\n", 1)
+    poller, sender = poller.split("      - name: Deliver queued iPhone refill reminders (no provider action)\n", 1)
+    sender, after = sender.split("      - name: Preserve sanitized usage-alert report\n", 1)
     assert "secrets." not in before and "secrets." not in after
     assert "ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}" in poller
     assert "MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}" in poller
-    assert "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in poller
+    assert "ALDI_NOTIFY_SMTP_PASS" not in poller
+    assert "ALDI_NOTIFY_SMTP_PASS: ${{ secrets.ALDI_NOTIFY_SMTP_PASS }}" in sender
+    assert "MAILBOX_1_PASS" not in sender
+    assert "ALDI_STATE_ENCRYPTION_KEY" not in sender
+    assert "ALDI_PASS" not in text and "ALDI_USER:" not in text
+    assert "vars.ALDI_IPHONE_NOTIFY_ENABLED == 'true'" in sender
 
 
 @pytest.mark.parametrize("index", [1, 2])
