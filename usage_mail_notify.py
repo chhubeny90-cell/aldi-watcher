@@ -99,24 +99,24 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
             if signal is None:
                 continue
             message_key = _message_key(message, raw)
-            if signal == "consumed" and policy == "consumed_only":
+            if signal == "consumed" and os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() == "true":
+                # Explicit iPhone opt-in takes precedence over legacy trigger
+                # policy. Record durably before UID progress even if the policy
+                # was omitted and defaults to consumed_only.
+                is_new = (
+                    not _notification_seen(message_key, _legacy_message_key(message, raw))
+                    and iphone_notification_outbox.enqueue(message_key)
+                )
+            elif signal == "consumed" and policy == "consumed_only":
                 # Reserve the actionable event durably before reporting it.
                 # No provider action is dispatched from this monitor.
                 is_new = enqueue(message_key, signal,
                                  legacy_message_key=_legacy_message_key(message, raw))
             elif signal == "consumed":
-                # Assisted mode queues a durable *notification* before UID cursor
-                # advance. No ALDI login, provider action, or booking is invoked.
-                if os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() == "true":
-                    is_new = (
-                        not _notification_seen(message_key, _legacy_message_key(message, raw))
-                        and iphone_notification_outbox.enqueue(message_key)
-                    )
-                else:
-                    is_new = (
-                        not _notification_seen(message_key, _legacy_message_key(message, raw))
-                        and claim(message_key)
-                    )
+                is_new = (
+                    not _notification_seen(message_key, _legacy_message_key(message, raw))
+                    and claim(message_key)
+                )
             else:
                 # Preserve retained legacy fingerprints before claiming a v2
                 # warning/confirmation, just as for consumed mail. History failures abort.
