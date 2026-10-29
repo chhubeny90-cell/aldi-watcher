@@ -28,7 +28,7 @@ def _state():
         if (not isinstance(key, str) or len(key) != 64
                 or any(c not in "0123456789abcdef" for c in key)
                 or not isinstance(item, dict) or set(item) != {"phase", "revision"}
-                or item["phase"] not in PHASES
+                or type(item["phase"]) is not str or item["phase"] not in PHASES
                 or type(item["revision"]) is not int or item["revision"] < 0):
             raise RuntimeError("iphone_outbox_invalid")
     return sha, events
