@@ -153,7 +153,7 @@ def _mailbox_error(exc):
 
 
 def _probe_one(index, host, port, user, password):
-    """Check connection only when durable message deduplication is unavailable."""
+    """Verify IMAP login and readonly INBOX without message or durable-state access."""
     result = {"mailbox": index, "login_ok": False, "readonly_inbox_ok": False,
               "message_processing": False, "error": None}
     try:
@@ -185,6 +185,7 @@ def main():
         "configured_mailboxes": 0,
         "dedup_key_configured": False,
         "dedup_key_source": "missing",
+        "connection_only": os.getenv("ALDI_MAIL_CONNECTION_ONLY", "").strip().lower() == "true",
         "configuration_error": None,
         "new_alerts": 0,
         "actionable_alerts": 0,
@@ -229,14 +230,15 @@ def main():
         if not mailboxes:
             report["configuration_error"] = "no_mailboxes_configured"
             return 2
-        if not report["dedup_key_configured"]:
-            report["configuration_error"] = "dedup_key_missing"
+        if not report["dedup_key_configured"] or report["connection_only"]:
+            if not report["dedup_key_configured"]:
+                report["configuration_error"] = "dedup_key_missing"
             for config in mailboxes:
                 result = _probe_one(*config)
                 report["mailbox_connectivity"].append(result)
                 if result["error"] is not None:
                     report["failed_mailboxes"].append({"mailbox": config[0], "error": result["error"]})
-            return 2
+            return 2 if report["configuration_error"] or report["failed_mailboxes"] else 0
         for config in mailboxes:
             try:
                 report["alerts"].extend(_poll_one(*config, scan_reports=report["mailbox_scans"]))
@@ -268,6 +270,7 @@ def main():
             "configured_mailboxes": report["configured_mailboxes"],
             "dedup_key_configured": report["dedup_key_configured"],
             "dedup_key_source": report["dedup_key_source"],
+            "connection_only": report["connection_only"],
             "configuration_error": report["configuration_error"],
             "new_alerts": report["new_alerts"],
             "actionable_alerts": report["actionable_alerts"],
