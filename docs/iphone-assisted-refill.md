@@ -36,6 +36,13 @@ In GitHub > Settings > Secrets and variables > Actions:
 Die Zugangsdaten müssen nicht in Chat, Issue oder Logs kopiert werden.
 Ein grüner CI-Lauf beweist **keine** erfolgreiche Mailzustellung.
 
+Für die Einrichtung unter **Actions → ALDI Usage Mail Monitor → Run workflow**
+die Option **connection_only** aktivieren. Dieser Modus prüft das Schlüsselformat
+und die IMAP-Anmeldung mit lesendem Öffnen des Posteingangs. Er verarbeitet keine
+Nachrichten, ändert keine Erkennungshistorie und überspringt den SMTP-Versand auch
+bei aktivierter Erinnerungsvariable. Ein erfolgreicher Verbindungstest beweist
+keinen Nachrichtenabruf oder Mailversand.
+
 **Vor dem Einschalten:** Prüfen, ob alte Verbrauchsmails bereits über den
 Legacy-Trigger oder die Mail-Handoff-Queue historisiert wurden. Der neue
 Notifier respektiert diese Historie. Eine Mail wird niemals allein anhand
