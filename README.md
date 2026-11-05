@@ -85,7 +85,7 @@ playwright install chromium
 ## Features
 
 - **ALDI Talk**: HTTP/API-basierte Überwachung
-- **Lidl Connect**: Hybrid-Ansatz (API + Playwright Fallback)
+- **Lidl Connect**: Browser-Modus; unbestätigte API-Zugriffe deaktiviert
 - **Sicherheit**: Fernet-Verschlsselung (.secret.key) mit .env-Fallback
 - **Safety-First**: DRY_RUN-Modus (default) verhindert echte Transaktionen
 - **Resilienz**: Fehler-isolierte Watcher, exponentieller Backoff für Captchas/Timeouts
@@ -148,7 +148,7 @@ aldi-watcher/
 │   ├── __init__.py
 │   ├── base_watcher.py  # BaseWatcher-Interface
 │   ├── aldi_talk.py     # ALDI Talk Plugin
-│   └── lidl_connect.py  # Lidl Connect Plugin (API + Playwright Fallback)
+│   └── lidl_connect.py  # Lidl-Browser-Plugin; API deaktiviert
 ├── tests/
 │   ├── __init__.py
 │   ├── test_aldi_talk.py
@@ -216,7 +216,7 @@ Eine erfolgreiche Buchung sperrt weitere LIDL-Buchungen für 30 Minuten.
 Ungeklärte `PENDING`/`UNKNOWN` bleiben über Neustarts gesperrt, bis ihr tatsächliches
 Ergebnis überprüft und in der persistenten DB korrekt abgeglichen wurde.
 
-Konfiguration: `LIDL_USE_API=false`, `LIDL_REFILL_MODE=available` sowie:
+Konfiguration: `LIDL_USE_API=false` (API-Modus ist technisch gesperrt), `LIDL_REFILL_MODE=available` sowie:
 
 | Variable | Erforderliche Quelle im angemeldeten Konto |
 | --- | --- |
@@ -227,10 +227,9 @@ Konfiguration: `LIDL_USE_API=false`, `LIDL_REFILL_MODE=available` sowie:
 
 Es gibt keine erfundenen Standardselektoren für diese geschützten Konto-Elemente.
 Sie müssen aus einer erfolgreichen Anmeldung und einem beobachteten Kontoflow
-stammen. Die bisherigen API-Endpunkte und die Angaben zu Verbrauchskacheln sind
-Altbestand und nicht live verifiziert. API-Verbrauchsabfragen können optional
-weiter getestet werden; API-Buchungen sind gesperrt, weil das frühere Auswählen
-des ersten DATA-Tarifs eine kostenpflichtige Option buchen konnte.
+stammen. Die bisherigen API-Endpunkte waren unbestätigte Annahmen und wurden entfernt.
+API-Login, API-Verbrauchsabfrage und API-Buchung sind deaktiviert. Die Browser-Selektoren
+bleiben zu validieren; sie sind kein Nachweis einer funktionierenden Live-Verbindung.
 
 Für den geplanten GitHub-Monitoringlauf werden die ersten drei Selektoren als
 Repository Variables eingebunden. `watcher.py` prüft damit zusätzlich die
