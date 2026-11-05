@@ -517,6 +517,7 @@ def test_valid_private_target_passes_real_completion_entrypoint_gate_without_pro
     import aldi_live_refill_contract as contract
     from selenium.common.exceptions import TimeoutException
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('DRY_RUN', 'false')
     monkeypatch.setattr(contract, 'main', worker.real_contract_main)
     read_status = Mock(side_effect=TimeoutException('synthetic offline stop'))
     monkeypatch.setattr(live, '_bound_status', read_status)
