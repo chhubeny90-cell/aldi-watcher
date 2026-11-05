@@ -1,0 +1,14 @@
+# Configuration example only. Do not put numbers, passwords or cookies here.
+# YAML parsing and runtime orchestration belong to a later step.
+accounts:
+  - id: aldi_primary
+    provider: aldi
+    enabled: false
+  - id: lidl_secondary
+    provider: lidl
+    enabled: false
+
+policy:
+  threshold_gb: "1"
+  default_cooldown_seconds: 1800
+  dry_run: true
