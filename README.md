@@ -7,7 +7,9 @@
 
 ## Sicherheitsfix Webapp (05.11.2026)
 
-Die alte Webapp (`webapp/app.py`) konnte ohne Authentifizierung im Netzwerk aufgerufen werden, speicherte Zugangsdaten in Klartext und klickte ohne dauerhaftes Buchungsjournal. Sie wurde in diesem Sicherheits-Branch vollständig auf eine **passive, nur lokal erreichbare Statusseite** reduziert. `POST /api/config`, `/api/start`, `/api/stop` und `/api/test` bleiben gesperrt (HTTP 410); kein Anbieterzugriff und kein Klick. Vorhandene Altprozesse müssen gestoppt und neu gestartet werden. Eine eventuell vorhandene `webapp/local_config.json` ist lokal zu löschen und das betroffene Passwort zu ändern. Details: [Webapp-Sicherheit](webapp/README.md).
+Die alte Webapp (`webapp/app.py`) konnte ohne Authentifizierung im Netzwerk aufgerufen werden, speicherte Zugangsdaten in Klartext und klickte ohne dauerhaftes Buchungsjournal. Sie wurde in diesem Sicherheits-Branch vollständig auf eine **passive, nur lokal erreichbare Statusseite** reduziert. `POST /api/config`, `/api/start`, `/api/stop` und `/api/test` bleiben gesperrt (HTTP 410); kein Anbieterzugriff und kein Klick.
+
+Der separate ALDI-Live-Runner prüft nun zusätzlich **`DRY_RUN=false` explizit** vor jeder Anmeldung oder Journalauswertung. Ein nicht gesetztes, wahres oder ungültiges `DRY_RUN` bricht mit `dry_run` ab. `AUTO_BOOK_ENABLED=true` allein genügt nicht. Vorhandene Altprozesse müssen gestoppt und neu gestartet werden. Eine eventuell vorhandene `webapp/local_config.json` ist lokal zu löschen und das betroffene Passwort zu ändern. Details: [Webapp-Sicherheit](webapp/README.md).
 
 ## Prüfstand vom 26. Oktober 2026
 
