@@ -37,6 +37,32 @@ def _context(mode):
         raise HostedRuntimeError('booking_mode_mismatch')
 
 
+
+def _authorization_context(mode):
+    """Block provider operations unless both owner and provider approvals are current.
+
+    These environment inputs are declarations from GitHub repository variables;
+    they are not evidence of provider consent by themselves.
+    """
+    if (os.environ.get('ALDI_SCRIPT_ACCESS_APPROVED') != 'true'
+            or not os.environ.get('ALDI_PROVIDER_APPROVAL_REFERENCE', '').strip()):
+        raise HostedRuntimeError('provider_authorization_required')
+    event = os.environ.get('GITHUB_EVENT_NAME')
+    if mode == 'automatic':
+        if event != 'schedule' or os.environ.get('ALDI_OWNER_AUTO_REFILL_APPROVED') != 'true':
+            raise HostedRuntimeError('owner_approval_required')
+    elif event == 'workflow_dispatch':
+        if os.environ.get('ALDI_OWNER_MANUAL_APPROVED') != 'true':
+            raise HostedRuntimeError('owner_approval_required')
+    else:
+        raise HostedRuntimeError('controlled_context_required')
+    if mode in {'refill', 'automatic'}:
+        if os.environ.get('ALDI_LIVE_REFILL_APPROVED') != 'true':
+            raise HostedRuntimeError('live_refill_authorization_required')
+        if os.environ.get('DRY_RUN') != 'false':
+            raise HostedRuntimeError('dry_run')
+
+
 def _sync_legacy(db):
     """Keep old actors blocked by our operations; never erase foreign guards."""
     from github_journal_state import consistent_mail_snapshot, _put_state, _snapshot_unresolved
@@ -200,6 +226,7 @@ def _run(mode, report):
     from core.credentials import get_credential
     from github_encrypted_runtime import RuntimeState
     _context(mode)
+    _authorization_context(mode)
     account = phone_identifier(os.environ.get('ALDI_EXPECTED_ACCOUNT'))
     if phone_identifier(get_credential('ALDI_USER')) != account:
         raise HostedRuntimeError('configured_account_mismatch')
@@ -237,7 +264,8 @@ def _run(mode, report):
                 raise HostedRuntimeError('browser_session_unverified')
             report['automatic_enabled'] = state.refill_accepted
             should_book = mode == 'refill' or mode == 'automatic' and (
-                state.refill_accepted or state.first_refill_authorized)
+                state.refill_accepted or state.first_refill_authorized
+                or os.environ.get('ALDI_OWNER_AUTO_REFILL_APPROVED') == 'true')
             if not should_book:
                 import aldi_live_refill as live
                 from core.aldi_refill import locate_selenium
@@ -307,7 +335,7 @@ def render_summary(report):
     if report.get('session_reused') is True:
         text += '\n\nDie vorhandene Sitzung wurde ohne neuen Passwort-Login wiederverwendet.'
     if report.get('automatic_enabled') is True:
-        text += '\n\nAuto-Run ist freigegeben und prüft stündlich sowie nach erfolgreicher Mailprüfung. GitHub kann Läufe verzögern.'
+        text += '\n\nAuto-Run ist für die GitHub-Zeitplanung freigegeben; der Mailmonitor löst keine Portalaktionen aus. GitHub kann Läufe verzögern.'
     elif report.get('first_refill_authorized') is True:
         text += '\n\nDie erste Gratis-Nachbuchung ist freigegeben. Falls aktuell nicht möglich, versucht der Zeitplan sie bei nächster bestätigter Verfügbarkeit. Nach Anbieterbestätigung folgen weitere automatisch.'
     if report.get('free_refill_available') is True:

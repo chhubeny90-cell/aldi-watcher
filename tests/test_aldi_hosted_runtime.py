@@ -459,6 +459,12 @@ def worker(tmp_path, monkeypatch, controlled):
     monkeypatch.setattr(github_encrypted_runtime, 'RuntimeState', lambda: state)
     monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', ACCOUNT)
     monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', ACCOUNT[-4:])
+    monkeypatch.setenv('ALDI_SCRIPT_ACCESS_APPROVED', 'true')
+    monkeypatch.setenv('ALDI_PROVIDER_APPROVAL_REFERENCE', 'offline-test-approval')
+    monkeypatch.setenv('ALDI_OWNER_MANUAL_APPROVED', 'true')
+    monkeypatch.setenv('ALDI_OWNER_AUTO_REFILL_APPROVED', 'true')
+    monkeypatch.setenv('ALDI_LIVE_REFILL_APPROVED', 'true')
+    monkeypatch.setenv('DRY_RUN', 'false')
     monkeypatch.setattr(core.credentials, 'get_credential', lambda name: ACCOUNT if name == 'ALDI_USER' else PASSWORD)
     monkeypatch.setattr(watcher, 'configure_credentials', lambda provider: True)
     monkeypatch.setattr(watcher, 'ALDI_ACCOUNT_USER', ACCOUNT)
@@ -553,14 +559,13 @@ def test_invalid_target_report_never_exposes_private_configuration(worker, monke
     assert 'ALDI_REQUIRED_TARGET_SUFFIX' in text
 
 
-def test_automatic_without_acceptance_observes_without_booking(worker, monkeypatch):
+def test_persistently_approved_first_cron_refill_is_guarded_by_existing_contract(worker, monkeypatch):
     monkeypatch.setenv('GITHUB_EVENT_NAME', 'schedule')
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
     assert runtime._run('automatic', worker.report) == 0
-    worker.refill.assert_not_called()
-    worker.state.accept_refill.assert_not_called()
-    assert worker.report['outcome'] == 'awaiting_first_refill'
-    assert worker.report['free_refill_available'] is True
+    worker.refill.assert_called_once()
+    worker.state.accept_refill.assert_called_once()
+    assert worker.report['automatic_enabled'] is True
     worker.client.close.assert_called_once()
     worker.driver.quit.assert_called_once()
 
