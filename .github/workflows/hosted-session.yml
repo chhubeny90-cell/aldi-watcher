@@ -1,10 +1,10 @@
-name: ALDI Hosted Session (owner-gated, manual only)
+name: ALDI Hosted Session (owner-gated manual + cron)
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Preflight without ALDI access, initialize encrypted state, or read-only observe"
+        description: "Preflight without provider contact, initialize, observe, or one guarded free refill"
         type: choice
         required: true
         default: preflight
@@ -12,14 +12,18 @@ on:
           - preflight
           - initialize
           - observe
+          - refill
       confirm_provider_authorization:
-        description: "I have verified explicit provider approval for scripted account access (not merely account ownership)"
+        description: "I verified explicit provider approval for scripted account access and approve this manual run"
         type: boolean
         required: true
         default: false
+  schedule:
+    # The schedule is a wake-up, not permission to contact the provider.
+    # GitHub can delay or drop scheduled jobs.
+    - cron: '21 * * * *'
 
-# No schedule, workflow_run, repository_dispatch or pull_request trigger.
-# Refill and automatic modes remain unreachable from this workflow.
+# No push, pull_request, workflow_run, mail or repository_dispatch provider triggers.
 permissions:
   contents: none
 
@@ -30,7 +34,7 @@ concurrency:
 jobs:
   preflight:
     if: >-
-      github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') &&
       github.repository == 'chhubeny90-cell/aldi-watcher' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1
@@ -42,11 +46,13 @@ jobs:
       - name: Check only configuration presence (no provider request)
         id: gates
         env:
-          SELECTED_MODE: ${{ inputs.mode }}
-          OWNER_CONFIRMED: ${{ inputs.confirm_provider_authorization }}
+          RUN_MODE: ${{ github.event_name == 'schedule' && 'automatic' || inputs.mode }}
+          OWNER_CONFIRMED: ${{ github.event_name == 'schedule' && vars.ALDI_OWNER_AUTO_REFILL_APPROVED == 'true' || inputs.confirm_provider_authorization == true }}
           PROVIDER_APPROVED: ${{ vars.ALDI_SCRIPT_ACCESS_APPROVED == 'true' }}
           APPROVAL_REFERENCE_PRESENT: ${{ vars.ALDI_PROVIDER_APPROVAL_REFERENCE != '' }}
+          BOOKING_APPROVED: ${{ vars.ALDI_LIVE_REFILL_APPROVED == 'true' }}
           ACCOUNT_PRESENT: ${{ secrets.ALDI_PROFILE_1_USER != '' }}
+          TARGET_SUFFIX_PRESENT: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX != '' }}
           PASSWORD_PRESENT: ${{ secrets.ALDI_PASS != '' || secrets.ALDI_PASS_ENC != '' }}
           PASSWORD_ENCRYPTED: ${{ secrets.ALDI_PASS_ENC != '' }}
           CREDENTIAL_KEY_PRESENT: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY != '' }}
@@ -58,49 +64,64 @@ jobs:
           def yes(name):
               return os.environ.get(name, "").lower() == "true"
 
+          mode = os.environ.get("RUN_MODE")
+          booking = mode in ("refill", "automatic")
           checks = {
-              "manual_owner_confirmation": yes("OWNER_CONFIRMED"),
-              "provider_approval_flag": yes("PROVIDER_APPROVED"),
+              "valid_runtime_mode": mode in ("initialize", "observe", "refill", "automatic"),
+              "owner_approved": yes("OWNER_CONFIRMED"),
+              "provider_approved": yes("PROVIDER_APPROVED"),
               "provider_approval_reference_present": yes("APPROVAL_REFERENCE_PRESENT"),
               "target_account_configured": yes("ACCOUNT_PRESENT"),
               "password_configured": yes("PASSWORD_PRESENT"),
               "credential_key_if_needed": not yes("PASSWORD_ENCRYPTED") or yes("CREDENTIAL_KEY_PRESENT"),
               "encrypted_runtime_key_configured": yes("STATE_KEY_PRESENT"),
+              "bookings_approved_if_needed": not booking or yes("BOOKING_APPROVED"),
+              "target_suffix_if_booking": not booking or yes("TARGET_SUFFIX_PRESENT"),
           }
-          ready = all(checks.values()) and os.environ.get("SELECTED_MODE") in ("initialize", "observe")
+          ready = all(checks.values())
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("ready=" + str(ready).lower() + "\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("## ALDI Hosted Session — preflight\n\n")
-              summary.write("No ALDI login, provider request or booking was performed by this job.\n\n")
+              summary.write("## ALDI Hosted Session — provider-free preflight\n\n")
+              summary.write("No ALDI login, status request, booking, or password read was performed here.\n\n")
               for key, value in checks.items():
-                  summary.write(f"- {key}: {'present' if value else 'missing'}\n")
+                  summary.write(f"- {key}: {'yes' if value else 'no'}\n")
               summary.write("\nRuntime eligible: **" + ("yes" if ready else "no") + "**.\n")
-              summary.write("Explicit provider approval must exist independently of repository settings.\n")
+              summary.write("Variables alone do not prove provider authorization.\n")
           PY
 
   session:
     needs: preflight
-    # Two independent approval signals plus main-only manual dispatch.
-    # Repository variable is unset by default and deliberately not created here.
+    # Repository settings are default-deny. Manual and scheduled owner approval
+    # have different sources; scheduled runs never need a per-run input.
     if: >-
       needs.preflight.outputs.ready == 'true' &&
-      github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') &&
       github.repository == 'chhubeny90-cell/aldi-watcher' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
-      (inputs.mode == 'initialize' || inputs.mode == 'observe') &&
-      inputs.confirm_provider_authorization == true &&
       vars.ALDI_SCRIPT_ACCESS_APPROVED == 'true' &&
-      vars.ALDI_PROVIDER_APPROVAL_REFERENCE != ''
+      vars.ALDI_PROVIDER_APPROVAL_REFERENCE != '' &&
+      (
+        (github.event_name == 'schedule' &&
+         vars.ALDI_OWNER_AUTO_REFILL_APPROVED == 'true' &&
+         vars.ALDI_LIVE_REFILL_APPROVED == 'true') ||
+        (github.event_name == 'workflow_dispatch' &&
+         inputs.confirm_provider_authorization == true &&
+         (inputs.mode == 'initialize' || inputs.mode == 'observe' ||
+          (inputs.mode == 'refill' && vars.ALDI_LIVE_REFILL_APPROVED == 'true')))
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    environment: aldi-session
+    # aldi-auto requires restrictive main-only deployment rules but no human
+    # reviewer per cron run; aldi-session can require manual reviewers.
+    environment: ${{ github.event_name == 'schedule' && 'aldi-auto' || 'aldi-session' }}
     permissions:
-      contents: write # Required for encrypted state/journal CAS; only in gated session job.
+      contents: write # GitHub CAS-persistence of encrypted session and durable journal.
     env:
-      DRY_RUN: 'true'
-      AUTO_BOOK_ENABLED: 'false'
+      AUTO_BOOK_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'refill') && 'true' || 'false' }}
+      DRY_RUN: ${{ (github.event_name == 'schedule' || inputs.mode == 'refill') && 'false' || 'true' }}
+      ALDI_MAX_REFILLS_PER_RUN: '1'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -112,18 +133,24 @@ jobs:
           cache: pip
       - name: Install required dependencies
         run: pip install -r requirements.txt
-      - name: Set up browser for read-only observe
-        if: inputs.mode == 'observe'
+      - name: Set up browser (observe and refill only)
+        if: github.event_name == 'schedule' || inputs.mode != 'initialize'
         id: chrome
         uses: browser-actions/setup-chrome@v2.2.0
         with:
           chrome-version: stable
           install-chromedriver: true
-      - name: Initialize encrypted state or observe one ALDI session
+      - name: Run one guarded hosted session
         env:
-          ALDI_HOSTED_MODE: ${{ inputs.mode }}
+          ALDI_HOSTED_MODE: ${{ github.event_name == 'schedule' && 'automatic' || inputs.mode }}
           GITHUB_TOKEN: ${{ github.token }}
+          ALDI_SCRIPT_ACCESS_APPROVED: ${{ vars.ALDI_SCRIPT_ACCESS_APPROVED }}
+          ALDI_PROVIDER_APPROVAL_REFERENCE: ${{ vars.ALDI_PROVIDER_APPROVAL_REFERENCE }}
+          ALDI_OWNER_AUTO_REFILL_APPROVED: ${{ vars.ALDI_OWNER_AUTO_REFILL_APPROVED }}
+          ALDI_OWNER_MANUAL_APPROVED: ${{ inputs.confirm_provider_authorization }}
+          ALDI_LIVE_REFILL_APPROVED: ${{ vars.ALDI_LIVE_REFILL_APPROVED }}
           ALDI_EXPECTED_ACCOUNT: ${{ secrets.ALDI_PROFILE_1_USER }}
+          ALDI_REQUIRED_TARGET_SUFFIX: ${{ secrets.ALDI_REQUIRED_TARGET_SUFFIX }}
           ALDI_USER: ${{ secrets.ALDI_PROFILE_1_USER }}
           ALDI_PASS: ${{ secrets.ALDI_PASS }}
           ALDI_PASS_ENC: ${{ secrets.ALDI_PASS_ENC }}
@@ -133,7 +160,7 @@ jobs:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
         run: timeout 240s python aldi_hosted_runtime.py --mode "$ALDI_HOSTED_MODE"
-      - name: Render sanitized summary (no session artifacts)
+      - name: Render sanitized summary (never upload cookies or journal)
         if: always()
         env:
           ALDI_HOSTED_REPORT: aldi-hosted-report.json
