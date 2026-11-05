@@ -77,9 +77,8 @@ def test_old_webapp_credential_storage_and_browser_clicks_cannot_regress():
     code = (root / "webapp" / "app.py").read_text(encoding="utf-8")
     ignore = (root / ".gitignore").read_text(encoding="utf-8")
     assert 'app.run(host="127.0.0.1"' in code
-    assert "local_config.json" not in code.split('"""', 2)[-1].replace(
-        '# Never read or return the previous plaintext local_config.json.', ""
-    ) or "CONFIG_PATH" not in code
+    assert "CONFIG_PATH" not in code
+    assert "save_config(" not in code
     assert "safe_click" not in code
     assert "import watcher" not in code
     assert "selenium" not in code
