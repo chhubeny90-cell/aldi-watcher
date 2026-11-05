@@ -68,7 +68,7 @@ def test_live_runner_retains_strict_free_price_journal_cooldown_and_completion()
     hosted = (ROOT / "aldi_hosted_runtime.py").read_text(encoding="utf-8")
     assert "and evidence.get('free_evidence') == 'explicit_free_offer'" in live
     assert "if not _explicit_zero_price_offer(evidence):" in live
-    assert "if not _explicit_zero_price_offer(current_evidence)" in live
+    assert "and not _explicit_zero_price_offer(current_evidence)" in live
     assert "recent_success_guard_seconds=0 if same_run_success else 30" in live
     assert "if _unresolved_aldi(db, account):" in live
     assert "contract.main()" in hosted
