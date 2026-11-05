@@ -36,6 +36,7 @@ def _setup(monkeypatch, tmp_path, remaining_values, evidence_values):
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
     monkeypatch.setattr(live.watcher, 'ALDI_ACCOUNT_USER', '01500000000')
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('DRY_RUN', 'false')
     monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', '01500000000')
     monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', '0000')
     monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
@@ -71,6 +72,30 @@ def test_booking_disabled_never_builds_browser(monkeypatch, tmp_path):
 
     assert live.main() == 3
     build.assert_not_called()
+
+
+@pytest.mark.parametrize('value', [None, 'true', 'TRUE', '', 'unexpected'])
+def test_dry_run_blocks_even_with_booking_flag(monkeypatch, tmp_path, value):
+    monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    if value is None:
+        monkeypatch.delenv('DRY_RUN', raising=False)
+    else:
+        monkeypatch.setenv('DRY_RUN', value)
+    monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))
+    configure = Mock(side_effect=AssertionError('no credentials may be processed'))
+    journal = Mock(side_effect=AssertionError('journal must not open'))
+    browser = Mock(side_effect=AssertionError('browser must not start'))
+    monkeypatch.setattr(live.watcher, 'configure_credentials', configure)
+    monkeypatch.setattr(live, 'open_live_journal', journal)
+    monkeypatch.setattr(live.watcher, 'build_driver', browser)
+
+    assert live.main() == 3
+    configure.assert_not_called()
+    journal.assert_not_called()
+    browser.assert_not_called()
+    report = json.loads((tmp_path / 'report.json').read_text())
+    assert report['outcome'] == 'dry_run'
+    assert report['booking_clicks'] == 0
 
 
 def test_volume_above_threshold_never_clicks(monkeypatch, tmp_path):
@@ -375,7 +400,8 @@ def _live_crash_worker(db_path, calls_path, before_click=False, crash=True, star
     driver, control = Mock(), Mock()
     with ExitStack() as stack:
         stack.enter_context(patch.dict(os.environ, {
-            'AUTO_BOOK_ENABLED': 'true', 'ALDI_JOURNAL_PATH': db_path,
+            'AUTO_BOOK_ENABLED': 'true', 'DRY_RUN': 'false',
+            'ALDI_JOURNAL_PATH': db_path,
             'GITHUB_ACTIONS': 'false',
             'ALDI_EXPECTED_ACCOUNT': '01500000000',
             'ALDI_REQUIRED_TARGET_SUFFIX': '0000',
