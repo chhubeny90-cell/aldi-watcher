@@ -1,12 +1,11 @@
 """LIDL usage monitoring and evidence-gated, free 1-GB browser refill.
 
-The API URLs and usage selectors below are legacy integration assumptions,
-not live-verified provider documentation. API booking is disabled. Protected
-refill selectors must be supplied from an authenticated, observed account flow.
+Legacy API URLs were unverified and have been removed. API login,
+consumption and booking are fail-closed. The browser selectors below also
+require validation against the authenticated provider account.
 """
 
 import asyncio
-import aiohttp
 import re
 import math
 from urllib.parse import urlsplit
@@ -23,12 +22,8 @@ class LidlConnectWatcher(BaseWatcher):
     Fallback: Playwright (Browser-Automatisierung)
     """
 
-    # API-Endpoints
-    API_HOST = "https://api.lidl-connect.de"
-    API_AUTH = f"{API_HOST}/api/authenticate"
-    API_CONSUMPTION = f"{API_HOST}/api/consumption"
-    API_TARIFFS = f"{API_HOST}/api/tariff-options"
-    API_BOOK = f"{API_HOST}/api/tariff-option/book"
+    # No verified Lidl API contract exists; guessed API endpoint URLs were removed.
+    # Never guess authentication, consumption or booking endpoints.
 
     # Legacy login/usage selectors; validate against the actual account flow.
     # Quelle: https://kundenkonto.lidl-connect.de/mein-lidl-connect.html
@@ -42,11 +37,11 @@ class LidlConnectWatcher(BaseWatcher):
 
     def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="available"):
         super().__init__(username, password, threshold_mb, dry_run, database)
-        self.use_api = use_api  # True = API, False = Playwright
-        self.session: Optional[aiohttp.ClientSession] = None
+        if use_api:
+            raise ValueError('Lidl API endpoints are unverified; LIDL_USE_API must be false')
+        self.use_api = False  # Only the explicitly configured browser path exists
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
-        self.auth_token: Optional[str] = None
         self._playwright = None
         self.refill_selectors = configured_selectors() if refill_selectors is None else refill_selectors
         if refill_mode not in {"available", "needed"}:
@@ -70,85 +65,16 @@ class LidlConnectWatcher(BaseWatcher):
                 print(f"Lidl: Retry {attempt + 1}/{max_retries} after {delay}s (Error: {e})")
                 await asyncio.sleep(delay)
 
-    # ==================== API-METHODEN ====================
-
-    async def _get_api_session(self) -> aiohttp.ClientSession:
-        """Erstellt oder returniert existierende Session."""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
+    # ==================== API-METHODEN (GESCHLOSSEN) ====================
 
     async def _api_login(self) -> str:
-        """
-        Login via API.
-        Returns: Auth-Token fÃ¼r weitere Requests.
-        """
-        session = await self._get_api_session()
-        
-        async with session.post(
-            self.API_AUTH,
-            json={"username": self.username, "password": self.password}
-        ) as response:
-            if response.status != 200:
-                raise Exception(f"Lidl API Login failed: {response.status}")
-            
-            data = await response.json()
-            self.auth_token = data.get("token") or data.get("access_token")
-            
-            if not self.auth_token:
-                raise Exception("Lidl API: No auth token in response")
-            
-            return self.auth_token
+        raise RuntimeError("unverified_lidl_api_disabled")
 
     async def _api_check_usage(self) -> Dict[str, float]:
-        """
-        PrÃ¼ft Datenvolumen via API.
-        Returns: {"used_mb": float, "total_mb": float}
-        """
-        session = await self._get_api_session()
-        
-        # Login falls noch nicht authentifiziert
-        if not self.auth_token:
-            await self._api_login()
-        
-        async with session.get(
-            self.API_CONSUMPTION,
-            headers={"Authorization": f"Bearer {self.auth_token}"}
-        ) as response:
-            if response.status != 200:
-                raise Exception(f"Lidl API Usage failed: {response.status}")
-            
-            data = await response.json()
-            
-            # Consumption-Daten extrahieren
-            consumptions = data.get("consumptions", [])
-            data_consumption = None
-            
-            for c in consumptions:
-                if c.get("type") == "DATA":
-                    data_consumption = c
-                    break
-            
-            if not data_consumption:
-                raise Exception("Lidl API: No DATA consumption found")
-            
-            consumed = float(data_consumption.get("consumed", 0))
-            max_val = float(data_consumption.get("max", 0))
-            unit = data_consumption.get("unit", "GB")
-            
-            # In MB umrechnen
-            multiplier = 1024 if unit == "GB" else 1
-            used_mb = consumed * multiplier
-            total_mb = max_val * multiplier
-            
-            return {"used_mb": used_mb, "total_mb": total_mb}
+        raise RuntimeError("unverified_lidl_api_disabled")
 
     async def _api_trigger_recharge(self) -> bool:
-        """
-        LÃ¶st Nachbuchung via API aus.
-        """
-        # The existing API URLs/schema have not been authenticated or verified.
-        # Selecting the first DATA option can buy a paid tariff. Fail closed.
+        # A guessed or incomplete API contract must never create a paid action.
         return False
 
     # ==================== PLAYWRIGHT-METHODEN (FALLBACK) ====================
@@ -290,17 +216,7 @@ class LidlConnectWatcher(BaseWatcher):
     # ==================== PUBLIC METHODS ====================
 
     async def check_usage(self) -> Dict[str, float]:
-        """
-        PrÃ¼ft Datenvolumen (API oder Playwright).
-        """
-        if self.use_api:
-            try:
-                return await self._api_check_usage()
-            except Exception as e:
-                print(f"Lidl API failed, falling back to Playwright: {e}")
-                self.use_api = False  # Switch to Playwright
-        
-        # Fallback: Playwright
+        """Read usage only through the configured browser adapter."""
         return await self._pw_check_usage()
 
     def should_recharge_for_usage(self, usage: Dict[str, float]) -> bool:
@@ -329,18 +245,11 @@ class LidlConnectWatcher(BaseWatcher):
         records = self.database.get_unresolved_recharges(self.provider_name, self.username)
         if not any(record.recharge_id == recharge_id and record.status == "PENDING" for record in records):
             return False
-        if self.use_api:
-            # Never switch channels after a booking request with uncertain outcome.
-            return await self._api_trigger_recharge()
-        
-        # Fallback: Playwright
+        # A booking may proceed only through the journalled browser path.
         return await self._pw_trigger_recharge()
 
     async def close(self):
         """SchlieÃ§t Browser und Session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
-        
         if self.page:
             await self.page.close()
             self.page = None
