@@ -57,6 +57,7 @@ def test_invalid_deployment_stops_before_journal_and_browser(monkeypatch, tmp_pa
     from unittest.mock import Mock
     import aldi_live_refill as live
     monkeypatch.setenv("AUTO_BOOK_ENABLED", "true")
+    monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("ALDI_REQUIRED_TARGET_SUFFIX", TEST_SUFFIX)
     monkeypatch.setenv("ALDI_EXPECTED_ACCOUNT", expected)
     monkeypatch.setattr(live.watcher, "configure_credentials", lambda _: True)
@@ -85,6 +86,7 @@ def test_missing_or_mismatched_target_blocks_before_journal_browser(monkeypatch,
     from unittest.mock import Mock
     import aldi_live_refill as live
     monkeypatch.setenv("AUTO_BOOK_ENABLED", "true")
+    monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("ALDI_REQUIRED_TARGET_SUFFIX", suffix)
     monkeypatch.setenv("ALDI_EXPECTED_ACCOUNT", expected)
     monkeypatch.setattr(live.watcher, "configure_credentials", lambda _: True)

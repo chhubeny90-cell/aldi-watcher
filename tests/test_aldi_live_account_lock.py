@@ -12,6 +12,7 @@ def _prepare(monkeypatch, tmp_path):
     Database(str(db_path))
     monkeypatch.setenv('ALDI_JOURNAL_PATH', str(db_path))
     monkeypatch.setenv('AUTO_BOOK_ENABLED', 'true')
+    monkeypatch.setenv('DRY_RUN', 'false')
     monkeypatch.setenv('ALDI_EXPECTED_ACCOUNT', '01500000000')
     monkeypatch.setenv('ALDI_REQUIRED_TARGET_SUFFIX', '0000')
     monkeypatch.setattr(live, 'REPORT_PATH', str(tmp_path / 'report.json'))

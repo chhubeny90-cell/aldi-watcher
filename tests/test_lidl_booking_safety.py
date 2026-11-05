@@ -15,17 +15,9 @@ def eligible_watcher(tmp_path, use_api):
     return watcher, db
 
 
-def test_api_timeout_never_falls_back_or_rebooks(tmp_path):
-    watcher, db = eligible_watcher(tmp_path, True)
-    watcher._api_trigger_recharge = AsyncMock(side_effect=asyncio.TimeoutError())
-    watcher._pw_trigger_recharge = AsyncMock()
-    first = asyncio.run(watcher.run())
-    assert first.recharge_status == "UNKNOWN"
-    second = asyncio.run(watcher.run())
-    assert second.recharge_status == "BLOCKED"
-    watcher._api_trigger_recharge.assert_awaited_once()
-    watcher._pw_trigger_recharge.assert_not_awaited()
-    assert db.get_unresolved_recharges()[0].status == "UNKNOWN"
+def test_unverified_api_mode_is_rejected_before_any_booking(tmp_path):
+    with pytest.raises(ValueError, match="LIDL_USE_API must be false"):
+        eligible_watcher(tmp_path, True)
 
 
 def test_browser_timeout_after_click_preserves_unknown_and_single_click(tmp_path):

@@ -49,7 +49,6 @@ def test_package_and_base_import_without_heavy_dependencies():
 
 @pytest.mark.parametrize('watcher,dependency', [
     ('AldiTalkWatcher', 'aiohttp'),
-    ('LidlConnectWatcher', 'aiohttp'),
     ('LidlConnectWatcher', 'playwright'),
 ])
 def test_missing_dependency_is_actionable_and_retryable(watcher, dependency):
@@ -112,7 +111,6 @@ def test_unrelated_errors_are_not_relabelled(error):
 
 @pytest.mark.parametrize('watcher,dependency', [
     ('AldiTalkWatcher', 'aiohttp'),
-    ('LidlConnectWatcher', 'aiohttp'),
     ('LidlConnectWatcher', 'playwright'),
 ])
 def test_real_watcher_import_with_blocked_dependency(watcher, dependency):
@@ -136,4 +134,20 @@ def test_real_watcher_import_with_blocked_dependency(watcher, dependency):
             assert 'pip install' in str(exc)
         else:
             raise AssertionError('Expected ImportError')
+    ''')
+
+
+def test_lidl_import_does_not_need_retired_aiohttp_api_dependency():
+    run_isolated('''
+        import importlib.abc
+        import sys
+
+        class BlockApiDependency(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == 'aiohttp':
+                    raise AssertionError('Retired Lidl API dependency was imported')
+
+        sys.meta_path.insert(0, BlockApiDependency())
+        from plugins import LidlConnectWatcher
+        assert LidlConnectWatcher.__name__ == 'LidlConnectWatcher'
     ''')
