@@ -1,6 +1,6 @@
 # aldi-watcher
 
-> **ALDI-Kundenkonto: nur manuell prüfen.** Automatisierter Login, Statusabruf, Diagnose und Buchung sind in den Repository-Workflows deaktiviert. Ohne ausdrückliche Anbieterfreigabe keine Skripte oder Bots gegen das ALDI-Kundenportal ausführen. Sichere Anleitung: [manuelle ALDI-Live-Prüfung](docs/aldi-safe-manual-live-check.md).
+> **ALDI-Konto: standardmäßig gesperrt.** Der Hosted-Workflow bietet einen gesondert freizugebenden manuellen und stündlich geplanten Modus mit strikter 0-€- und Journalprüfung. Ohne nachgewiesene ausdrückliche Anbieterfreigabe sowie Owner-Variablen führt er keinen authentifizierten Portalzugriff und keine Buchung aus. [Freigabe- und Notfallplan](docs/hosted-session-approval.md) · [manuelle ALDI-Prüfung](docs/aldi-safe-manual-live-check.md).
 
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
