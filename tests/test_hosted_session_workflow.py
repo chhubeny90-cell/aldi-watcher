@@ -1,7 +1,7 @@
 """Static safety checks for the opt-in hosted ALDI session workflow."""
 from pathlib import Path
 
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/hosted-session.yml
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/hosted-session.yml"
 
 
 def _text():
