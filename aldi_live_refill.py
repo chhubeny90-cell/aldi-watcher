@@ -1,7 +1,8 @@
 """Guarded live runner for ALDI TALK's repeated free 1-GB refill.
 
 This module is intentionally separate from monitoring.py. It can perform a
-provider-changing action only when AUTO_BOOK_ENABLED=true and the authenticated
+provider-changing action only when AUTO_BOOK_ENABLED=true and DRY_RUN=false,
+and the authenticated
 portal proves a unique enabled 1-GB refill with verified free entitlement.
 Paid or ambiguous offers are never clicked.
 """
@@ -219,6 +220,12 @@ def main():
     try:
         if not report["booking_enabled"]:
             report["outcome"] = "booking_disabled"
+            return 3
+
+        # Two independent explicit gates are required. Missing or ambiguous
+        # DRY_RUN values mean dry-run; never log in, open the journal or click.
+        if os.getenv("DRY_RUN", "true").strip().lower() != "false":
+            report["outcome"] = "dry_run"
             return 3
 
         _set_phase(report, 'credentials')
