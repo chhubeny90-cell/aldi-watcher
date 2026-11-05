@@ -4,6 +4,11 @@
 
 Überwachung von Prepaid-Datenvolumen für ALDI TALK und Lidl Connect.
 
+
+## Sicherheitsfix Webapp (05.11.2026)
+
+Die alte Webapp (`webapp/app.py`) konnte ohne Authentifizierung im Netzwerk aufgerufen werden, speicherte Zugangsdaten in Klartext und klickte ohne dauerhaftes Buchungsjournal. Sie wurde in diesem Sicherheits-Branch vollständig auf eine **passive, nur lokal erreichbare Statusseite** reduziert. `POST /api/config`, `/api/start`, `/api/stop` und `/api/test` bleiben gesperrt (HTTP 410); kein Anbieterzugriff und kein Klick. Vorhandene Altprozesse müssen gestoppt und neu gestartet werden. Eine eventuell vorhandene `webapp/local_config.json` ist lokal zu löschen und das betroffene Passwort zu ändern. Details: [Webapp-Sicherheit](webapp/README.md).
+
 ## Prüfstand vom 26. Oktober 2026
 
 **Keine automatisierte ALDI-Konto-Prüfung oder Nachbuchung.** Die aktuellen AGB untersagen nicht autorisierte Skripte und Bots im Zugriff auf Vertragssysteme. Die GitHub-Workflows für ALDI-Login, Diagnose und Refill sind deshalb deaktiviert. Der Mailmonitor erkennt nur Nachrichten und startet keine Provider-Aktion.
