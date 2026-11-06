@@ -35,7 +35,7 @@ class LidlConnectWatcher(BaseWatcher):
         "data_value": "span.consumption-value",  # Verbrauchswert
     }
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="available"):
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="needed"):
         super().__init__(username, password, threshold_mb, dry_run, database)
         if use_api:
             raise ValueError('Lidl API endpoints are unverified; LIDL_USE_API must be false')
@@ -187,11 +187,11 @@ class LidlConnectWatcher(BaseWatcher):
         success = self.page.locator(self.refill_selectors["refill_success"])
         if await success.count() > 1 or await success.is_visible():
             return False
-        if self.refill_mode == "needed":
-            # Refresh usage immediately before acting; a previous poll may be stale.
-            usage = await self._pw_check_usage()
-            if not self.should_recharge_for_usage(usage):
-                return False
+        # A prior poll may be stale: always verify fresh usage before a click,
+        # including legacy "available" configurations.
+        usage = await self._pw_check_usage()
+        if not self.should_recharge_for_usage(usage):
+            return False
         try:
             offer = self.page.locator(self.refill_selectors["refill_offer"])
             button = offer.locator(self.refill_selectors["refill_button"])
@@ -224,7 +224,7 @@ class LidlConnectWatcher(BaseWatcher):
         return bool(
             usage.get("refill_eligible") is True
             and usage.get("refill_type") == "FREE_UNLIMITED"
-            and (self.refill_mode == "available" or self._remaining_below_threshold(usage))
+            and self._remaining_below_threshold(usage)
         )
 
     def _remaining_below_threshold(self, usage):
@@ -232,7 +232,7 @@ class LidlConnectWatcher(BaseWatcher):
             used, total = usage["used_mb"], usage["total_mb"]
             return (not isinstance(used, bool) and not isinstance(total, bool)
                     and math.isfinite(used) and math.isfinite(total)
-                    and 0 <= used <= total and total - used <= self.threshold_mb)
+                    and 0 <= used <= total and total - used < self.threshold_mb)
         except (KeyError, TypeError, ValueError):
             return False
 
