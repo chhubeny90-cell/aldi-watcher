@@ -41,10 +41,10 @@ class Config:
         # Lidl Connect Konfiguration
         self.lidl_user = self._get_credential("LIDL_USER")
         self.lidl_pass = self._get_credential("LIDL_PASS")
-        self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "500"))
+        self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "1024"))
         
         self.lidl_use_api = self._get_bool("LIDL_USE_API", False)
-        self.lidl_refill_mode = os.getenv("LIDL_REFILL_MODE", "available").strip()
+        self.lidl_refill_mode = os.getenv("LIDL_REFILL_MODE", "needed").strip()
         if self.lidl_refill_mode not in {"available", "needed"}:
             raise ValueError("LIDL_REFILL_MODE must be available or needed")
         self.lidl_refill_selectors = configured_selectors()
