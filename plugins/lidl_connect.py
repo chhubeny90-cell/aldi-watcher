@@ -232,7 +232,9 @@ class LidlConnectWatcher(BaseWatcher):
             used, total = usage["used_mb"], usage["total_mb"]
             return (not isinstance(used, bool) and not isinstance(total, bool)
                     and math.isfinite(used) and math.isfinite(total)
-                    and 0 <= used <= total and total - used < self.threshold_mb)
+                    and 0 <= used <= total
+                    and total - used < 1024  # Unoverrideable 1-GiB upper bound
+                    and total - used < self.threshold_mb)
         except (KeyError, TypeError, ValueError):
             return False
 
