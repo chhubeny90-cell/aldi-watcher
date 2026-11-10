@@ -4,9 +4,9 @@ import pytest
 from plugins.lidl_connect import LidlConnectWatcher
 
 
-def watcher(mode="needed"):
+def watcher(mode="needed", threshold_mb=1024):
     return LidlConnectWatcher(
-        username="offline-test", password="", threshold_mb=1024,
+        username="offline-test", password="", threshold_mb=threshold_mb,
         dry_run=True, use_api=False, refill_selectors={},
         refill_mode=mode,
     )
@@ -34,6 +34,20 @@ def offer(remaining, *, free=True):
 @pytest.mark.parametrize("mode", ["needed", "available"])
 def test_free_offer_requires_strict_below_one_gib(mode, remaining, expected):
     assert watcher(mode).should_recharge_for_usage(offer(remaining)) is expected
+
+
+@pytest.mark.parametrize("mode", ["needed", "available"])
+@pytest.mark.parametrize("remaining,expected", [
+    (500, True), (1023.99, True), (1024, False), (1500, False),
+])
+def test_custom_high_threshold_cannot_bypass_one_gib(mode, remaining, expected):
+    assert watcher(mode, threshold_mb=2048).should_recharge_for_usage(offer(remaining)) is expected
+
+
+@pytest.mark.parametrize("mode", ["needed", "available"])
+def test_custom_lower_threshold_only_tightens_rule(mode):
+    assert watcher(mode, threshold_mb=500).should_recharge_for_usage(offer(500)) is False
+    assert watcher(mode, threshold_mb=500).should_recharge_for_usage(offer(499)) is True
 
 
 def test_default_refill_mode_is_needed():
