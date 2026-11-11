@@ -47,7 +47,7 @@ def locator(text='', visible=True, enabled=True, count=1):
 
 def browser_watcher(tmp_path, **kwargs):
     db = Database(str(tmp_path / 'persistent.sqlite'))
-    watcher = LidlConnectWatcher('fake', 'fake', 100, dry_run=False, use_api=False,
+    watcher = LidlConnectWatcher('fake', 'fake', 1024, dry_run=False, use_api=False,
                                  database=db, refill_selectors=SELECTORS, **kwargs)
     page = MagicMock()
     page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
