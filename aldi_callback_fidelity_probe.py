@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import watcher
 from browser_dom import find_visible_elements
+from core.aldi_http_login import _proof_of_work
 from monitoring import navigate, require_origin
 from aldi_sso_diagnostic import _classify_text
 
@@ -169,12 +170,15 @@ def _prepare_payload(challenge):
     normalization = {
         "hidden_callbacks": 0,
         "hidden_values_copied_from_aldi_output": 0,
+        "proof_of_work_callbacks": 0,
+        "proof_of_work_solved": False,
         "confirmation_set": False,
         "confirmation_selection_basis": None,
         "continuation_query_stripped": True,
         "full_challenge_object_sent": True,
     }
     payload_callbacks = copy.deepcopy(callbacks)
+    pow_solution = _proof_of_work(payload_callbacks)
     for callback in payload_callbacks:
         if not isinstance(callback, dict):
             raise RuntimeError("unexpected_callback_shape")
@@ -189,8 +193,21 @@ def _prepare_payload(challenge):
             _single_input(callback)["value"] = watcher.ALDI_PASS
         elif kind == "HiddenValueCallback":
             normalization["hidden_callbacks"] += 1
-            _single_input(callback)["value"] = _output_value(callback, "value")
-            normalization["hidden_values_copied_from_aldi_output"] += 1
+            identifiers = [
+                item.get("value")
+                for item in callback.get("output", [])
+                if isinstance(item, dict) and item.get("name") == "id"
+            ]
+            identifier = identifiers[0] if len(identifiers) == 1 else None
+            if identifier == "proofOfWorkNonce":
+                if pow_solution is None:
+                    raise RuntimeError("work_challenge_missing")
+                _single_input(callback)["value"] = pow_solution
+                normalization["proof_of_work_callbacks"] += 1
+                normalization["proof_of_work_solved"] = True
+            else:
+                _single_input(callback)["value"] = _output_value(callback, "value")
+                normalization["hidden_values_copied_from_aldi_output"] += 1
         elif kind == "ConfirmationCallback":
             counts[kind] += 1
             index, basis = _confirmation_index(callback)
