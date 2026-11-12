@@ -67,8 +67,8 @@ def test_paid_offer_is_rejected():
 
 def test_verified_tariff_can_use_official_free_entitlement_without_local_price():
     result = eligible(offer_text='1 GB Highspeed-Datenvolumen nachbuchen')
-    assert result['refill_eligible'] is True
-    assert result['free_evidence'] == 'official_unlimited_entitlement'
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
 @pytest.mark.parametrize('wallet', [
@@ -210,9 +210,8 @@ def test_current_plain_tarif_s_m_l_authorize_exact_free_refill():
             active_tariff_text=f'Tarif {size}',
             offer_text='1 GB Highspeed-Datenvolumen nachbuchen',
         )
-        assert result['refill_eligible'] is True
-        assert result['tariff_evidence'] == 'CURRENT_SML'
-        assert result['free_evidence'] == 'official_unlimited_entitlement'
+        assert result['refill_eligible'] is False
+        assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
 def test_current_tarif_s_with_explicit_free_one_gb_offer_is_eligible():
@@ -234,8 +233,8 @@ def test_current_tarif_s_without_local_price_uses_official_entitlement():
         offer_text='+1 GB Highspeed-Datenvolumen nachbuchen',
         button_text='+1 GB',
     )
-    assert result['refill_eligible'] is True
-    assert result['free_evidence'] == 'official_unlimited_entitlement'
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
 def test_tarif_s_paid_one_gb_offer_is_rejected():
@@ -312,8 +311,8 @@ def test_every_present_price_must_be_an_explicit_well_formed_zero(offer):
 
 def test_free_word_without_currency_is_allowed_for_verified_current_tariff():
     result = eligible(offer_text='1 GB Datenvolumen kostenlos nachbuchen')
-    assert result['refill_eligible'] is True
-    assert result['free_evidence'] == 'official_unlimited_entitlement'
+    assert result['refill_eligible'] is False
+    assert result['refill_reason'] == 'price_unverified_or_paid'
 
 
 @pytest.mark.parametrize('quantity', [

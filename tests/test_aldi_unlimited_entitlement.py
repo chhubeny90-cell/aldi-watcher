@@ -15,21 +15,20 @@ def assess(*, tariff="Tarif S Unlimited", offer="Unlimited 1 GB nachbuchen", rem
 
 def test_unlimited_on_demand_needs_no_zero_euro_label():
     result = assess()
-    assert result["refill_eligible"] is True
-    assert result["refill_type"] == "FREE_UNLIMITED"
-    assert result["free_evidence"] == "official_unlimited_entitlement"
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
 
 
 def test_generic_one_gb_without_price_is_allowed_for_verified_tariff():
     result = assess(offer="1 GB Highspeed-Datenvolumen nachbuchen")
-    assert result["refill_eligible"] is True
-    assert result["free_evidence"] == "official_unlimited_entitlement"
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
 
 
 def test_generic_free_word_without_price_is_allowed_for_verified_tariff():
     result = assess(offer="1 GB Highspeed-Datenvolumen kostenlos nachbuchen")
-    assert result["refill_eligible"] is True
-    assert result["free_evidence"] == "official_unlimited_entitlement"
+    assert result["refill_eligible"] is False
+    assert result["refill_reason"] == "price_unverified_or_paid"
 
 
 def test_positive_price_blocks_unlimited_entitlement():
@@ -59,9 +58,8 @@ def test_explicit_zero_euro_remains_valid():
 def test_plain_current_tarif_s_m_l_get_published_entitlement():
     for size in ("S", "M", "L"):
         result = assess(tariff=f"Tarif {size}", offer="1 GB Highspeed-Datenvolumen nachbuchen")
-        assert result["refill_eligible"] is True
-        assert result["tariff_evidence"] == "CURRENT_SML"
-        assert result["free_evidence"] == "official_unlimited_entitlement"
+        assert result["refill_eligible"] is False
+        assert result["refill_reason"] == "price_unverified_or_paid"
 
 
 def test_unlimited_at_exactly_one_gb_is_not_eligible():
