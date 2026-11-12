@@ -73,3 +73,62 @@ def test_ephemeral_or_checkout_journal_is_rejected(journal, monkeypatch, runner,
     monkeypatch.setenv('GITHUB_WORKSPACE', str(workspace))
     with pytest.raises(RuntimeError, match='durable_runner_required'):
         inspect_runtime(str(journal))
+
+
+@pytest.mark.parametrize('schema', [
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL, status TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT, provider TEXT, username TEXT, status TEXT,
+        error_message TEXT, created_at TEXT, updated_at TEXT)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL, status TEXT NOT NULL,
+        error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE recharges (
+        recharge_id TEXT PRIMARY KEY, provider TEXT NOT NULL,
+        username TEXT NOT NULL,
+        status TEXT NOT NULL /* CHECK(status IN('PENDING','UNKNOWN','SUCCESS','FAILED')) */,
+        error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+])
+def test_partial_lookalike_schema_is_rejected(tmp_path, monkeypatch, schema):
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    path = tmp_path / 'invalid.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute(schema)
+        conn.execute('CREATE INDEX idx_recharges_account_status '
+                     'ON recharges(provider, username, status, created_at)')
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        inspect_runtime(str(path))
+
+
+def test_partial_index_is_not_a_verified_runtime_lookup(journal):
+    with sqlite3.connect(journal) as conn:
+        conn.execute('DROP INDEX idx_recharges_account_status')
+        conn.execute('CREATE INDEX idx_recharges_account_status '
+                     'ON recharges(provider, username, status, created_at) WHERE 0')
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        inspect_runtime(str(journal))
+
+
+def test_nullable_text_primary_key_is_not_a_valid_operation_identity(tmp_path, monkeypatch):
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    path = tmp_path / 'nullable-id.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute("""CREATE TABLE recharges (
+            recharge_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            username TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('PENDING','UNKNOWN','SUCCESS','FAILED')),
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute('CREATE INDEX idx_recharges_account_status '
+                     'ON recharges(provider, username, status, created_at)')
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match='journal_schema_invalid'):
+        inspect_runtime(str(path))
