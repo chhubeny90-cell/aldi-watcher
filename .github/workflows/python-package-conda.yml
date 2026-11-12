@@ -1,9 +1,17 @@
 name: Python compatibility
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   python-versions:
@@ -15,20 +23,20 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
     name: Python ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v7.1.0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
       - run: pip install -r requirements.txt
       - name: KI-Box security regression tests (offline)
         run: python -m pytest tests/test_ki_box_receipts.py tests/test_ai_review_hub.py --tb=short -q
       - name: Commit-bound regression evidence (no provider actions)
         run: |
           git rev-parse HEAD
-          python -m pytest -k test_old_mail_not_retriggered --tb=short -q
-          python -m pytest -k hardening --tb=short -q
           python -m pytest --tb=short -q
 
   # Preserve the existing required check name; every matrix entry must pass.
