@@ -1,0 +1,42 @@
+name: ALDI HTTP Access
+
+on:
+  push:
+    branches: [fix/aldi-http-access-20261010]
+    paths: [aldi_http_probe.py, tests/test_aldi_http_probe.py, .github/workflows/http-access.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aldi-http-access
+  cancel-in-progress: false
+
+jobs:
+  http_access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install HTTP probe dependencies
+        run: pip install python-dotenv cryptography pytest
+      - name: Verify HTTP probe behavior
+        run: python -m pytest -q tests/test_aldi_http_probe.py
+      - name: Try one browser-free login with SIM number and password
+        env:
+          ALDI_USER: ${{ secrets.ALDI_USER }}
+          ALDI_PASS: ${{ secrets.ALDI_PASS }}
+          ALDI_HTTP_REPORT: aldi-http-access.json
+        run: python aldi_http_probe.py
+      - name: Preserve sanitized access result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aldi-http-access-${{ github.run_id }}
+          path: aldi-http-access.json
+          retention-days: 1
+          if-no-files-found: warn
