@@ -55,6 +55,11 @@ class Config:
         if not self.dry_run and not self.auto_book_enabled:
             raise ValueError("Live plugin mode requires AUTO_BOOK_ENABLED=true")
         self.poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "3600"))
+        self.lidl_adaptive_polling = self._get_bool("LIDL_ADAPTIVE_POLLING", True)
+        self.lidl_poll_min_seconds = int(os.getenv("LIDL_POLL_MIN_SECONDS", "30"))
+        self.lidl_poll_max_seconds = int(os.getenv("LIDL_POLL_MAX_SECONDS", "300"))
+        if not 30 <= self.lidl_poll_min_seconds <= self.lidl_poll_max_seconds <= 3600:
+            raise ValueError("LIDL polling requires 30 <= minimum <= maximum <= 3600")
         self.db_path = os.getenv("DB_PATH", "aldi_watcher.db")
         if self.poll_interval <= 0:
             raise ValueError("POLL_INTERVAL_SECONDS must be positive")

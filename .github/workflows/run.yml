@@ -15,16 +15,15 @@ on:
           - all
           - tests
           - public-probe
-  schedule:
-    # Credential-free public portal health check, 24/7.
-    - cron: '7-59/15 * * * *'
 
 permissions:
   contents: read
 
 env:
   # Authenticated ALDI portal automation remains disabled.
+  DRY_RUN: 'true'
   AUTO_BOOK_ENABLED: 'false'
+  DB_PATH: workflow-errors.db
 
 jobs:
   setup_python_update_regression:
@@ -61,10 +60,26 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run full test suite
         run: python -m pytest -q
+      - name: Record failed test job
+        if: failure()
+        run: |
+          python - <<'PY'
+          import os
+          from core.database import Database
+          db = Database(os.environ['DB_PATH'])
+          db.log_error('github_actions', 'tests', 'test_job_failed')
+          PY
+      - name: Preserve test diagnosis
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: test-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.DB_PATH }}
+          retention-days: 7
+          if-no-files-found: ignore
 
   public_probe:
     if: >-
-      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'public-probe'))
     runs-on: ubuntu-latest
@@ -88,11 +103,22 @@ jobs:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
         run: python portal_probe.py
+      - name: Record failed public probe job
+        if: failure()
+        run: |
+          python - <<'PY'
+          import os
+          from core.database import Database
+          db = Database(os.environ['DB_PATH'])
+          db.log_error('github_actions', 'public_probe', 'public_probe_job_failed')
+          PY
       - name: Preserve public portal diagnosis
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
           name: public-portal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
-          path: portal-probe-report.json
+          path: |
+            portal-probe-report.json
+            ${{ env.DB_PATH }}
           retention-days: 7
           if-no-files-found: warn

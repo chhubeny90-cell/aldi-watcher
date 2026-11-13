@@ -34,6 +34,8 @@ class TestLidlConnectWatcher:
         """Testet erfolgreiche Usage-Prfung."""
         mock_page = MagicMock()
         mock_page.goto = AsyncMock()
+        mock_page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
+        mock_page.locator.return_value.count = AsyncMock(return_value=0)
         mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
         watcher.page = mock_page
 
@@ -47,6 +49,8 @@ class TestLidlConnectWatcher:
         """Testet Parsing-Fehler."""
         mock_page = MagicMock()
         mock_page.goto = AsyncMock()
+        mock_page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
+        mock_page.locator.return_value.count = AsyncMock(return_value=0)
         mock_page.text_content = AsyncMock(return_value="Invalid format")
         watcher.page = mock_page
 

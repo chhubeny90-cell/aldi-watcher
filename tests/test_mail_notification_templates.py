@@ -231,9 +231,12 @@ def test_invalid_state_key_fails_before_mailbox_or_state_access(monkeypatch, tmp
     assert encoded not in path.read_text() + capsys.readouterr().out
 
 
-def test_portal_check_claims_notifications_without_creating_provider_queue_entries(monkeypatch):
+@pytest.mark.parametrize('policy', ['portal_check', 'notify_only'])
+def test_notification_policies_claim_without_creating_provider_queue_entries(monkeypatch, policy):
     monkeypatch.setenv('ALDI_RECOVERY_KEY', 'synthetic-test-key')
-    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', 'portal_check')
+    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', policy)
+    # Passive policy must dominate even a stale notification opt-in.
+    monkeypatch.setenv('ALDI_IPHONE_NOTIFY_ENABLED', 'true' if policy == 'notify_only' else 'false')
     monkeypatch.setattr(notify, '_legacy_seen', lambda *args: False)
     monkeypatch.setattr(notify.handoff_queue, '_load', lambda: (None, {}))
     monkeypatch.setattr(notify.handoff_queue, '_archive', lambda: (None, {}))
@@ -247,7 +250,8 @@ def test_portal_check_claims_notifications_without_creating_provider_queue_entri
         seen.add(key)
         return True
     def forbidden(*args, **kwargs):
-        pytest.fail('portal_check must not enqueue or complete provider operation')
+        pytest.fail('notification policies must not enqueue or complete provider operation')
+    monkeypatch.setattr(notify.iphone_notification_outbox, 'enqueue', forbidden)
     assert notify._poll_one(1, 'imap.example.invalid', 993, 'synthetic', 'synthetic',
                             claim=claim, enqueue=forbidden) == [
                                 {'mailbox': 1, 'signal': 'consumed', 'actionable': True}]
@@ -257,9 +261,10 @@ def test_portal_check_claims_notifications_without_creating_provider_queue_entri
 
 @pytest.mark.parametrize('location', ['queue', 'archive', 'legacy'])
 @pytest.mark.parametrize('alias', ['current', 'legacy'])
-def test_portal_check_preserves_existing_queue_archive_and_legacy_dedup(monkeypatch, location, alias):
+@pytest.mark.parametrize('policy', ['portal_check', 'notify_only'])
+def test_notification_policies_preserve_existing_queue_archive_and_legacy_dedup(monkeypatch, location, alias, policy):
     monkeypatch.setenv('ALDI_RECOVERY_KEY', 'synthetic-test-key')
-    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', 'portal_check')
+    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', policy)
     msg = mail('Das Datenvolumen ist verbraucht.')
     raw = msg.as_bytes()
     key = bridge._message_key(msg, raw) if alias == 'current' else bridge._legacy_message_key(msg, raw)
@@ -276,11 +281,12 @@ def test_portal_check_preserves_existing_queue_archive_and_legacy_dedup(monkeypa
                             claim=forbidden, enqueue=forbidden) == []
 
 
-def test_mail_report_counts_confirmation_without_granting_booking_permission(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize('policy', ['portal_check', 'notify_only'])
+def test_mail_report_counts_confirmation_without_granting_booking_permission(monkeypatch, tmp_path, capsys, policy):
     encoded = base64.urlsafe_b64encode(b's' * 32).decode()
     monkeypatch.delenv('ALDI_RECOVERY_KEY', raising=False)
     monkeypatch.setenv('ALDI_STATE_ENCRYPTION_KEY', encoded)
-    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', 'portal_check')
+    monkeypatch.setenv('ALDI_MAIL_TRIGGER_POLICY', policy)
     monkeypatch.setattr(notify, '_mailboxes', lambda: [(1, 'imap.example.invalid', 993, 'private-user', 'private-password')])
     monkeypatch.setattr(notify, '_poll_one', lambda *args, **kwargs: [
         {'mailbox': 1, 'signal': signal, 'actionable': signal == 'consumed'}
@@ -292,8 +298,8 @@ def test_mail_report_counts_confirmation_without_granting_booking_permission(mon
     assert report['new_alerts'] == 5 and report['actionable_alerts'] == 1
     assert report['early_warnings'] == report['refill_confirmations'] == 1
     assert report['option_confirmations'] == report['order_notifications'] == 1
-    assert report['trigger_policy'] == 'portal_check'
-    assert report['provider_check_requested'] is True
+    assert report['trigger_policy'] == policy
+    assert report['provider_check_requested'] is (policy == 'portal_check')
     assert report['booking_authorized'] is False and report['provider_action'] is False
     assert report['dedup_key_source'] == 'state_key'
     rendered = path.read_text() + capsys.readouterr().out

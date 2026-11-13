@@ -57,7 +57,7 @@ def _configure_dedup_key():
 
 def _trigger_policy():
     policy = os.environ.get("ALDI_MAIL_TRIGGER_POLICY", "consumed_only").strip()
-    if policy not in {"consumed_only", "portal_check"}:
+    if policy not in {"consumed_only", "portal_check", "notify_only"}:
         raise ValueError("trigger_policy_invalid")
     return policy
 
@@ -99,7 +99,8 @@ def _poll_one(index, host, port, user, password, claim=claim_trigger_key,
             if signal is None:
                 continue
             message_key = _message_key(message, raw)
-            if signal == "consumed" and os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() == "true":
+            if (signal == "consumed" and policy != "notify_only"
+                    and os.getenv("ALDI_IPHONE_NOTIFY_ENABLED", "").lower() == "true"):
                 # Explicit iPhone opt-in takes precedence over legacy trigger
                 # policy. Record durably before UID progress even if the policy
                 # was omitted and defaults to consumed_only.

@@ -35,7 +35,7 @@ class LidlConnectWatcher(BaseWatcher):
         "data_value": "span.consumption-value",  # Verbrauchswert
     }
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="needed"):
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="needed", keep_session=False):
         super().__init__(username, password, threshold_mb, dry_run, database)
         if use_api:
             raise ValueError('Lidl API endpoints are unverified; LIDL_USE_API must be false')
@@ -48,6 +48,7 @@ class LidlConnectWatcher(BaseWatcher):
             raise ValueError("LIDL_REFILL_MODE must be available or needed")
         self.refill_mode = refill_mode
         self.recharge_guard_seconds = 1800
+        self.keep_session = keep_session
 
     async def _exponential_backoff(self, func, max_retries: int = 5, base_delay: float = 1.0):
         """
@@ -57,6 +58,8 @@ class LidlConnectWatcher(BaseWatcher):
         for attempt in range(max_retries):
             try:
                 return await func()
+            except PermissionError:
+                raise
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
@@ -120,6 +123,12 @@ class LidlConnectWatcher(BaseWatcher):
 
         async def _check():
             await self.page.goto("https://kundenkonto.lidl-connect.de/mein-lidl-connect.html", timeout=30000)
+            url = urlsplit(self.page.url)
+            if url.scheme != "https" or url.hostname != "kundenkonto.lidl-connect.de":
+                raise PermissionError("Lidl: Unexpected usage origin")
+            password = self.page.locator("input[type='password']")
+            if await password.count() and await password.is_visible():
+                raise PermissionError("Lidl: Session expired")
             
             # Datenvolumen extrahieren
             usage_text = await self.page.text_content(self.SELECTORS["data_value"])
@@ -192,6 +201,9 @@ class LidlConnectWatcher(BaseWatcher):
         usage = await self._pw_check_usage()
         if not self.should_recharge_for_usage(usage):
             return False
+        # Refreshing the page may reveal a previous transaction's notice.
+        if await success.count() > 1 or await success.is_visible():
+            return False
         try:
             offer = self.page.locator(self.refill_selectors["refill_offer"])
             button = offer.locator(self.refill_selectors["refill_button"])
@@ -252,22 +264,27 @@ class LidlConnectWatcher(BaseWatcher):
 
     async def close(self):
         """SchlieÃ§t Browser und Session."""
-        if self.page:
-            await self.page.close()
-            self.page = None
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        page, browser, playwright = self.page, self.browser, self._playwright
+        self.page = self.browser = self._playwright = None
+        try:
+            if page:
+                await page.close()
+        finally:
+            try:
+                if browser:
+                    await browser.close()
+            finally:
+                if playwright:
+                    await playwright.stop()
 
     async def run(self):
         """
         Override run() fÃ¼r Cleanup.
         """
+        result = None
         try:
             result = await super().run()
             return result
         finally:
-            await self.close()
+            if not self.keep_session or result is None or not result.success:
+                await self.close()

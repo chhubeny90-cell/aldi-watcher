@@ -52,6 +52,8 @@ def browser_watcher(tmp_path, **kwargs):
     page = MagicMock()
     page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
     page.close = AsyncMock()
+    page.goto = AsyncMock()
+    page.text_content = AsyncMock(return_value='990 MB von 1000 MB')
     tariff, offer = locator('Unlimited on Demand S'), locator(OFFER)
     button = locator('1 GB nachbuchen')
     success = locator('1 GB erfolgreich nachgebucht', visible=False)
@@ -179,3 +181,13 @@ def test_dry_run_reports_available_refill_without_click(tmp_path):
     assert result.should_recharge and not result.recharge_triggered
     button.click.assert_not_awaited()
     assert not db.get_unresolved_recharges()
+
+
+def test_notice_appearing_on_fresh_usage_read_prevents_second_booking(tmp_path):
+    watcher, _, _, _, button, success = browser_watcher(tmp_path)
+    async def refreshed_usage():
+        success.is_visible.return_value = True
+        return {'used_mb': 990, 'total_mb': 1000, **ELIGIBLE}
+    watcher._pw_check_usage = refreshed_usage
+    assert asyncio.run(watcher._pw_trigger_recharge()) is False
+    button.click.assert_not_awaited()
