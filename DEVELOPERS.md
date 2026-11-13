@@ -148,8 +148,8 @@ mit `*/5 * * * *` alle fünf Minuten. Er liest das Postfach nur über IMAP im
 Read-only-Modus, speichert Deduplizierungsmarken und einen bereinigten Bericht.
 `DRY_RUN=true`, `AUTO_BOOK_ENABLED=false` und `notify_only` verhindern in diesem
 Workflow Provider-Aufträge; er enthält weder Portalzugriff noch SMTP-Versand.
-Benötigte Repository-Secrets sind `MAILBOX_1_HOST`, `MAILBOX_1_USER`,
-`MAILBOX_1_PASS` und ein dauerhaft beibehaltener `ALDI_RECOVERY_KEY`.
+Benötigte Repository-Secrets sind `MAILBOX_2_HOST`, `MAILBOX_2_USER`,
+`MAILBOX_2_PASS` und ein dauerhaft beibehaltener `ALDI_RECOVERY_KEY`.
 `ALDI_STATE_ENCRYPTION_KEY` ist nur eine alternative Quelle für den
 Deduplizierungsschlüssel, wenn kein Recovery-Key hinterlegt ist.
 
@@ -163,3 +163,7 @@ Deduplizierungsschlüssel, wenn kein Recovery-Key hinterlegt ist.
 - Vor einem Update mit `git status` lokale Änderungen prüfen und bewahren.
 
 Lizenz: MIT.
+
+Der passive Mailworkflow ignoriert aktuell das fehlerhafte Postfach 1 und nutzt
+ausschließlich `MAILBOX_2_HOST`, `MAILBOX_2_USER`, `MAILBOX_2_PASS` sowie optional
+`MAILBOX_2_PORT`. Fehlende alternative Zugangsdaten bleiben ein Konfigurationsfehler.

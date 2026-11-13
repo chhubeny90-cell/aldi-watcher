@@ -179,7 +179,8 @@ def test_passive_mail_workflow_receives_no_smtp_or_provider_secrets():
     poller, after = poller.split("      - name: Preserve sanitized usage-alert report\n", 1)
     assert "secrets." not in before and "secrets." not in after
     assert "ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}" in poller
-    assert "MAILBOX_1_PASS: ${{ secrets.MAILBOX_1_PASS }}" in poller
+    assert "MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}" in poller
+    assert "secrets.MAILBOX_1_" not in text
     assert "ALDI_NOTIFY_SMTP" not in text
     assert "send_iphone_notifications" not in text
     assert "ALDI_PASS" not in text and "ALDI_USER:" not in text
