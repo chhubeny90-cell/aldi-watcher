@@ -2,12 +2,13 @@
 
 from importlib import import_module
 
-__all__ = ["BaseWatcher", "AldiTalkWatcher", "LidlConnectWatcher"]
+__all__ = ["BaseWatcher", "AldiTalkWatcher", "LidlConnectWatcher", "NettoKomLiftWatcher"]
 
 _EXPORTS = {
     "BaseWatcher": ".base_watcher",
     "AldiTalkWatcher": ".aldi_talk",
     "LidlConnectWatcher": ".lidl_connect",
+    "NettoKomLiftWatcher": ".nettokom_lift",
 }
 _OPTIONAL_DEPS = {
     "AldiTalkWatcher": {"aiohttp"},
