@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from selenium.webdriver.common.by import By
 from watcher import build_driver, ALDI_LOGIN_URL, LIDL_LOGIN_URL
 from monitoring import write_report, utcnow
+from core.database import Database
 
 
 def host(url):
@@ -84,11 +85,29 @@ def probe(name, url):
     return result
 
 
+def record_probe_errors(database, result):
+    # Persist only fixed categories, never exception text, account data or URLs.
+    provider = result['provider']
+    if result.get('status') != 'complete':
+        database.log_error(provider, 'public_probe', 'public_probe_failed')
+    if result.get('console_categories'):
+        database.log_error(provider, 'public_probe', 'public_probe_console_error')
+    if result.get('resource_failures'):
+        database.log_error(provider, 'public_probe', 'public_probe_resource_error')
+    if result.get('cleanup_failed'):
+        database.log_error(provider, 'public_probe', 'public_probe_cleanup_failed')
+
+
 def main():
+    database = Database(os.getenv('DB_PATH', 'aldi_watcher.db'))
     if any(os.getenv(key) for key in ('ALDI_USER', 'ALDI_PASS', 'LIDL_USER', 'LIDL_PASS')):
+        database.log_error('public_probe', 'public_probe', 'provider_credentials_present')
         raise RuntimeError('Public probe must run without provider credentials')
-    report = {'scope': 'public_pages_only', 'providers': [
-        probe(name, url) for name, url in [('aldi_talk', ALDI_LOGIN_URL), ('lidl_connect', LIDL_LOGIN_URL)]]}
+    report = {'scope': 'public_pages_only', 'providers': []}
+    for name, url in [('aldi_talk', ALDI_LOGIN_URL), ('lidl_connect', LIDL_LOGIN_URL)]:
+        result = probe(name, url)
+        record_probe_errors(database, result)
+        report['providers'].append(result)
     write_report('portal-probe-report.json', report)
     print(json.dumps(report))
     return 1 if any(provider.get('status') != 'complete' for provider in report['providers']) else 0
