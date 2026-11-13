@@ -50,7 +50,9 @@ jobs:
           MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
           MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
           MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
-        run: python usage_mail_notify.py
+        run: |
+          python scripts/mail_secret_preflight.py
+          python usage_mail_notify.py
       - name: Preserve sanitized usage-alert report
         if: always()
         uses: actions/upload-artifact@v7.0.2
