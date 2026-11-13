@@ -25,7 +25,7 @@ def job(name):
 
 @pytest.mark.parametrize("event", ["workflow_dispatch", "schedule", "push", "pull_request"])
 @pytest.mark.parametrize("mode", ["tests", "public-probe", "all"])
-def test_manual_tests_and_scheduled_probe_route_to_separate_jobs(event, mode):
+def test_manual_tests_and_probe_route_without_any_scheduled_portal_job(event, mode):
     active = []
     for name in ("test", "public_probe"):
         expression = job(name).split("if: >-\n", 1)[1].split("runs-on:", 1)[0]
@@ -37,7 +37,7 @@ def test_manual_tests_and_scheduled_probe_route_to_separate_jobs(event, mode):
         if eval(expression, {"__builtins__": {}}, context):
             active.append(name)
     if event == "schedule":
-        assert active == ["public_probe"]
+        assert active == []
     elif event in {"push", "pull_request"}:
         assert active == ["test"]
     else:

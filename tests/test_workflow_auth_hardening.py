@@ -43,8 +43,13 @@ def test_main_workflow_has_no_authenticated_live_refill():
 
 
 def test_policy_safe_24_7_workflow_cadence_is_preserved():
-    assert "cron: '0 * * * *'" in _workflow("mail-trigger.yml")
-    assert "cron: '7-59/15 * * * *'" in _workflow("run.yml")
+    mail = _workflow("mail-trigger.yml")
+    assert "cron: '*/5 * * * *'" in mail
+    assert "DRY_RUN: 'true'" in mail
+    assert "AUTO_BOOK_ENABLED: 'false'" in mail
+    assert "ALDI_MAIL_TRIGGER_POLICY: notify_only" in mail
+    assert "ALDI_IPHONE_NOTIFY_ENABLED: 'false'" in mail
+    assert "schedule:" not in _workflow("run.yml")
     assert "schedule:" not in _workflow("watchdog.yml")
     assert "schedule:" not in _workflow("accounts.yml")
 

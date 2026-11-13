@@ -117,10 +117,10 @@ def test_usage_mail_ignores_unrelated_mail():
     assert mail_bridge._signal(msg) is None
 
 
-def test_main_workflow_is_credential_free_public_monitoring_only():
+def test_main_workflow_has_no_scheduled_portal_access():
     text = Path('.github/workflows/run.yml').read_text(encoding='utf-8')
-    assert "cron: '7-59/15 * * * *'" in text
-    assert "github.event_name == 'schedule'" in text
+    assert 'schedule:' not in text
+    assert "github.event_name == 'schedule'" not in text
     assert 'portal_probe.py' in text
     assert 'repository_dispatch:' not in text
     assert 'github_live_refill' not in text
@@ -132,7 +132,7 @@ def test_main_workflow_is_credential_free_public_monitoring_only():
 
 def test_usage_mail_monitor_is_notification_only_and_has_no_provider_credentials():
     mail = Path('.github/workflows/mail-trigger.yml').read_text(encoding='utf-8')
-    assert "cron: '0 * * * *'" in mail
+    assert "cron: '*/5 * * * *'" in mail
     assert 'usage_mail_notify.py' in mail
     assert 'ALDI_RECOVERY_KEY: ${{ secrets.ALDI_RECOVERY_KEY }}' in mail
     assert 'ALDI_PASS:' not in mail

@@ -1,6 +1,12 @@
 # iPhone-Assisted Refill: providerfreier Benachrichtigungsweg
 
-## Was dieser Branch nach der Übernahme kann
+**Aktueller passiver Betrieb:** `.github/workflows/mail-trigger.yml` liest alle
+fünf Minuten das Postfach mit `notify_only`, ohne Outbox-Auftrag oder SMTP-Versand.
+Die Repository-Variable `ALDI_IPHONE_NOTIFY_ENABLED` aktiviert dort keinen Sender.
+Die folgenden Abschnitte beschreiben den früheren separaten Erinnerungsweg und
+die weiterhin vorhandenen, nicht an diesen Workflow angeschlossenen Tools.
+
+## Historischer Erinnerungsweg
 
 1. Der stündliche Mailmonitor liest neue ALDI-TALK-Verbrauchsmails über IMAP.
 2. Nur eine **neue, bereits klassifizierte Verbrauchsmail** erzeugt einen
@@ -16,7 +22,7 @@ Portal-Zugang, ALDI-Login oder Anbieterbeleg ist Teil dieses Wegs.
 SMTP_ACCEPTED bedeutet Annahme durch den Mailserver, nicht Empfang auf
 dem iPhone oder erfolgte Nachbuchung.
 
-## Administrator-Konfiguration (auf main nach geprüfter Übernahme)
+## Konfiguration eines gesonderten Erinnerungswegs
 
 In GitHub > Settings > Secrets and variables > Actions:
 
@@ -84,9 +90,9 @@ python -m pytest -q tests/test_iphone_notification_outbox.py tests/test_iphone_r
 ```
 
 Die alte `scripts/iphone_refill_reminder.py` bleibt nur als
-**nicht angeschlossener** privater SQLite-Sender erhalten. Der produktive
-GitHub-Workflow verwendet ausschließlich die State-Branch-Outbox und
-`scripts/send_iphone_notifications.py`.
+**nicht angeschlossener** privater SQLite-Sender erhalten.
+`scripts/send_iphone_notifications.py` verwendet die State-Branch-Outbox,
+wird aber vom passiven GitHub-Mailworkflow nicht aufgerufen.
 
 **Freigabestand:** Nach Merge und Einrichtung des SMTP-/IMAP-Zugangs darf
 höchstens die Erinnerung aktiviert werden. Ein einziger tatsächlicher

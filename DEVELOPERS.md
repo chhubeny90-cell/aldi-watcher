@@ -137,10 +137,21 @@ Tests und öffentliche Portaldiagnosen belegen keine Anmeldung oder Nachbuchung.
 ## GitHub-Workflow
 
 In `.github/workflows/run.yml` startet `workflow_dispatch` mit `mode=tests`
-ausschließlich den Testjob. Der Cron-Trigger startet nur `public_probe`;
-`mode=all` startet beide. Fehler werden in die über `DB_PATH` gewählte lokale
+ausschließlich den Testjob. Öffentliche Portaldiagnosen laufen nur auf manuellen
+Aufruf mit `mode=public-probe` oder `mode=all`; `run.yml` hat keinen Cron-Trigger.
+Fehler werden in die über `DB_PATH` gewählte lokale
 SQLite-Datei geschrieben und als Diagnose-Artefakt für sieben Tage aufbewahrt.
 Diese Runner-Diagnose ist kein dauerhaftes Buchungsjournal.
+
+Der passive Mailmonitor liegt in `.github/workflows/mail-trigger.yml` und läuft
+mit `*/5 * * * *` alle fünf Minuten. Er liest das Postfach nur über IMAP im
+Read-only-Modus, speichert Deduplizierungsmarken und einen bereinigten Bericht.
+`DRY_RUN=true`, `AUTO_BOOK_ENABLED=false` und `notify_only` verhindern in diesem
+Workflow Provider-Aufträge; er enthält weder Portalzugriff noch SMTP-Versand.
+Benötigte Repository-Secrets sind `MAILBOX_1_HOST`, `MAILBOX_1_USER`,
+`MAILBOX_1_PASS` und ein dauerhaft beibehaltener `ALDI_RECOVERY_KEY`.
+`ALDI_STATE_ENCRYPTION_KEY` ist nur eine alternative Quelle für den
+Deduplizierungsschlüssel, wenn kein Recovery-Key hinterlegt ist.
 
 ## Fehlerbehebung
 

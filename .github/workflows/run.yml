@@ -15,15 +15,13 @@ on:
           - all
           - tests
           - public-probe
-  schedule:
-    # Credential-free public portal health check, 24/7.
-    - cron: '7-59/15 * * * *'
 
 permissions:
   contents: read
 
 env:
   # Authenticated ALDI portal automation remains disabled.
+  DRY_RUN: 'true'
   AUTO_BOOK_ENABLED: 'false'
   DB_PATH: workflow-errors.db
 
@@ -82,7 +80,6 @@ jobs:
 
   public_probe:
     if: >-
-      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
         (inputs.mode == 'all' || inputs.mode == 'public-probe'))
     runs-on: ubuntu-latest
