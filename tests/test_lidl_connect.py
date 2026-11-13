@@ -34,6 +34,8 @@ class TestLidlConnectWatcher:
         """Testet erfolgreiche Usage-Prfung."""
         mock_page = MagicMock()
         mock_page.goto = AsyncMock()
+        mock_page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
+        mock_page.locator.return_value.count = AsyncMock(return_value=0)
         mock_page.text_content = AsyncMock(return_value="1234 MB von 5000 MB")
         watcher.page = mock_page
 
@@ -47,6 +49,8 @@ class TestLidlConnectWatcher:
         """Testet Parsing-Fehler."""
         mock_page = MagicMock()
         mock_page.goto = AsyncMock()
+        mock_page.url = 'https://kundenkonto.lidl-connect.de/mein-lidl-connect.html'
+        mock_page.locator.return_value.count = AsyncMock(return_value=0)
         mock_page.text_content = AsyncMock(return_value="Invalid format")
         watcher.page = mock_page
 
@@ -121,3 +125,49 @@ class TestLidlConnectWatcher:
             with patch.object(watcher, 'check_usage', new=AsyncMock(return_value=usage)):
                 result = await watcher.run()
             assert result.should_recharge is False
+
+
+@pytest.mark.parametrize("mode", ["needed", "available"])
+@pytest.mark.parametrize("remaining,allowed", [
+    (0, True), (500, True), (1023, True),
+    (1024, False), (1025, False),
+])
+def test_refill_strict_one_gib_boundary_in_both_modes(mode, remaining, allowed):
+    watcher = LidlConnectWatcher(
+        username="test", password="test", threshold_mb=1024,
+        dry_run=True, use_api=False, refill_mode=mode,
+    )
+    usage = {
+        "used_mb": 4096 - remaining,
+        "total_mb": 4096,
+        "refill_eligible": True,
+        "refill_type": "FREE_UNLIMITED",
+    }
+    assert watcher.should_recharge_for_usage(usage) is allowed
+
+
+@pytest.mark.parametrize("mode", ["needed", "available"])
+@pytest.mark.parametrize("remaining", [float("nan"), float("inf"), -1])
+def test_refill_rejects_invalid_usage_in_both_modes(mode, remaining):
+    watcher = LidlConnectWatcher(
+        username="test", password="test", threshold_mb=1024,
+        dry_run=True, use_api=False, refill_mode=mode,
+    )
+    usage = {
+        "used_mb": remaining, "total_mb": 4096,
+        "refill_eligible": True, "refill_type": "FREE_UNLIMITED",
+    }
+    assert watcher.should_recharge_for_usage(usage) is False
+
+
+@pytest.mark.parametrize("mode", ["needed", "available"])
+def test_refill_rejects_paid_offer_in_both_modes(mode):
+    watcher = LidlConnectWatcher(
+        username="test", password="test", threshold_mb=1024,
+        dry_run=True, use_api=False, refill_mode=mode,
+    )
+    usage = {
+        "used_mb": 4095, "total_mb": 4096,
+        "refill_eligible": True, "refill_type": "PAID",
+    }
+    assert watcher.should_recharge_for_usage(usage) is False

@@ -97,9 +97,9 @@ playwright install-deps chromium
    Details: [Geschützte Konfiguration](docs/protected-configuration.md).
 
 Für LIDL bleibt `LIDL_USE_API=false`; der API-Modus ist technisch gesperrt.
-`LIDL_REFILL_MODE=available` reagiert auf den freigeschalteten kostenlosen
-Refill-Button, unabhängig vom Verbrauch. Optional verlangt `needed` zusätzlich
-Restvolumen <= `THRESHOLD_LIDL_MB`; diese Schwelle bezeichnet **verbleibende MB**.
+`LIDL_REFILL_MODE=needed` ist Standard. Beide Modi verlangen eine bestätigte
+kostenlose Option und Restvolumen strikt unter `THRESHOLD_LIDL_MB` sowie strikt
+unter 1024 MB. Die Schwelle bezeichnet **verbleibende MB**, Standard 1024.
 Die Selektoren müssen aus einem beobachteten Kontoflow stammen; es gibt keine
 Standardwerte. Der Monitoringcode verwendet die ersten drei, der Pluginbetrieb
 zusätzlich die Erfolgsbestätigung. Buchungsbedingungen und Journalpflicht stehen
@@ -122,6 +122,28 @@ Eine ChatGPT-Gmail-Verbindung stellt diese IMAP-Secrets nicht bereit.
 | `LIDL_REFILL_OFFER_SELECTOR` | Genau ein Refill-Angebot mit 1 GB und explizitem Preis |
 | `LIDL_REFILL_BUTTON_SELECTOR` | Button relativ **innerhalb** dieses Angebots |
 | `LIDL_REFILL_SUCCESS_SELECTOR` | Neue, eindeutige Bestätigung dieser Buchung |
+
+## Adaptive LIDL-Prüfung in main.py
+
+`LIDL_ADAPTIVE_POLLING=true` nutzt die vorhandene Verbrauchsratenberechnung.
+Prüfabstände liegen zwischen `LIDL_POLL_MIN_SECONDS=30` und
+`LIDL_POLL_MAX_SECONDS=300`; unter 2048 MB höchstens 60 Sekunden auch ohne
+Verbrauchshistorie. Fehler führen zu Backoff bis 3600 Sekunden, offene/unklare
+Buchungen zu langsameren Prüfungen. Anbieter laufen unabhängig in jeweils
+einem seriellen Worker. Gesunde LIDL-Sitzungen bleiben im Prozess erhalten;
+Fehler, Sitzungsablauf und Shutdown schließen die Browserressourcen.
+Es werden keine Cookies auf Platte exportiert und keine TinyFish-Profile importiert.
+
+`request_check("lidlconnect")` ist ein **prozessinterner Adapterhaken**, kein
+installierter SMS-/Mail-Empfänger. Ein späterer Empfänger muss Absender und SIM
+zuordnen; mehrere Signale werden zusammengefasst und umgehen weder Mindestabstand
+noch Fehler-Backoff noch Journal-/Buchungsregeln. Kein zweiter Buchungsprozess.
+Der bestehende ALDI-Mailworkflow wird dadurch nicht an LIDL angeschlossen.
+
+Die unveränderte 1800-Sekunden-Sperre nach erfolgreicher LIDL-Buchung verhindert
+derzeit schnelle wiederholte Nachbuchungen. Vor einer Verkürzung braucht es
+einen belastbaren frischen Volumen-/Transaktionsabgleich. Diese Optimierung
+garantiert weder unterbrechungsfreies Highspeed noch aktivierten Dauerbetrieb.
 
 ## Tests
 
