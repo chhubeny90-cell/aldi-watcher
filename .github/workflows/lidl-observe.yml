@@ -1,0 +1,59 @@
+name: Lidl Connect Observe Only
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'feature/lidl-observe-only']
+    paths:
+      - '.github/workflows/lidl-observe.yml'
+      - 'lidl_observe.py'
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lidl-observe-only
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DRY_RUN: 'true'
+      AUTO_BOOK_ENABLED: 'false'
+      LIDL_USE_API: 'false'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install read-only runtime
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Read verified Lidl account without booking
+        env:
+          LIDL_USER: ${{ secrets.LIDL_USER }}
+          LIDL_PASS: ${{ secrets.LIDL_PASS }}
+          LIDL_USER_ENC: ${{ secrets.LIDL_USER_ENC }}
+          LIDL_PASS_ENC: ${{ secrets.LIDL_PASS_ENC }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          LIDL_EXPECTED_MSISDN: ${{ secrets.LIDL_EXPECTED_MSISDN }}
+          LIDL_ACCOUNT_SELECTOR: ${{ secrets.LIDL_ACCOUNT_SELECTOR }}
+          LIDL_REMAINING_SELECTOR: ${{ secrets.LIDL_REMAINING_SELECTOR }}
+          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ secrets.LIDL_ACTIVE_TARIFF_SELECTOR }}
+          LIDL_REFILL_OFFER_SELECTOR: ${{ secrets.LIDL_REFILL_OFFER_SELECTOR }}
+          LIDL_REFILL_BUTTON_SELECTOR: ${{ secrets.LIDL_REFILL_BUTTON_SELECTOR }}
+        run: python lidl_observe.py
+      - name: Preserve sanitized observation
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: lidl-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: lidl-observation.json
+          retention-days: 1
+          if-no-files-found: warn
