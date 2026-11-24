@@ -1,5 +1,6 @@
 """One read-only Lidl account inspection. This entrypoint cannot book data."""
 
+import argparse
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -172,8 +173,17 @@ async def observe(reader=read_account):
         return {**base, "status": "BLOCKED", "reason": "account_read_failed"}
 
 
-def main():
-    report = asyncio.run(observe())
+async def configuration_only(_config):
+    """No network or browser access; configuration is not account evidence."""
+    return {"status": "PREFLIGHT_OK"}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true",
+                        help="Check configuration without opening a browser")
+    args = parser.parse_args(argv)
+    report = asyncio.run(observe(reader=configuration_only) if args.preflight else observe())
     output = json.dumps(report, ensure_ascii=False, sort_keys=True)
     Path("lidl-observation.json").write_text(output + "\n", encoding="utf-8")
     print(output)

@@ -36,3 +36,13 @@ Start: manueller Actions-Aufruf oder Push einer relevanten Datei auf `main` oder
 Minute 17 UTC, in Berlin normalerweise ebenfalls Minute 17 jeder Stunde.
 GitHub kann geplante Läufe verzögern. Ein Branch-Lauf aktiviert keinen Zeitplan
 auf `main`. Fehlgeschlagene oder grüne Vorprüfungen sind kein Betriebsnachweis.
+
+## Offline-Vorprüfung
+
+`python lidl_observe.py --preflight` verwendet dieselbe Konfigurationsprüfung
+wie die Beobachtung, ohne Browser oder Netzwerkzugriff. `PREFLIGHT_OK` bedeutet
+nur, dass die erforderliche Konfiguration vorhanden und formal gültig ist;
+`account_verified=false`, `observed_at=null` und Restvolumen unbekannt bleiben
+bis zu einer erfolgreichen echten Beobachtung. `BLOCKED` führt zu Exit 2.
+Der Workflow installiert Chromium erst nach erfolgreicher Vorprüfung.
+Der bereinigte Bericht wird auch bei einem späteren Installationsfehler gesichert.

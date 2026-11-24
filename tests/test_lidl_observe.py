@@ -113,3 +113,35 @@ def test_workflow_only_observes_with_read_permissions():
     assert "python lidl_observe.py" in workflow
     assert "main.py" not in workflow and "free-1gb" not in workflow
     assert "pull_request_target" not in workflow
+
+def test_preflight_writes_non_observation_and_does_not_read_account(monkeypatch, tmp_path, capsys):
+    configured(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert observe.main(["--preflight"]) == 0
+    report = json.loads((tmp_path / "lidl-observation.json").read_text())
+    assert report["status"] == "PREFLIGHT_OK"
+    assert report["observed_at"] is None
+    assert report["remaining_mb"] is None
+    assert report["account_verified"] is False
+    assert report["booking_performed"] is False
+    assert "private" not in capsys.readouterr().out
+
+
+def test_preflight_missing_config_is_failure_and_preserves_report(monkeypatch, tmp_path):
+    monkeypatch.setattr(observe, "configuration", lambda: (None, ["LIDL_EXPECTED_MSISDN"]))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert observe.main(["--preflight"]) == 2
+    report = json.loads((tmp_path / "lidl-observation.json").read_text())
+    assert report["status"] == "BLOCKED"
+    assert report["reason"] == "configuration_missing"
+    assert report["missing"] == ["LIDL_EXPECTED_MSISDN"]
+    assert report["observed_at"] is None
+
+
+def test_workflow_preflights_before_browser_install():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/lidl-observe.yml").read_text()
+    assert workflow.index("python lidl_observe.py --preflight") < workflow.index("python -m playwright install")
+    assert workflow.index("python -m playwright install") < workflow.index("run: python lidl_observe.py\n")
+    assert "if: always()" in workflow
