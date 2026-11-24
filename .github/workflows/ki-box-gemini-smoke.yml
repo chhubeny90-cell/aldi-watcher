@@ -243,7 +243,7 @@ jobs:
     steps:
       - name: Create repository-scoped app token (issues only)
         id: app
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3, Node 24
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3, Node 24
         with:
           app-id: ${{ vars.KI_BOX_GEMINI_APP_ID }}
           private-key: ${{ secrets.KI_BOX_GEMINI_APP_PRIVATE_KEY }}
