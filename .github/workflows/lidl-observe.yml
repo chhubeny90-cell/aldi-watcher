@@ -31,10 +31,24 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Validate Lidl configuration without browser access
+        env:
+          LIDL_USER: ${{ secrets.LIDL_USER }}
+          LIDL_PASS: ${{ secrets.LIDL_PASS }}
+          LIDL_USER_ENC: ${{ secrets.LIDL_USER_ENC }}
+          LIDL_PASS_ENC: ${{ secrets.LIDL_PASS_ENC }}
+          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          LIDL_EXPECTED_MSISDN: ${{ secrets.LIDL_EXPECTED_MSISDN }}
+          LIDL_ACCOUNT_SELECTOR: ${{ secrets.LIDL_ACCOUNT_SELECTOR }}
+          LIDL_REMAINING_SELECTOR: ${{ secrets.LIDL_REMAINING_SELECTOR }}
+          LIDL_ACTIVE_TARIFF_SELECTOR: ${{ secrets.LIDL_ACTIVE_TARIFF_SELECTOR }}
+          LIDL_REFILL_OFFER_SELECTOR: ${{ secrets.LIDL_REFILL_OFFER_SELECTOR }}
+          LIDL_REFILL_BUTTON_SELECTOR: ${{ secrets.LIDL_REFILL_BUTTON_SELECTOR }}
+        run: python lidl_observe.py --preflight
       - name: Install read-only runtime
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium
       - name: Read verified Lidl account without booking
         env:
           LIDL_USER: ${{ secrets.LIDL_USER }}
