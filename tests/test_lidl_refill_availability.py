@@ -47,6 +47,8 @@ def locator(text='', visible=True, enabled=True, count=1):
 
 def browser_watcher(tmp_path, **kwargs):
     db = Database(str(tmp_path / 'persistent.sqlite'))
+    kwargs.setdefault('expected_msisdn', '015123456789')
+    kwargs.setdefault('account_selector', '.account')
     watcher = LidlConnectWatcher('fake', 'fake', 1024, dry_run=False, use_api=False,
                                  database=db, refill_selectors=SELECTORS, **kwargs)
     page = MagicMock()
@@ -54,12 +56,13 @@ def browser_watcher(tmp_path, **kwargs):
     page.close = AsyncMock()
     page.goto = AsyncMock()
     page.text_content = AsyncMock(return_value='990 MB von 1000 MB')
+    account = locator('Rufnummer: +49 151 23456789')
     tariff, offer = locator('Unlimited on Demand S'), locator(OFFER)
     button = locator('1 GB nachbuchen')
     success = locator('1 GB erfolgreich nachgebucht', visible=False)
     offer.locator.return_value = button
     page.locator.side_effect = lambda selector: {
-        '.active': tariff, '.offer': offer, '.new-success': success,
+        '.account': account, '.active': tariff, '.offer': offer, '.new-success': success,
         "input[type='password']": locator(visible=False, count=0),
     }.get(selector, locator('Abmelden'))
     watcher.page = page
@@ -191,3 +194,58 @@ def test_notice_appearing_on_fresh_usage_read_prevents_second_booking(tmp_path):
     watcher._pw_check_usage = refreshed_usage
     assert asyncio.run(watcher._pw_trigger_recharge()) is False
     button.click.assert_not_awaited()
+
+
+@pytest.mark.parametrize('kind', ['wrong', 'masked', 'multiple', 'hidden', 'ambiguous', 'missing_target', 'missing_selector'])
+def test_unverified_sim_blocks_offer_and_click(tmp_path, kind):
+    watcher, _, page, _, button, _ = browser_watcher(tmp_path)
+    account = page.locator('.account')
+    if kind == 'wrong':
+        account.inner_text.return_value = 'Rufnummer: 015198765432'
+    elif kind == 'masked':
+        account.inner_text.return_value = 'Rufnummer: ***6789'
+    elif kind == 'multiple':
+        account.inner_text.return_value = '015123456789 und 015198765432'
+    elif kind == 'hidden':
+        account.is_visible.return_value = False
+    elif kind == 'ambiguous':
+        account.count.return_value = 2
+    elif kind == 'missing_target':
+        watcher._expected_msisdn = None
+    else:
+        watcher._account_selector = ''
+    assert not asyncio.run(watcher._pw_refill_evidence())['refill_eligible']
+    assert not asyncio.run(watcher._pw_trigger_recharge())
+    button.click.assert_not_awaited()
+
+
+def test_missing_identity_blocks_live_usage_before_browser(monkeypatch):
+    watcher = LidlConnectWatcher('fake', 'fake', 1024, dry_run=False,
+                                 expected_msisdn='', account_selector='')
+    watcher._init_browser = AsyncMock()
+    with pytest.raises(PermissionError, match='identity configuration missing'):
+        asyncio.run(watcher.check_usage())
+    watcher._init_browser.assert_not_awaited()
+
+
+def test_sim_switch_during_fresh_usage_prevents_click(tmp_path):
+    watcher, _, page, _, button, _ = browser_watcher(tmp_path)
+    async def refresh():
+        page.locator('.account').inner_text.return_value = '015198765432'
+        return {'used_mb': 990, 'total_mb': 1000, **ELIGIBLE}
+    watcher._pw_check_usage = refresh
+    assert not asyncio.run(watcher._pw_trigger_recharge())
+    button.click.assert_not_awaited()
+
+
+def test_sim_switch_after_click_keeps_unknown_and_prevents_retry(tmp_path):
+    watcher, db, page, _, button, _ = browser_watcher(tmp_path)
+    watcher.check_usage = AsyncMock(return_value={'used_mb': 990, 'total_mb': 1000, **ELIGIBLE})
+    async def click(**kwargs):
+        page.locator('.account').inner_text.return_value = '015198765432'
+    button.click.side_effect = click
+    result = asyncio.run(watcher.run())
+    assert result.recharge_status == 'UNKNOWN'
+    assert db.get_unresolved_recharges()[0].status == 'UNKNOWN'
+    assert asyncio.run(watcher.run()).recharge_status == 'BLOCKED'
+    button.click.assert_awaited_once()

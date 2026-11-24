@@ -21,3 +21,18 @@ Keine verifizierte Lidl-API; vorhandene Portal-Selektoren müssen anhand des **e
 `LIDL_REFILL_MODE=available` bleibt für ältere Konfigurationen als Eingabewert erhalten, hebt aber die Restvolumenschwelle **nicht mehr auf**.
 
 **Status:** Code-/Testvorschlag im separaten Draft, nicht gemergt und nicht live aktiviert.
+
+
+## SIM-Sicherheitsgate (2026-11-24)
+
+Der buchende Pluginpfad verlangt zusätzlich zur Anmeldung die separat
+konfigurierte vollständige Zielrufnummer (`LIDL_EXPECTED_MSISDN`) und einen
+nachweislich eindeutigen sichtbaren Konto-Selektor (`LIDL_ACCOUNT_SELECTOR`).
+Fehlende Konfiguration blockiert Live-Verbrauchsabfragen vor Browserstart.
+Abweichende, maskierte, mehrdeutige oder unsichtbare Rufnummern blockieren
+Angebot und Buchung. Der Abgleich wird nach dem frischen Verbrauchsabruf,
+unmittelbar vor dem Klick und nach der Abschlussmeldung wiederholt.
+Eine Identitätsabweichung nach dem Klick bleibt UNKNOWN. Keine Rufnummern
+in Logs oder öffentlichen Konfigurationen. Die neuen Tests verwenden ausschließlich
+synthetische Konto-Fixtures. Der Nachweis im echten Kundenkonto, dauerhafte
+SIM-bezogene Journalbindung und Anbieter-Reconciliation bleiben offen.

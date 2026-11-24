@@ -8,6 +8,8 @@ require validation against the authenticated provider account.
 import asyncio
 import re
 import math
+import os
+from core.lidl_identity import normalize_phone, matches_account
 from urllib.parse import urlsplit
 from core.lidl_refill import assess_refill, unavailable, configured_selectors
 from typing import Dict, Optional
@@ -35,7 +37,7 @@ class LidlConnectWatcher(BaseWatcher):
         "data_value": "span.consumption-value",  # Verbrauchswert
     }
 
-    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="needed", keep_session=False):
+    def __init__(self, username: str, password: str, threshold_mb: float, dry_run: bool = True, use_api: bool = False, database=None, refill_selectors=None, refill_mode="needed", keep_session=False, expected_msisdn=None, account_selector=None):
         super().__init__(username, password, threshold_mb, dry_run, database)
         if use_api:
             raise ValueError('Lidl API endpoints are unverified; LIDL_USE_API must be false')
@@ -49,6 +51,27 @@ class LidlConnectWatcher(BaseWatcher):
         self.refill_mode = refill_mode
         self.recharge_guard_seconds = 1800
         self.keep_session = keep_session
+        target = os.getenv("LIDL_EXPECTED_MSISDN", "") if expected_msisdn is None else expected_msisdn
+        self._expected_msisdn = normalize_phone(target)
+        selector = os.getenv("LIDL_ACCOUNT_SELECTOR", "") if account_selector is None else account_selector
+        self._account_selector = selector.strip() if isinstance(selector, str) else ""
+
+    async def _pw_verify_account(self):
+        """Read a unique visible account identity; never expose its value."""
+        if not self.page or not self._expected_msisdn or not self._account_selector:
+            return False
+        try:
+            url = urlsplit(self.page.url)
+            if url.scheme != "https" or url.hostname != "kundenkonto.lidl-connect.de":
+                return False
+            if await self.page.locator("input[type='password']").is_visible():
+                return False
+            account = self.page.locator(self._account_selector)
+            if await account.count() != 1 or not await account.is_visible():
+                return False
+            return matches_account(await account.inner_text(), self._expected_msisdn)
+        except Exception:
+            return False
 
     async def _exponential_backoff(self, func, max_retries: int = 5, base_delay: float = 1.0):
         """
@@ -117,6 +140,8 @@ class LidlConnectWatcher(BaseWatcher):
         """
         PrÃ¼ft Datenvolumen via Playwright.
         """
+        if not self.dry_run and (not self._expected_msisdn or not self._account_selector):
+            raise PermissionError("Lidl: target identity configuration missing")
         if self.page is None:
             await self._init_browser()
             await self._pw_login()
@@ -129,6 +154,8 @@ class LidlConnectWatcher(BaseWatcher):
             password = self.page.locator("input[type='password']")
             if await password.count() and await password.is_visible():
                 raise PermissionError("Lidl: Session expired")
+            if not self.dry_run and not await self._pw_verify_account():
+                raise PermissionError("Lidl: account identity unverified")
             
             # Datenvolumen extrahieren
             usage_text = await self.page.text_content(self.SELECTORS["data_value"])
@@ -160,6 +187,8 @@ class LidlConnectWatcher(BaseWatcher):
 
     async def _pw_refill_evidence(self):
         selectors = self.refill_selectors
+        if not await self._pw_verify_account():
+            return unavailable("account_unverified")
         if not self.page or not all(selectors.get(key) for key in ("active_tariff", "refill_offer", "refill_button")):
             return unavailable("selectors_unconfigured")
         try:
@@ -201,14 +230,20 @@ class LidlConnectWatcher(BaseWatcher):
         usage = await self._pw_check_usage()
         if not self.should_recharge_for_usage(usage):
             return False
+        if not (await self._pw_refill_evidence())["refill_eligible"]:
+            return False
         # Refreshing the page may reveal a previous transaction's notice.
         if await success.count() > 1 or await success.is_visible():
             return False
         try:
             offer = self.page.locator(self.refill_selectors["refill_offer"])
             button = offer.locator(self.refill_selectors["refill_button"])
+            if not await self._pw_verify_account():
+                return False
             await button.click(timeout=10000)
             await success.wait_for(state="visible", timeout=10000)
+            if not await self._pw_verify_account():
+                raise RechargeUnknownError("Lidl account identity unverified after booking")
             text = " ".join((await success.inner_text()).split())
             url = urlsplit(self.page.url)
             quantities = re.findall(r"(?<![\d.,])([\d]+(?:[.,]\d+)?)\s*GB\b", text, re.I)
