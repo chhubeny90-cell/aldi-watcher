@@ -1,4 +1,4 @@
-name: ALDI Usage Mail Monitor
+name: ALDI Legacy IMAP Preflight (One Shot)
 
 on:
   workflow_dispatch:
@@ -6,12 +6,10 @@ on:
       connection_only:
         description: Check key format and read-only IMAP login without processing messages or sending reminders
         type: boolean
-        default: false
-  schedule:
-    - cron: '*/5 * * * *'
+        default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: aldi-usage-mail-monitor
@@ -19,6 +17,7 @@ concurrency:
 
 jobs:
   monitor:
+    if: github.event_name == 'workflow_dispatch' && inputs.connection_only == true
     runs-on: ubuntu-latest
     timeout-minutes: 4
     env:
@@ -26,7 +25,7 @@ jobs:
       AUTO_BOOK_ENABLED: 'false'
       ALDI_MAIL_TRIGGER_POLICY: notify_only
       ALDI_IPHONE_NOTIFY_ENABLED: 'false'
-      ALDI_MAIL_CONNECTION_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.connection_only && 'true' || 'false' }}
+      ALDI_MAIL_CONNECTION_ONLY: 'true'
       ALDI_STATE_PATH: .aldi-state/profile-1.json
       ALDI_MAIL_NOTIFY_REPORT: aldi-usage-alert.json
     steps:
@@ -46,10 +45,10 @@ jobs:
           ALDI_STATE_ENCRYPTION_KEY: ${{ secrets.ALDI_STATE_ENCRYPTION_KEY }}
           # Mailbox 1 is excluded after repeated IMAP authentication failures.
           # Use the existing alternative; missing credentials remain a failure.
-          MAILBOX_2_HOST: ${{ secrets.MAILBOX_2_USER && (secrets.MAILBOX_2_HOST || 'imap.gmail.com') || '' }}
-          MAILBOX_2_PORT: ${{ secrets.MAILBOX_2_PORT }}
-          MAILBOX_2_USER: ${{ secrets.MAILBOX_2_USER }}
-          MAILBOX_2_PASS: ${{ secrets.MAILBOX_2_PASS }}
+          MAILBOX_2_HOST: 'imap.gmail.com'
+          MAILBOX_2_PORT: '993'
+          MAILBOX_2_USER: ${{ secrets.MAILBOX_1_USER }}
+          MAILBOX_2_PASS: ${{ secrets.MAILBOX_1_PASS }}
         run: |
           python scripts/mail_secret_preflight.py
           python usage_mail_notify.py
