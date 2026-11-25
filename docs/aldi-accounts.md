@@ -14,6 +14,13 @@ The command creates an owner-only encrypted file and refuses to overwrite it.
 Store its content as GitHub secret ALDI_ACCOUNTS_ENC, and the existing key as
 CREDENTIAL_ENCRYPTION_KEY. No connector used by this change can write secrets.
 
+During read-only monitoring, malformed account numbers are skipped individually
+and reported using anonymous account IDs; other valid profiles are still checked.
+The overall run reports failure if any profile was skipped. Invalid manifest
+structure, duplicate account IDs or valid duplicate numbers still fail closed.
+Manifest creation remains strict. Account identity checks, auth backoff and
+all live-booking guards remain unchanged.
+
 Each enabled profile gets a fresh Selenium browser and an exact selected-SIM
 identity check. A linked SIM is selected only through the existing account menu;
 accounts are never merged or logged out. Reports contain anonymous account IDs
