@@ -28,7 +28,7 @@ def normalise_number(value):
     return compact
 
 
-def validate_accounts(payload):
+def validate_accounts(payload, *, skipped=None):
     if not isinstance(payload, dict) or payload.get("version") != 1:
         raise ValueError("invalid_account_manifest")
     raw = payload.get("accounts")
@@ -41,7 +41,17 @@ def validate_accounts(payload):
         account_id = item.get("account_id")
         if not isinstance(account_id, str) or not re.fullmatch(r"account_[a-z]", account_id):
             raise ValueError("invalid_account_id")
-        number = normalise_number(item.get("account_user"))
+        if account_id in ids:
+            raise ValueError("duplicate_account")
+        ids.add(account_id)
+        try:
+            number = normalise_number(item.get("account_user"))
+        except ValueError:
+            if skipped is None:
+                raise
+            skipped.append({"account_id": account_id, "status": "skipped",
+                            "reason": "invalid_account_number", "booking_executed": False})
+            continue
         enabled = item.get("enabled", False)
         policy = item.get("policy", "monitor_only")
         if type(enabled) is not bool or policy not in {"monitor_only", "free_unlimited"}:
@@ -52,15 +62,14 @@ def validate_accounts(payload):
             raise ValueError("invalid_account_credentials")
         if enabled and not password:
             raise ValueError("missing_account_password")
-        if account_id in ids or number in numbers:
+        if number in numbers:
             raise ValueError("duplicate_account")
-        ids.add(account_id)
         numbers.add(number)
         result.append(Account(account_id, number, login_user, password, enabled, policy))
     return sorted(result, key=lambda item: item.account_user)
 
 
-def load_accounts(environ=None):
+def load_accounts(environ=None, *, skipped=None):
     environ = os.environ if environ is None else environ
     token = environ.get("ALDI_ACCOUNTS_ENC", "")
     if not token:
@@ -68,7 +77,7 @@ def load_accounts(environ=None):
     from core.security import SecurityManager
     try:
         payload = json.loads(SecurityManager().decrypt(token))
-        return validate_accounts(payload)
+        return validate_accounts(payload, skipped=skipped)
     except Exception:
         raise ValueError("invalid_encrypted_account_manifest") from None
 
