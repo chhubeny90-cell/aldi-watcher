@@ -80,8 +80,9 @@ def main():
         print(json.dumps({"status": report["status"]}))
         return 3
 
+    skipped = []
     try:
-        accounts = load_accounts()
+        accounts = load_accounts(skipped=skipped)
     except ValueError:
         report["status"] = "configuration_error"
         write_report(report_path, report)
@@ -91,7 +92,11 @@ def main():
         report["status"] = "configuration_error"
         write_report(report_path, report)
         return 3
-    failures = 0
+    # Invalid numbers are isolated before any browser or provider access.
+    # Preserve a nonzero exit status so skipped profiles remain visible in CI.
+    report["accounts"].extend(skipped)
+    failures = len(skipped)
+    write_report(report_path, report)
     for account in accounts:
         if not account.enabled:
             report["accounts"].append({"account_id": account.account_id, "status": "disabled"})
