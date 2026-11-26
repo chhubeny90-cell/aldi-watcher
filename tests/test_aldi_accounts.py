@@ -25,6 +25,30 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_accounts({"version": 1, "accounts": [item(), item(account_id="account_b")]})
 
+    def test_monitor_skips_invalid_number_and_keeps_valid_profile(self):
+        skipped = []
+        accounts = validate_accounts({"version": 1, "accounts": [
+            item(account_user="invalid"),
+            item(account_id="account_b", enabled=True, password="test-only")
+        ]}, skipped=skipped)
+        self.assertEqual([a.account_id for a in accounts], ["account_b"])
+        self.assertEqual(skipped, [{"account_id": "account_a", "status": "skipped",
+                                   "reason": "invalid_account_number", "booking_executed": False}])
+
+    def test_strict_validation_still_rejects_invalid_number(self):
+        with self.assertRaisesRegex(ValueError, "invalid_account_number"):
+            validate_accounts({"version": 1, "accounts": [item(account_user="invalid")]})
+
+    def test_duplicate_id_still_blocks_when_first_number_is_invalid(self):
+        with self.assertRaisesRegex(ValueError, "duplicate_account"):
+            validate_accounts({"version": 1, "accounts": [
+                item(account_user="invalid"), item()]}, skipped=[])
+
+    def test_duplicate_valid_numbers_still_block_in_monitor_mode(self):
+        with self.assertRaisesRegex(ValueError, "duplicate_account"):
+            validate_accounts({"version": 1, "accounts": [
+                item(), item(account_id="account_b")]}, skipped=[])
+
     def test_provider_must_be_declared_aldi(self):
         with self.assertRaises(ValueError):
             validate_accounts({"version": 1, "accounts": [item(provider="lidl_connect")]})
