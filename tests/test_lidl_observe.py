@@ -181,3 +181,21 @@ def test_workflow_preflights_before_browser_install():
     assert workflow.index("python lidl_observe.py --preflight") < workflow.index("python -m playwright install")
     assert workflow.index("python -m playwright install") < workflow.index("run: python lidl_observe.py\n")
     assert "if: always()" in workflow
+
+
+@pytest.mark.parametrize("ready", [False, True])
+def test_github_summary_only_links_manual_booking_when_ready(monkeypatch, tmp_path, ready):
+    async def fixed_report(reader=None):
+        return {"status": "OBSERVING", "manual_refill_ready": ready,
+                "manual_refill_url": observe.PORTAL if ready else None,
+                "booking_enabled": False, "booking_performed": False}
+
+    monkeypatch.setattr(observe, "observe", fixed_report)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    assert observe.main([]) == 0
+    summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert ("LIDL-Kundenkonto öffnen" in summary) is ready
+    assert (observe.PORTAL in summary) is ready
+    report = json.loads((tmp_path / "lidl-observation.json").read_text())
+    assert report["booking_performed"] is False
