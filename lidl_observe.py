@@ -200,6 +200,9 @@ def main(argv=None):
     if os.getenv("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
             stream.write("## Lidl Connect: nur beobachten\n\n```json\n" + output + "\n```\n")
+            if report.get("manual_refill_ready"):
+                stream.write("\n**Manuelle Aktion:** [LIDL-Kundenkonto öffnen – kostenloses 1 GB prüfen]("
+                             + PORTAL + ")\nNur selbst im Kundenkonto buchen. Keine automatische Aktion.\n")
     return 2 if report["status"] == "BLOCKED" else 0
 
 
