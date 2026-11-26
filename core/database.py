@@ -123,7 +123,7 @@ class Database:
             """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS recharges (
-                    recharge_id TEXT PRIMARY KEY,
+                    recharge_id TEXT PRIMARY KEY NOT NULL,
                     provider TEXT NOT NULL,
                     username TEXT NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('PENDING','UNKNOWN','SUCCESS','FAILED')),
