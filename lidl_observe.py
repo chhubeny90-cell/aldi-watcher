@@ -63,7 +63,11 @@ def parse_remaining(text):
         raise Blocked("remaining_volume_unverified")
     amount = Decimal(match["value"].replace(".", "").replace(",", "."))
     mb = amount * (1000 if match["unit"].upper() == "GB" else 1)
-    return {"remaining_mb": float(mb), "remaining_gb": float(mb / 1000)}
+    # Compare in the displayed unit: exactly 1 GB must NOT pass the strict
+    # below-1-GB gate, regardless of decimal display conversion.
+    below_one_gb = amount < (Decimal("1") if match["unit"].upper() == "GB" else Decimal("1024"))
+    return {"remaining_mb": float(mb), "remaining_gb": float(mb / 1000),
+            "below_one_gb": bool(below_one_gb)}
 
 
 def configuration():
@@ -108,7 +112,7 @@ async def inspect_page(page, target, selectors):
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "active_tariff": tariff_text.upper() if valid_tariff else None,
         "refill_available": None, "refill_reason": "offer_selectors_unconfigured",
-        "notice": None,
+        "notice": None, "manual_refill_ready": False, "manual_refill_url": None,
     }
     if not valid_tariff:
         report["refill_reason"] = "active_tariff_unverified"
@@ -126,6 +130,11 @@ async def inspect_page(page, target, selectors):
         report["refill_reason"] = evidence["refill_reason"]
         if evidence["refill_eligible"]:
             report["notice"] = "Kostenlose 1-GB-Nachbuchung ist jetzt verfügbar. Es wurde nichts gebucht."
+            if volume["below_one_gb"]:
+                # Provide only a user-operated handoff. No browser click or
+                # background refill: LIDL Connect declined automatic booking.
+                report["manual_refill_ready"] = True
+                report["manual_refill_url"] = PORTAL
     except Blocked:
         report["refill_reason"] = "offer_not_visible_or_ambiguous"
     return report
@@ -160,7 +169,8 @@ async def observe(reader=read_account):
     base = {"checked_at": datetime.now(timezone.utc).isoformat(), "booking_enabled": False,
             "booking_performed": False, "remaining_gb": None, "remaining_mb": None,
             "observed_at": None, "account_verified": False, "active_tariff": None,
-            "refill_available": None}
+            "refill_available": None, "manual_refill_ready": False,
+            "manual_refill_url": None, "below_one_gb": None}
     try:
         config, missing = configuration()
         if missing:
