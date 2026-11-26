@@ -46,3 +46,32 @@ nur, dass die erforderliche Konfiguration vorhanden und formal gültig ist;
 bis zu einer erfolgreichen echten Beobachtung. `BLOCKED` führt zu Exit 2.
 Der Workflow installiert Chromium erst nach erfolgreicher Vorprüfung.
 Der bereinigte Bericht wird auch bei einem späteren Installationsfehler gesichert.
+
+## Manuelle 1-GB-Weiterleitung (26.11.2026)
+
+`lidl_observe.py` unterscheidet `refill_available` (ein eindeutig kostenloses
+1-GB-Angebot mit aktiviertem Anbieterbutton ist sichtbar) von
+`manual_refill_ready` (zusätzlich ist das explizit angezeigte Restvolumen
+**strikt unter 1 GB** und das Zielkonto verifiziert). Eine Anzeige von exakt
+`1 GB` bzw. `1024 MB` genügt nicht. Bei einer als MB angezeigten Menge gilt
+`< 1024 MB`, bei GB-Angaben `< 1 GB`. Das vermeidet einen False-Positive
+bei der unterschiedlich dargestellten Dezimal-/Binäreinheit.
+
+Nur wenn alle Kriterien erfüllt sind, enthält der bereinigte Bericht
+`manual_refill_url` mit der festen offiziellen URL
+`https://kundenkonto.lidl-connect.de/mein-lidl-connect.html`.
+Der Link öffnet lediglich das Kundenkonto; der Nutzer prüft das dortige
+Angebot **erneut selbst** und betätigt den offiziellen 0,00-€-Button manuell.
+Die Anzeige ist keine Buchungsbestätigung, kann veralten und enthält keine
+Zugangsdaten oder Kontokennung. Beim Öffnen des Links erfolgen durch den
+Watcher keine Anmeldung und keine Nachbuchung.
+
+LIDL Connect teilte am 25.11.2026 per E-Mail mit, dass automatische
+Nachbuchungen nicht gewünscht seien und keine Testzugänge bzw. API-Daten
+bereitgestellt würden. Daher bleibt `booking_enabled=false` und
+`booking_performed=false` unverändert. `UNKNOWN`- oder
+`PENDING`-Buchungen werden durch diesen nur lesenden Pfad nicht umgangen.
+
+**Betriebsblocker:** Die authentifizierten Selektoren und der echte
+Zielkontonachweis fehlen. CI-Tests mit simulierten HTML-Elementen sind kein
+Live-Abnahmebeleg. Keine Aktivierung des Buchungsworkers durch diese Änderung.
