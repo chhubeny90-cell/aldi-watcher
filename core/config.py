@@ -41,10 +41,10 @@ class Config:
         # Lidl Connect Konfiguration
         self.lidl_user = self._get_credential("LIDL_USER")
         self.lidl_pass = self._get_credential("LIDL_PASS")
-        self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "500"))
+        self.threshold_lidl_mb = float(os.getenv("THRESHOLD_LIDL_MB", "1024"))
         
         self.lidl_use_api = self._get_bool("LIDL_USE_API", False)
-        self.lidl_refill_mode = os.getenv("LIDL_REFILL_MODE", "available").strip()
+        self.lidl_refill_mode = os.getenv("LIDL_REFILL_MODE", "needed").strip()
         if self.lidl_refill_mode not in {"available", "needed"}:
             raise ValueError("LIDL_REFILL_MODE must be available or needed")
         self.lidl_refill_selectors = configured_selectors()
@@ -55,6 +55,11 @@ class Config:
         if not self.dry_run and not self.auto_book_enabled:
             raise ValueError("Live plugin mode requires AUTO_BOOK_ENABLED=true")
         self.poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "3600"))
+        self.lidl_adaptive_polling = self._get_bool("LIDL_ADAPTIVE_POLLING", True)
+        self.lidl_poll_min_seconds = int(os.getenv("LIDL_POLL_MIN_SECONDS", "30"))
+        self.lidl_poll_max_seconds = int(os.getenv("LIDL_POLL_MAX_SECONDS", "300"))
+        if not 30 <= self.lidl_poll_min_seconds <= self.lidl_poll_max_seconds <= 3600:
+            raise ValueError("LIDL polling requires 30 <= minimum <= maximum <= 3600")
         self.db_path = os.getenv("DB_PATH", "aldi_watcher.db")
         if self.poll_interval <= 0:
             raise ValueError("POLL_INTERVAL_SECONDS must be positive")
