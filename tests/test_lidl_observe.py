@@ -89,6 +89,42 @@ def test_notice_requires_exact_free_enabled_offer_and_never_clicks(enabled, offe
         node.click.assert_not_awaited()
 
 
+
+@pytest.mark.parametrize("remaining,expected", [
+    ("1 GB", False), ("1,00 GB", False), ("0,99 GB", True),
+    ("1.024 MB", False), ("1023 MB", True), ("1.000 MB", True),
+    ("2 GB", False),
+])
+def test_manual_handoff_only_below_one_gb_with_verified_free_button(remaining, expected):
+    page, nodes = page_fixture()
+    nodes["remaining"].inner_text.return_value = f"Restvolumen: {remaining}"
+    result = asyncio.run(observe.inspect_page(
+        page, "015123456789", {key: key for key in observe.SELECTORS}))
+    assert result["refill_available"] is True
+    assert result["below_one_gb"] is expected
+    assert result["manual_refill_ready"] is expected
+    assert result["manual_refill_url"] == (observe.PORTAL if expected else None)
+    for node in nodes.values():
+        node.click.assert_not_awaited()
+
+
+@pytest.mark.parametrize("enabled,offer", [
+    (False, "Unlimited Refill 1 GB kostenlos"),
+    (True, "Unlimited Refill 1 GB 3,99 EUR"),
+    (True, "Unlimited Refill 1 GB"),
+])
+def test_manual_handoff_blocks_disabled_paid_and_unpriced_offers(enabled, offer):
+    page, nodes = page_fixture(enabled=enabled, offer=offer)
+    nodes["remaining"].inner_text.return_value = "Restvolumen: 200 MB"
+    result = asyncio.run(observe.inspect_page(
+        page, "015123456789", {key: key for key in observe.SELECTORS}))
+    assert result["manual_refill_ready"] is False
+    assert result["manual_refill_url"] is None
+    for node in nodes.values():
+        node.click.assert_not_awaited()
+
+
+
 def test_wrong_account_never_exposes_any_volume():
     page, nodes = page_fixture()
     with pytest.raises(observe.Blocked):
